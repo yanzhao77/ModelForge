@@ -1,0 +1,71 @@
+import sys
+from PyQt6.QtWidgets import QApplication, QMainWindow, QMenuBar, QDialog, QVBoxLayout, QLabel, QPushButton, \
+    QTextEdit
+from PyQt6.QtGui import QIcon, QPixmap, QAction
+from PyQt6.QtCore import Qt, pyqtSlot
+
+
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("About ModelForge 1.0")
+        self.setWindowIcon(QIcon("icon/icon.png"))  # 你可以替换为你的应用图标
+
+        # 创建布局
+        layout = QVBoxLayout()
+
+        # 添加图标
+        icon_label = QLabel(self)
+        pixmap = QPixmap("icon.png").scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
+                                            Qt.TransformationMode.SmoothTransformation)
+        icon_label.setPixmap(pixmap)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+
+        # 添加标题
+        title_label = QLabel("<h1>ModelForge 1.0</h1>", self)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+
+        # 添加描述
+        description_text = """
+        <p>Welcome to ModelForge 1.0, the ultimate tool for managing and running your machine learning models!</p>
+        <p>With ModelForge, you can easily load, run, and switch between different models, all from a user-friendly interface.</p>
+        <p>Features:</p>
+        <ul>
+            <li>Load and run multiple models</li>
+            <li>Switch between models seamlessly</li>
+            <li>Manage resources efficiently</li>
+            <li>User-friendly GUI</li>
+        </ul>
+        <p>Thank you for using ModelForge 1.0!</p>
+        """
+        description_label = QLabel(description_text, self)
+        description_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(description_label)
+
+        # 添加关闭按钮
+        close_button = QPushButton("Close", self)
+        close_button.clicked.connect(self.close)
+        layout.addWidget(close_button)
+
+        self.setLayout(layout)
+
+
+class help_menu(QMenuBar):
+    def __init__(self, menu_Bar=QMenuBar):
+        super().__init__(menu_Bar)
+
+        # 创建 Help 菜单
+        help_menu = menu_Bar.addMenu('Help')
+
+        # 添加 About 动作
+        about_action = QAction('About', self)
+        about_action.triggered.connect(self.show_about_dialog)  # 连接槽函数
+        help_menu.addAction(about_action)
+
+    @pyqtSlot()
+    def show_about_dialog(self):
+        # 显示关于对话框
+        dialog = AboutDialog(self)
+        dialog.exec()
