@@ -48,9 +48,9 @@ class text_area(QWidget):
         sys.stdout = CustomStdout(self.display_text_area)
 
     @pyqtSlot()
-    def print_loading(self, folder_path):
+    def loading(self, folder_path, models_parameters):
         self.display_text_area.clear()
-        model_run = ui_model_lunch(folder_path, self)
+        model_run = ui_model_lunch(folder_path,models_parameters, self)
         self.thread_pool.start(model_run)
 
     @pyqtSlot()

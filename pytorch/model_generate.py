@@ -12,7 +12,8 @@ defeat_model_path = os.path.join(local_model_path, model_name)
 
 
 class model_generate():
-    def __init__(self, model_path=defeat_model_path):
+    def __init__(self, model_path=defeat_model_path, max_new_tokens=500, do_sample=True, temperature=0.9, top_k=50,
+                 input_max_length=2048):
         try:
             # 加载预训练模型和分词器
             self.tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
@@ -21,10 +22,12 @@ class model_generate():
                 local_files_only=True
             )
             self.command = []
-            self.max_new_tokens = 500,  # 生成的新 tokens 数量，可以根据需要调整
-            self.do_sample = True,  # 启用基于温度的采样
-            self.temperature = 0.9,  # 控制生成文本的多样性
-            self.top_k = 50,  # 控制生成文本的质量
+            self.max_new_tokens = max_new_tokens,  # 生成的新 tokens 数量，可以根据需要调整
+            self.do_sample = do_sample,  # 启用基于温度的采样
+            self.temperature = temperature,  # 控制生成文本的多样性
+            self.top_k = top_k,  # 控制生成文本的质量
+            self.input_max_length = input_max_length  # 指定序列的最大长度。如果序列超过这个长度，将会被截断；如果序列短于这个长度，将会被填充
+
         except Exception as e:
             print(f"Error loading model or tokenizer: {e}")
             return
@@ -51,18 +54,22 @@ class model_generate():
             return
 
         # 对输入进行编码
-        inputs = self.tokenizer(value, return_tensors="pt", padding=True, truncation=True, max_length=2048).to(
+        inputs = self.tokenizer(value, return_tensors="pt",  # 返回 PyTorch 张量
+                                padding=True,  # 对输入序列进行填充
+                                truncation=True,  # 对超过 max_length 的序列进行截断
+                                max_length=self.input_max_length
+                                ).to(
             self.device)
         self.command.append(value)
         # 生成响应
         outputs = self.model.generate(
             inputs.input_ids,
             attention_mask=inputs.attention_mask,
-            max_new_tokens=500,  # 生成的新 tokens 数量，可以根据需要调整
+            max_new_tokens=self.max_new_tokens,  # 生成的新 tokens 数量，可以根据需要调整
             pad_token_id=self.tokenizer.pad_token_id,
-            do_sample=True,  # 启用基于温度的采样
-            temperature=0.9,  # 控制生成文本的多样性
-            top_k=50,  # 控制生成文本的质量
+            do_sample=self.do_sample,  # 启用基于温度的采样
+            temperature=self.temperature,  # 控制生成文本的多样性
+            top_k=self.top_k,  # 控制生成文本的质量
         )
         response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
         self.command.append(response)

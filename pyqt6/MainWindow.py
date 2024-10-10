@@ -7,11 +7,10 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QSp
     QProgressBar, QHBoxLayout, QFileDialog, QMenuBar
 
 from common.const.common_const import common_const
-from pyqt6.file_tab import file_tab
 from pyqt6.menu.edit_menu import edit_menu
-from pyqt6.menu.file_menu import file_menu
 from pyqt6.menu.help_menu import help_menu
 from pyqt6.menu.interface_menu import interface_menu
+from pyqt6.menu.model_menu import model_menu
 from pyqt6.menu.plugins_menu import plugins_menu
 from pyqt6.text_area import text_area
 
@@ -22,6 +21,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(common_const.project_name.value)
         # 最近文件
         self.recent_models = {}
+        self.select_models_path = ""
+        self.models_parameters = {}
         # 设置窗口最小大小
         self.setMinimumSize(800, 500)
         self.setWindowIcon(QIcon(common_const.icon_dir.value))  # 你可以替换为你的应用图标
@@ -34,7 +35,7 @@ class MainWindow(QMainWindow):
         main_widget.setLayout(main_layout)
         menu_bar = QMenuBar()
         # Menu Bar
-        file_bar = file_menu(menu_bar, self)
+        model_bar = model_menu(menu_bar, self)
         interface_bar = interface_menu(menu_bar, self)
         plugin_bar = plugins_menu(menu_bar, self)
         edit_bar = edit_menu(menu_bar)
@@ -65,7 +66,7 @@ class MainWindow(QMainWindow):
         file_tab = QSplitter(Qt.Orientation.Vertical)
         self.tree_view = QTreeView()
         file_tab.addWidget(self.tree_view)
-        left_pane.addTab(file_tab, '文件栏')
+        left_pane.addTab(file_tab, '列表栏')
         self.model = QStandardItemModel()
         self.tree_view.setModel(self.model)
 
@@ -92,6 +93,7 @@ class MainWindow(QMainWindow):
 
         # 连接双击事件
         self.tree_view.doubleClicked.connect(self.on_double_click)
+        self.tree_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
         self.text_area.progress_bar = self.progress_bar
 
         # 加载默认模型
@@ -112,7 +114,6 @@ class MainWindow(QMainWindow):
             folder_name = os.path.basename(folder_path)
             self.print(f"Selected folder: {folder_name}")
             self.recent_models[folder_name] = folder_path
-
             # 显示进度条并初始化进度
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
@@ -132,6 +133,18 @@ class MainWindow(QMainWindow):
             # 文件夹加载完成后的处理
             self.load_folder_contents(folder_path)
 
+            self.select_models_path = folder_path
+            self.setting_model_default_parameters(folder_path)
+
+    def setting_model_default_parameters(self, folder_path):
+        self.models_parameters[folder_path] = {}
+        self.models_parameters[folder_path]["max_new_tokens"] = 500
+        self.models_parameters[folder_path]["do_sample"] = True
+        self.models_parameters[folder_path]["temperature"] = 0.9
+        self.models_parameters[folder_path]["top_k"] = 50
+        self.models_parameters[folder_path]["input_max_length"] = 2048
+        self.models_parameters[folder_path]["parameters_editable"] = True
+
     def load_folder_contents(self, folder_path):
         # 创建 QFileSystemModel 并设置根路径
         root_item = QStandardItem(os.path.basename(folder_path))
@@ -148,11 +161,22 @@ class MainWindow(QMainWindow):
         if not path or not os.path.isdir(path):
             return
 
-        # 启动定时器来模拟文件夹内容打印进度
-        self.print_loading(path)
+        self.loading(path, self.models_parameters[path])
 
-    def print_loading(self, path):
-        self.text_area.print_loading(path)
+    def on_selection_changed(self, selected, deselected):
+        # 获取当前选中的索引
+        indexes = self.tree_view.selectionModel().selectedIndexes()
+        if indexes:
+            for index in indexes:
+                folder_path = self.model.itemFromIndex(index).accessibleText()
+                self.select_models_path = folder_path
+                if not self.models_parameters[folder_path]:
+                    self.setting_model_default_parameters(folder_path)
+                # print(f"Selected: {index.data()} - Folder Path: {folder_path}")
+
+    def loading(self, path, models_parameters):
+        self.text_area.loading(path, models_parameters)
+        self.models_parameters[path]["parameters_editable"] = False
 
     @pyqtSlot()
     def write(self, text):

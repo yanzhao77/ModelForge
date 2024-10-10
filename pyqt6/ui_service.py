@@ -6,10 +6,11 @@ from pytorch.model_generate import model_generate
 
 
 class ui_model_lunch(QRunnable):
-    def __init__(self, folder_path, text_area):
+    def __init__(self, folder_path, models_parameters, text_area):
         super().__init__()
         self.folder_path = folder_path
         self.text_area = text_area
+        self.models_parameters = models_parameters
 
     def run(self):
         # 重定向标准输出
@@ -17,9 +18,16 @@ class ui_model_lunch(QRunnable):
         # 在这里执行耗时的模型加载操作
         try:
             # 模型加载过程
-            model = model_generate(self.folder_path)
-            model.pipeline_question()
-            self.text_area.model = model
+
+            if self.models_parameters:
+                self.text_area.model = model_generate(self.folder_path,
+                                                      self.models_parameters["max_new_tokens"],
+                                                      self.models_parameters["do_sample"],
+                                                      self.models_parameters["temperature"],
+                                                      self.models_parameters["top_k"],
+                                                      self.models_parameters["input_max_length"])
+            self.text_area.model = model_generate(self.folder_path)
+            self.text_area.model.pipeline_question()
         except Exception as e:
             print(f"Error loading files: {e}")
 

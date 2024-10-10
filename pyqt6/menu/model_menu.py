@@ -1,47 +1,53 @@
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenuBar, QMenu
+from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog
 
 from pyqt6 import MainWindow
+from pyqt6.dialog.model_parameters_dialog import model_parameters_dialog
 
 
-class file_menu(QMenuBar):
+class model_menu(QMenuBar):
     def __init__(self, menu_Bar=QMenuBar, mainWindow=MainWindow):
         super().__init__(menu_Bar)
         self.mainWindow = mainWindow
-        file_menu = menu_Bar.addMenu('文件')
-
-        create_file = QAction("新建", self)
-        file_menu.addAction(create_file)
+        model_menu = menu_Bar.addMenu('模型')
+        self.models_parameters = mainWindow.models_parameters
+        create_file = QAction("重置列表", self)
+        model_menu.addAction(create_file)
 
         open_file = QAction("打开模型", self)
-        file_menu.addAction(open_file)
+        model_menu.addAction(open_file)
         self.recent_models_menu = QMenu("最近模型", self)
-        file_menu.addMenu(self.recent_models_menu)
-        file_menu.addSeparator()
-        file_menu.addAction('刷新')
-        file_menu.addSeparator()
+        model_menu.addMenu(self.recent_models_menu)
+        model_menu.addSeparator()
+        model_menu.addAction('刷新')
+        model_menu.addSeparator()
         # script_menu = QMenu('自动化脚本', self)
         # script_menu.addAction(QAction('脚本执行', self))
         # script_menu.addAction(QAction('录制脚本', self))
         # file_menu.addMenu(script_menu)
 
-        file_menu.addSeparator()
+        model_menu.addSeparator()
         clear_file = QAction("清空", self)
-        file_menu.addAction(clear_file)
+        model_menu.addAction(clear_file)
 
-        file_menu.addSeparator()
+        model_menu.addSeparator()
+        model_parameters = QAction("模型参数", self)
+        model_menu.addAction(model_parameters)
+
+        model_menu.addSeparator()
         restart_file = QAction("重启", self)
-        file_menu.addAction(restart_file)
+        model_menu.addAction(restart_file)
 
-        file_menu.addSeparator()
+        model_menu.addSeparator()
         exit_file = QAction("退出", self)
-        file_menu.addAction(exit_file)
+        model_menu.addAction(exit_file)
 
         # 连接动作到槽函数
         create_file.triggered.connect(self.create_file)
         exit_file.triggered.connect(self.exit_file)
         restart_file.triggered.connect(self.restart_file)
+        model_parameters.triggered.connect(self.model_parameters_setting)
         clear_file.triggered.connect(self.clear_file)
         open_file.triggered.connect(self.open_file)
         self.recent_models_menu.aboutToShow.connect(self.recent_model_list)
@@ -85,3 +91,19 @@ class file_menu(QMenuBar):
             recent_file_action = QAction(file, self)
             recent_file_action.triggered.connect(lambda checked, f=file: self.mainWindow.load_model(f))
             self.recent_models_menu.addAction(recent_file_action)
+
+    def model_parameters_setting(self):
+        parameters = self.models_parameters[self.mainWindow.select_models_path]
+        dialog = model_parameters_dialog(
+            self,
+            max_new_tokens=parameters['max_new_tokens'],
+            do_sample=parameters['do_sample'],
+            temperature=parameters['temperature'],
+            top_k=parameters['top_k'],
+            input_max_length=parameters['input_max_length'],
+            editable=parameters['parameters_editable']
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            parameters = dialog.get_parameters()
+            self.models_parameters[self.mainWindow.select_models_path].update(parameters)
