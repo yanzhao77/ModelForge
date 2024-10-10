@@ -4,19 +4,21 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QMenuBar, QDialog, QVBoxL
 from PyQt6.QtGui import QIcon, QPixmap, QAction
 from PyQt6.QtCore import Qt, pyqtSlot
 
+from common.const.common_const import common_const
+
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("About ModelForge 1.0")
-        self.setWindowIcon(QIcon("icon/icon.png"))  # 你可以替换为你的应用图标
+        self.setWindowTitle(f"About {common_const.project_name.value} {common_const.version.value}")
+        self.setWindowIcon(QIcon(common_const.icon_dir.value))  # 你可以替换为你的应用图标
 
         # 创建布局
         layout = QVBoxLayout()
 
         # 添加图标
         icon_label = QLabel(self)
-        pixmap = QPixmap("icon.png").scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
+        pixmap = QPixmap(common_const.icon_dir.value).scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
                                             Qt.TransformationMode.SmoothTransformation)
         icon_label.setPixmap(pixmap)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)

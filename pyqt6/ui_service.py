@@ -25,7 +25,7 @@ class ui_model_lunch(QRunnable):
 
     def write(self, text):
         # sys.stdout = sys.__stdout__
-        self.text_area.write(text)
+        self.text_area.print(text)
 
 
 class ui_model_run(QRunnable):
@@ -40,14 +40,16 @@ class ui_model_run(QRunnable):
         sys.stdout = self
         # 在这里执行耗时的模型加载操作
         try:
-            self.model.pipeline_answer(self.text)
+            result = self.model.pipeline_answer(self.text)
+            # self.text_area.print(f"模型:  {result}")
+            self.text_area.append_model(result)
             self.text_area.progress_bar.setVisible(False)  # 隐藏进度条
         except Exception as e:
             print(f"Error loading files: {e}")
 
     def write(self, text):
         # sys.stdout = sys.__stdout__
-        self.text_area.write(text)
+        self.text_area.print(text)
 
 
 class CustomStdin:
@@ -73,6 +75,7 @@ class CustomStdout:
             self.display_text_area.append(text)
             self.buffer.append('\n')
             self.display_text_area.append('\n')
+
     def flush(self):
         if not self.buffer:
             self.buffer.clear()

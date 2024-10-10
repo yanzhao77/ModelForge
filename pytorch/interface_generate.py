@@ -1,17 +1,21 @@
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
-
+import random
+from http import HTTPStatus
+import dashscope
+from openai import OpenAI
+import requests
+dashscope.api_key = "sk-3f2d7473809f4f0492976b33f3146299"
 # 设置环境变量
-os.environ["HF_MODELS_HOME"] = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model')
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # 指定本地模型路径
-local_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model')
-model_name = "Qwen2.5-0.5B"  # 请替换为实际的模型名称
-defeat_model_path = os.path.join(local_model_path, model_name)
 
 
-class model_generate():
+
+
+
+class interface_generate():
     def __init__(self, model_path=defeat_model_path):
         try:
             # 加载预训练模型和分词器
