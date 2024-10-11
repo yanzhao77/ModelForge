@@ -44,7 +44,7 @@ class interface_open_dialog(QDialog):
         # selected_row = self.table.currentRow()
         # if selected_row >= 0:
         #     interface_name = self.table.item(selected_row, 1).text()
-            self.accept()  # 关闭窗口
+        self.accept()  # 关闭窗口
 
     def get_selected_interface(self):
         selected_row = self.table.currentRow()
