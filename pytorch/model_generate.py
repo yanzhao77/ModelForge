@@ -22,14 +22,15 @@ class model_generate():
                 local_files_only=True
             )
             self.command = []
-            self.max_new_tokens = max_new_tokens,  # 生成的新 tokens 数量，可以根据需要调整
-            self.do_sample = do_sample,  # 启用基于温度的采样
-            self.temperature = temperature,  # 控制生成文本的多样性
-            self.top_k = top_k,  # 控制生成文本的质量
+            self.max_new_tokens = max_new_tokens  # 生成的新 tokens 数量，可以根据需要调整
+            self.do_sample = do_sample  # 启用基于温度的采样
+            self.temperature = temperature  # 控制生成文本的多样性
+            self.top_k = top_k  # 控制生成文本的质量
             self.input_max_length = input_max_length  # 指定序列的最大长度。如果序列超过这个长度，将会被截断；如果序列短于这个长度，将会被填充
-
+            self.is_running = True  # 标志变量，控制对话是否继续
         except Exception as e:
             print(f"Error loading model or tokenizer: {e}")
+            self.is_running = False
             return
 
     def pipeline_question(self):
@@ -51,6 +52,8 @@ class model_generate():
     def pipeline_answer(self, value):
         if value.lower() == 'exit':
             print("结束对话。")
+            self.release_resources()
+            self.is_running = False
             return
 
         # 对输入进行编码
@@ -76,12 +79,9 @@ class model_generate():
         # 打印模型的响应
         return response
 
-
-if __name__ == '__main__':
-    model = model_generate("")
-    model.pipeline_question()
-    print("开始对话，输入 'exit' 退出。")
-    prompt = input("你: ")
-    while True:
-        response = model.pipeline_answer(prompt)
-        print(f"模型: {response}")
+    def release_resources(self):
+        # 释放资源
+        self.model.to("cpu")  # 将模型移回 CPU
+        del self.model
+        del self.tokenizer
+        torch.cuda.empty_cache()  # 清理 GPU 缓存（如果有使用 GPU）
