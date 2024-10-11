@@ -18,17 +18,19 @@ from pyqt6.text_area import text_area
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(common_const.project_name.value)
+        self.setWindowTitle(common_const.project_name)
         # 最近文件
         self.recent_models = {}
         self.select_models_path = ""
         self.models_parameters = {}
         # 设置窗口最小大小
         self.setMinimumSize(800, 500)
-        self.setWindowIcon(QIcon(common_const.icon_dir.value))  # 你可以替换为你的应用图标
+        self.setWindowIcon(QIcon(common_const.icon_dir))  # 你可以替换为你的应用图标
         # Main container widget
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
+
+        self.tree_custom_role = Qt.ItemDataRole.UserRole + 1  # 定义一个自定义的角色 从tree上获取数据
 
         # Main layout
         main_layout = QVBoxLayout()
@@ -36,7 +38,7 @@ class MainWindow(QMainWindow):
         menu_bar = QMenuBar()
         # Menu Bar
         model_bar = model_menu(menu_bar, self)
-        interface_bar = interface_menu(menu_bar, self)
+        self.interface_bar = interface_menu(menu_bar, self)
         plugin_bar = plugins_menu(menu_bar, self)
         edit_bar = edit_menu(menu_bar)
         help_bar = help_menu(menu_bar)
@@ -131,25 +133,34 @@ class MainWindow(QMainWindow):
             self.timer.stop()
             self.progress_bar.setVisible(False)  # 隐藏进度条
             # 文件夹加载完成后的处理
-            self.load_folder_contents(folder_path)
+            self.load_model_for_treeview(folder_path)
 
             self.select_models_path = folder_path
             self.setting_model_default_parameters(folder_path)
 
     def setting_model_default_parameters(self, folder_path):
         self.models_parameters[folder_path] = {}
-        self.models_parameters[folder_path]["max_new_tokens"] = 500
-        self.models_parameters[folder_path]["do_sample"] = True
-        self.models_parameters[folder_path]["temperature"] = 0.9
-        self.models_parameters[folder_path]["top_k"] = 50
-        self.models_parameters[folder_path]["input_max_length"] = 2048
-        self.models_parameters[folder_path]["parameters_editable"] = True
+        self.models_parameters[folder_path][common_const.max_new_tokens] = 500
+        self.models_parameters[folder_path][common_const.do_sample] = True
+        self.models_parameters[folder_path][common_const.temperature] = 0.9
+        self.models_parameters[folder_path][common_const.top_k] = 50
+        self.models_parameters[folder_path][common_const.input_max_length] = 2048
+        self.models_parameters[folder_path][common_const.parameters_editable] = True
 
-    def load_folder_contents(self, folder_path):
+    def load_model_for_treeview(self, folder_path):
         # 创建 QFileSystemModel 并设置根路径
         root_item = QStandardItem(os.path.basename(folder_path))
         root_item.setFlags(root_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # 禁止编辑
-        root_item.setAccessibleText(folder_path)
+        root_item.setData(folder_path, self.tree_custom_role)
+        self.tree_view.model().appendRow(root_item)
+        # 展开所有项
+        self.tree_view.expandAll()
+
+    def load_interface_for_treeview(self, interface_parameters_dict):
+        # 创建 QFileSystemModel 并设置根路径
+        root_item = QStandardItem(interface_parameters_dict[common_const.interface_name])
+        root_item.setFlags(root_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # 禁止编辑
+        root_item.setData(interface_parameters_dict, self.tree_custom_role)
         self.tree_view.model().appendRow(root_item)
         # 展开所有项
         self.tree_view.expandAll()
@@ -157,26 +168,34 @@ class MainWindow(QMainWindow):
     def on_double_click(self, index: QModelIndex):
         # 获取双击项的路径
         item = self.model.itemFromIndex(index)
-        path = item.accessibleText()
-        if not path or not os.path.isdir(path):
-            return
+        data = item.data(self.tree_custom_role)
 
-        self.loading(path, self.models_parameters[path])
+        if isinstance(data, dict):  # interface
+            self.loading_interface(data)
+        elif isinstance(data, str):  # model
+            path = data
+            if not path or not os.path.isdir(path):
+                return
+            self.loading_model(path, self.models_parameters[path])
 
     def on_selection_changed(self, selected, deselected):
         # 获取当前选中的索引
         indexes = self.tree_view.selectionModel().selectedIndexes()
         if indexes:
             for index in indexes:
-                folder_path = self.model.itemFromIndex(index).accessibleText()
-                self.select_models_path = folder_path
-                if not self.models_parameters[folder_path]:
-                    self.setting_model_default_parameters(folder_path)
+                folder_path = self.model.itemFromIndex(index).data(self.tree_custom_role)
+                if isinstance(folder_path, str):
+                    self.select_models_path = folder_path
+                    if folder_path and not self.models_parameters[folder_path]:
+                        self.setting_model_default_parameters(folder_path)
                 # print(f"Selected: {index.data()} - Folder Path: {folder_path}")
 
-    def loading(self, path, models_parameters):
-        self.text_area.loading(path, models_parameters)
-        self.models_parameters[path]["parameters_editable"] = False
+    def loading_model(self, path, models_parameters):
+        self.text_area.loading_model(path, models_parameters)
+        self.models_parameters[path][common_const.parameters_editable] = False
+
+    def loading_interface(self, models_parameters):
+        self.text_area.loading_interface(models_parameters)
 
     @pyqtSlot()
     def write(self, text):
@@ -214,5 +233,6 @@ class MainWindow(QMainWindow):
         os.execl(sys.executable, sys.executable, *sys.argv)
 
     def load_default_model(self):
-        folder_path = common_const.default_model_path.value
+        folder_path = common_const.default_model_path
         self.load_model(folder_path)
+        self.interface_bar.load_default_interface()

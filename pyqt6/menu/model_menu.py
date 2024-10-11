@@ -2,6 +2,7 @@ from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog
 
+from common.const.common_const import common_const
 from pyqt6 import MainWindow
 from pyqt6.dialog.model_parameters_dialog import model_parameters_dialog
 
@@ -96,12 +97,12 @@ class model_menu(QMenuBar):
         parameters = self.models_parameters[self.mainWindow.select_models_path]
         dialog = model_parameters_dialog(
             self,
-            max_new_tokens=parameters['max_new_tokens'],
-            do_sample=parameters['do_sample'],
-            temperature=parameters['temperature'],
-            top_k=parameters['top_k'],
-            input_max_length=parameters['input_max_length'],
-            editable=parameters['parameters_editable']
+            max_new_tokens=parameters[common_const.max_new_tokens],
+            do_sample=parameters[common_const.do_sample],
+            temperature=parameters[common_const.temperature],
+            top_k=parameters[common_const.top_k],
+            input_max_length=parameters[common_const.input_max_length],
+            editable=parameters[common_const.parameters_editable]
         )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:

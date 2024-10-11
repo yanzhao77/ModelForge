@@ -3,10 +3,9 @@ import sys
 import markdown
 from PyQt6.QtCore import Qt, QThreadPool, pyqtSlot
 from PyQt6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
-from PyQt6.QtWidgets import QSplitter, QTextEdit, QLineEdit, QVBoxLayout, QApplication, QMainWindow, \
-    QWidget
+from PyQt6.QtWidgets import QSplitter, QTextEdit, QLineEdit, QVBoxLayout, QWidget
 
-from pyqt6.ui_service import CustomStdin, CustomStdout, ui_model_run, ui_model_lunch
+from pyqt6.ui_service import CustomStdin, CustomStdout, ui_model_run, ui_model_lunch, ui_interface_lunch
 
 
 class text_area(QWidget):
@@ -48,9 +47,15 @@ class text_area(QWidget):
         sys.stdout = CustomStdout(self.display_text_area)
 
     @pyqtSlot()
-    def loading(self, folder_path, models_parameters):
+    def loading_model(self, folder_path, models_parameters):
         self.display_text_area.clear()
-        model_run = ui_model_lunch(folder_path,models_parameters, self)
+        model_run = ui_model_lunch(folder_path, models_parameters, self)
+        self.thread_pool.start(model_run)
+
+    @pyqtSlot()
+    def loading_interface(self, models_parameters):
+        self.display_text_area.clear()
+        model_run = ui_interface_lunch(models_parameters, self)
         self.thread_pool.start(model_run)
 
     @pyqtSlot()
@@ -115,7 +120,6 @@ class text_area(QWidget):
             # 显示进度条并初始化进度
         self.progress_bar.setVisible(True)
         self.message.append(self.get_input_text())
-        # self.print("你: " + self.get_input_text())
         self.append_you(self.get_input_text())
         model_lunch = ui_model_run(self.get_input_text(), self.model, self)
         self.thread_pool.start(model_lunch)
@@ -123,14 +127,3 @@ class text_area(QWidget):
 
     def stop_model(self):
         pass
-
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    text_area = text_area()
-    window = QMainWindow()
-    window.setMinimumSize(800, 500)
-
-    window.setCentralWidget(text_area)
-    window.show()
-    sys.exit(app.exec())
