@@ -247,7 +247,7 @@ class interface_show_dialog(QDialog):
                 messages.append({"role": role, "content": content})
                 roles.add(role)
 
-        self.interface_parameters[common_const.interface_name] = interface_name
+        self.interface_parameters[common_const.model_name] = interface_name
         self.interface_parameters[common_const.interface_type] = interface_type
         self.interface_parameters[common_const.interface_model_name] = model_name
         self.interface_parameters[common_const.interface_api_key] = api_key
@@ -256,7 +256,7 @@ class interface_show_dialog(QDialog):
         return self.interface_parameters
 
     def set_data(self):
-        self.interface_name_edit.setText(self.interface_parameters[common_const.interface_name])
+        self.interface_name_edit.setText(self.interface_parameters[common_const.model_name])
         index = self.interface_type_combo.findText(self.interface_parameters[common_const.interface_type])
         if index >= 0:  # 确保找到的项存在
             self.interface_type_combo.setCurrentIndex(index)

@@ -4,7 +4,7 @@ from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog
 
-from common.const.common_const import common_const
+from common.const.common_const import common_const, model_enum
 from pyqt6.dialog.interface_manager_dialog import InterfaceManagerDialog
 from pyqt6.dialog.interface_open_dialog import interface_open_dialog
 from pyqt6.dialog.interface_show_dialog import interface_show_dialog
@@ -15,7 +15,7 @@ class interface_menu(QMenuBar):
         super().__init__(menu_Bar)
         self.mainWindow = mainWindow
         interface_menu = menu_Bar.addMenu('接口')
-        self.interface_parameters = {}
+        self.interface_parameters = self.mainWindow.models_parameters
         create_interface = QAction("添加接口", self)
         interface_menu.addAction(create_interface)
 
@@ -43,7 +43,7 @@ class interface_menu(QMenuBar):
             # 获取接口数据
             interface_parameters_dict = dialog.get_data()
             self.interface_parameters[
-                interface_parameters_dict[common_const.interface_name]] = interface_parameters_dict
+                interface_parameters_dict[common_const.model_name]] = interface_parameters_dict
 
     @pyqtSlot()
     def open_interface(self):
@@ -54,10 +54,9 @@ class interface_menu(QMenuBar):
                 self.load_interface(self.interface_parameters[selected_interface])
 
     def load_interface(self, interface_parameters_dict):
-        interface_parameters_dict[common_const.interface_role] = "user"
-        self.mainWindow.load_interface_for_treeview(interface_parameters_dict)
+        self.mainWindow.tree_view.load_for_treeview(interface_parameters_dict)
 
-        recent_file_action = QAction(interface_parameters_dict[common_const.interface_name], self)
+        recent_file_action = QAction(interface_parameters_dict[common_const.model_name], self)
         self.interface_list_menu.addAction(recent_file_action)
 
     @pyqtSlot()
@@ -83,13 +82,16 @@ class interface_menu(QMenuBar):
 
     def load_default_interface(self):
         default_interface_parameters = {}
-        default_interface_parameters[common_const.interface_name] = "qwen1.5-0.5b-chat"
+        default_interface_parameters[common_const.model_name] = "Spark Lite"
+        default_interface_parameters[common_const.model_type] = model_enum.interface
+        default_interface_parameters[common_const.parameters_editable] = True
         default_interface_parameters[common_const.interface_type] = "OpenAI"
-        default_interface_parameters[common_const.interface_model_name] = "qwen1.5-0.5b-chat"
+        default_interface_parameters[common_const.interface_model_name] = "general"
+        default_interface_parameters[common_const.interface_role] = "user"
         default_interface_parameters[
-            common_const.interface_api_key] = 'sk-3f2d7473809f4f0492976b33f3146299'  # 如果您没有配置环境变量，请在此处用您的API Key进行替换
+            common_const.interface_api_key] = "lENFVHvOGLIGcTBkZROk:sLkBPDgAFbjqlpDgNRll"  # 如果您没有配置环境变量，请在此处用您的API Key进行替换
         default_interface_parameters[
-            common_const.interface_base_url] = "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 填写DashScope SDK的base_url
+            common_const.interface_base_url] = 'https://spark-api-open.xf-yun.com/v1'  # 填写DashScope SDK的base_url
 
         # 定义 JSON 格式的字符串
         a = f'{{"role": "user", "content": "你是谁"}}'
@@ -100,4 +102,5 @@ class interface_menu(QMenuBar):
         dict_b = json.loads(b)
         default_interface_parameters[common_const.interface_message_dict] = (dict_a, dict_b)
         self.interface_parameters[
-            default_interface_parameters[common_const.interface_name]] = default_interface_parameters
+            default_interface_parameters[common_const.model_name]] = default_interface_parameters
+        return default_interface_parameters

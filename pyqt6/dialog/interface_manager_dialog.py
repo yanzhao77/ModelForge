@@ -54,7 +54,7 @@ class InterfaceManagerDialog(QDialog):
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)  # 单选
         self.table.setRowCount(len(self.interfaces))
         for row, interface in enumerate(self.interfaces.values()):
-            self.table.setItem(row, 0, QTableWidgetItem(interface[common_const.interface_name]))
+            self.table.setItem(row, 0, QTableWidgetItem(interface[common_const.model_name]))
             self.table.setItem(row, 1, QTableWidgetItem(interface[common_const.interface_type]))
             self.table.setItem(row, 2, QTableWidgetItem(interface[common_const.interface_model_name]))
             self.table.setItem(row, 3, QTableWidgetItem(interface[common_const.interface_api_key]))
@@ -66,7 +66,7 @@ class InterfaceManagerDialog(QDialog):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # 获取接口数据
             interface_parameters_dict = dialog.get_data()
-            self.interfaces[interface_parameters_dict[common_const.interface_name]] = interface_parameters_dict
+            self.interfaces[interface_parameters_dict[common_const.model_name]] = interface_parameters_dict
             self.populate_table()
 
     def edit_interface(self):
@@ -81,7 +81,7 @@ class InterfaceManagerDialog(QDialog):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 # 获取接口数据
                 updated_interface = dialog.get_data()
-                self.interfaces[updated_interface[common_const.interface_name]] = updated_interface
+                self.interfaces[updated_interface[common_const.model_name]] = updated_interface
                 self.populate_table()
 
     def delete_interface(self):

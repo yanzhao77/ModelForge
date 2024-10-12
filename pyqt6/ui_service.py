@@ -49,16 +49,15 @@ class BaseRunnable(QRunnable):
 
 # 模型加载基类
 class ui_model_lunch(BaseRunnable):
-    def __init__(self, folder_path, models_parameters, text_area):
+    def __init__(self, models_parameters, text_area):
         super().__init__(text_area)
-        self.folder_path = folder_path
         self.models_parameters = models_parameters
 
     def _run(self):
         try:
             if self.models_parameters:
                 self.text_area.model = model_generate(
-                    self.folder_path,
+                    self.models_parameters[common_const.model_path],
                     self.models_parameters[common_const.max_new_tokens],
                     self.models_parameters[common_const.do_sample],
                     self.models_parameters[common_const.temperature],
@@ -66,8 +65,9 @@ class ui_model_lunch(BaseRunnable):
                     self.models_parameters[common_const.input_max_length]
                 )
             else:
-                self.text_area.model = model_generate(self.folder_path)
+                self.text_area.model = model_generate(self.models_parameters[common_const.model_path])
             self.text_area.model.pipeline_question()
+            self.text_area.set_model_name(self.models_parameters[common_const.model_name])
         except Exception as e:
             print(f"Error loading files: {e}")
 
@@ -82,7 +82,7 @@ class ui_model_run(BaseRunnable):
     def _run(self):
         try:
             result = self.model.pipeline_answer(self.text)
-            self.text_area.append_model(result)
+            self.text_area.append_model(self.model.model_name,result)
             self.text_area.progress_bar.setVisible(False)  # 隐藏进度条
         except Exception as e:
             print(f"Error running model: {e}")
@@ -90,7 +90,7 @@ class ui_model_run(BaseRunnable):
 
 class ui_interface_lunch(ui_model_lunch):
     def __init__(self, models_parameters, text_area):
-        super().__init__(None, text_area, models_parameters)
+        super().__init__(models_parameters, text_area)
         self.models_parameters = models_parameters
         self.text_area = text_area
 
@@ -104,6 +104,7 @@ class ui_interface_lunch(ui_model_lunch):
                 self.models_parameters[common_const.interface_role]
             )
             self.text_area.model.pipeline_question()
+            self.text_area.set_model_name(self.models_parameters[common_const.model_name])
         except Exception as e:
             print(f"Error loading files: {e}")
 

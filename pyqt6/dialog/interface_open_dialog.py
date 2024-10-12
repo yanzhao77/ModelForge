@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView
 from PyQt6.QtCore import pyqtSlot
 
-from common.const.common_const import common_const
+from common.const.common_const import common_const, model_enum
 
 
 class interface_open_dialog(QDialog):
@@ -10,7 +10,8 @@ class interface_open_dialog(QDialog):
         self.setWindowTitle("打开接口")
         self.interface_dict = {}
         for item in interface_parameters.values():
-            self.interface_dict[item[common_const.interface_name]] = item[common_const.interface_model_name]
+            if item[common_const.model_type] == model_enum.interface:
+                self.interface_dict[item[common_const.model_name]] = item[common_const.interface_model_name]
 
         # 设置布局
         layout = QVBoxLayout()

@@ -1,8 +1,10 @@
+import os
+
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog
 
-from common.const.common_const import common_const
+from common.const.common_const import common_const, model_enum
 from pyqt6 import MainWindow
 from pyqt6.dialog.model_parameters_dialog import model_parameters_dialog
 
@@ -108,3 +110,17 @@ class model_menu(QMenuBar):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             parameters = dialog.get_parameters()
             self.models_parameters[self.mainWindow.select_models_path].update(parameters)
+
+    def setting_model_default_parameters(self, folder_path):
+        self.models_parameters[folder_path] = {}
+
+        self.models_parameters[folder_path][common_const.model_name] = os.path.basename(folder_path)
+        self.models_parameters[folder_path][common_const.model_path] = folder_path
+        self.models_parameters[folder_path][common_const.model_type] = model_enum.model
+
+        self.models_parameters[folder_path][common_const.max_new_tokens] = 500
+        self.models_parameters[folder_path][common_const.do_sample] = True
+        self.models_parameters[folder_path][common_const.temperature] = 0.9
+        self.models_parameters[folder_path][common_const.top_k] = 50
+        self.models_parameters[folder_path][common_const.input_max_length] = 2048
+        self.models_parameters[folder_path][common_const.parameters_editable] = True

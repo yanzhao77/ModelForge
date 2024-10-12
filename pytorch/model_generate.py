@@ -2,6 +2,8 @@ import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
+from pytorch.base_generate import base_generate
+
 # 设置环境变量
 os.environ["HF_MODELS_HOME"] = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model')
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -11,9 +13,10 @@ model_name = "Qwen2.5-0.5B"  # 请替换为实际的模型名称
 defeat_model_path = os.path.join(local_model_path, model_name)
 
 
-class model_generate():
+class model_generate(base_generate):
     def __init__(self, model_path=defeat_model_path, max_new_tokens=500, do_sample=True, temperature=0.9, top_k=50,
                  input_max_length=2048):
+        super().__init__()
         try:
             # 加载预训练模型和分词器
             self.tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)

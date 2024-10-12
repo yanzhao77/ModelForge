@@ -28,12 +28,24 @@ class common_const():
     parameters_editable = 'parameters_editable'
 
     # model
-    interface_name = "interface_name"  # 接口名称
+    model_name = "model_name"
+    model_path = "model_path"
+    model_type = "model_type"
+
     interface_type = "interface_type"
     interface_model_name = "interface_model_name"
     interface_api_key = "interface_api_key"
     interface_base_url = "interface_base_url"
-    interface_message_dict = "interface_message_dict"
+
+    interface_temperature = "interface_temperature"
+    interface_top_p = "interface_top_p"
+    interface_n = "interface_n"
+    interface_max_tokens = "interface_max_tokens"
+    interface_presence_penalty = "interface_presence_penalty"
+    interface_frequency_penalty = "interface_frequency_penalty"
+    interface_timeout = "interface_timeout"
+
     interface_role = "interface_role",
+    interface_message_dict = "interface_message_dict"
 
     interface_type_dict = [interface_type_enum.openai.value, interface_type_enum.xinghuo.value]
