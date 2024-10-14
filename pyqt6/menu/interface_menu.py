@@ -87,6 +87,14 @@ class interface_menu(QMenuBar):
         default_interface_parameters[common_const.parameters_editable] = True
         default_interface_parameters[common_const.interface_type] = "OpenAI"
         default_interface_parameters[common_const.interface_model_name] = "general"
+
+        default_interface_parameters[common_const.interface_temperature] = 1.0
+        default_interface_parameters[common_const.interface_top_p] = 1.0
+        default_interface_parameters[common_const.interface_n] = 1
+        default_interface_parameters[common_const.interface_max_tokens] = 4096
+        default_interface_parameters[common_const.interface_frequency_penalty] = 0.0
+        default_interface_parameters[common_const.interface_timeout] = 60
+
         default_interface_parameters[common_const.interface_role] = "user"
         default_interface_parameters[
             common_const.interface_api_key] = "lENFVHvOGLIGcTBkZROk:sLkBPDgAFbjqlpDgNRll"  # 如果您没有配置环境变量，请在此处用您的API Key进行替换

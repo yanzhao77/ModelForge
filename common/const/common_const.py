@@ -45,7 +45,9 @@ class common_const():
     interface_frequency_penalty = "interface_frequency_penalty"
     interface_timeout = "interface_timeout"
 
+    interface_COLUMN_HEADERS = ["接口名称", "接口类型", "模型名称", "API Key", "Base URL"]
+
     interface_role = "interface_role",
     interface_message_dict = "interface_message_dict"
 
-    interface_type_dict = [interface_type_enum.openai.value, interface_type_enum.xinghuo.value]
+    interface_type_dict = [interface_type_enum.openai.value]

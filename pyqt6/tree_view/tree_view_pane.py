@@ -19,7 +19,6 @@ class tree_view_pane(QTabWidget):
         main_splitter.addWidget(self)
         self.mainWindow = main_ui
         self.models_parameters = self.mainWindow.models_parameters
-        self.select_model_name = self.mainWindow.select_model_name
         # 定义一个自定义的角色 从tree上获取数据
         self.tree_custom_role = Qt.ItemDataRole.UserRole + 1
 
@@ -38,11 +37,12 @@ class tree_view_pane(QTabWidget):
         item = self.model.itemFromIndex(index)
         data = item.data(self.tree_custom_role)
         self.select_item(data)
-        if not self.text_area.get_model(data[common_const.model_name]):
+        if self.text_area.get_model(data[common_const.model_name]) and data[common_const.model_name] == self.text_area.model.model_name:
+            return
+        elif not self.text_area.get_model(data[common_const.model_name]):
             self.loading_model(data)
         else:
             self.text_area.select_model(self.mainWindow.select_model_name)
-
 
     def on_selection_changed(self, selected, deselected):
         # 获取当前选中的索引
@@ -50,15 +50,15 @@ class tree_view_pane(QTabWidget):
         if indexes:
             for index in indexes:
                 model_dict = self.model.itemFromIndex(index).data(self.tree_custom_role)
+
                 self.select_item(model_dict)
                 if model_dict[common_const.model_type] == model_enum.model:
-                    self.select_model_name = model_dict[common_const.model_path]
-                    if not self.models_parameters[self.select_model_name]:
+                    self.mainWindow.select_model_name = model_dict[common_const.model_name]
+                    if not self.models_parameters[self.mainWindow.select_model_name]:
                         self.model_bar.setting_model_default_parameters(model_dict[common_const.model_path])
 
     def select_item(self, model_dict):
         self.mainWindow.select_model_name = model_dict[common_const.model_name]
-
 
     def load_for_treeview(self, parameters_dict):
         # 创建 QFileSystemModel 并设置根路径
@@ -70,14 +70,12 @@ class tree_view_pane(QTabWidget):
         self.tree_view.expandAll()
 
     def loading_model(self, models_parameters):
-
+        self.mainWindow.select_model_name = models_parameters[common_const.model_name]
         if models_parameters[common_const.model_type] == model_enum.model:
-            self.select_model_name = models_parameters[common_const.model_path]
             self.text_area.loading_model(models_parameters)
         elif models_parameters[common_const.model_type] == model_enum.interface:
-            self.select_model_name = models_parameters[common_const.model_name]
             self.text_area.loading_interface(models_parameters)
-        self.models_parameters[self.select_model_name][common_const.parameters_editable] = False
+        self.models_parameters[self.mainWindow.select_model_name][common_const.parameters_editable] = False
 
     def loading_interface(self, models_parameters):
         self.text_area.loading_interface(models_parameters)
@@ -87,28 +85,31 @@ class tree_view_pane(QTabWidget):
 
     def load_default_model(self):
         folder_path = common_const.default_model_path
-        self.model_bar.setting_model_default_parameters(folder_path)
-        self.load_for_treeview(self.models_parameters[folder_path])
+        self.mainWindow.select_model_name = os.path.basename(folder_path)
+        self.model_bar.setting_model_default_parameters(self.mainWindow.select_model_name, folder_path)
+        self.load_for_treeview(self.models_parameters[self.mainWindow.select_model_name])
 
         interface_dict = self.interface_bar.load_default_interface()
         self.load_for_treeview(interface_dict)
 
-    def load_model(self, folder_path):
+    def load_model(self, model_name, folder_path):
         if folder_path:
             # 获取文件夹的名字
-            folder_name = os.path.basename(folder_path)
-            self.text_area.print(f"Selected folder: {folder_name}")
-            self.mainWindow.recent_models[folder_name] = folder_path
+            self.mainWindow.select_model_name = model_name
+            self.text_area.print(f"Selected folder: {self.mainWindow.select_model_name}")
+            self.mainWindow.recent_models[self.mainWindow.select_model_name] = folder_path
+
+            self.model_bar.setting_model_default_parameters(self.mainWindow.select_model_name, folder_path)
             # 显示进度条并初始化进度
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
 
             # 启动定时器来模拟文件夹加载进度
             timer = QTimer()
-            timer.timeout.connect(lambda: self.update_load_progress(folder_path, timer))
+            timer.timeout.connect(lambda: self.update_load_progress(timer))
             timer.start(10)  # 每100毫秒更新一次
 
-    def update_load_progress(self, folder_path, timer):
+    def update_load_progress(self, timer):
         value = self.progress_bar.value()
         if value < 10:
             self.progress_bar.setValue(value + 1)
@@ -116,4 +117,4 @@ class tree_view_pane(QTabWidget):
             timer.stop()
             self.progress_bar.setVisible(False)  # 隐藏进度条
             # 文件夹加载完成后的处理
-            self.model_bar.setting_model_default_parameters(folder_path)
+            self.load_for_treeview(self.models_parameters[self.mainWindow.select_model_name])

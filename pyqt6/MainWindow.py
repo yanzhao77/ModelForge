@@ -89,13 +89,7 @@ class MainWindow(QMainWindow):
         self.tree_view.load_default_model()
 
     def load_model_ui(self):
-        folder_path = self.open_dir_dialog()
-        self.tree_view.load_model(folder_path)
-
-    def open_dir_dialog(self):
-        # 打开文件夹对话框选择文件夹
-        folder_dialog = QFileDialog()
-        return folder_dialog.getExistingDirectory(self, "Open Directory", "", QFileDialog.Option.ShowDirsOnly)
+        self.model_bar.open_model()
 
     @pyqtSlot()
     def print(self, text):

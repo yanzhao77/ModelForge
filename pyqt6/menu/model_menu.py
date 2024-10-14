@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog
 
 from common.const.common_const import common_const, model_enum
 from pyqt6 import MainWindow
+from pyqt6.dialog.model_open_dialog import model_open_dialog
 from pyqt6.dialog.model_parameters_dialog import model_parameters_dialog
 
 
@@ -52,20 +53,20 @@ class model_menu(QMenuBar):
         restart_file.triggered.connect(self.restart_file)
         model_parameters.triggered.connect(self.model_parameters_setting)
         clear_file.triggered.connect(self.clear_file)
-        open_file.triggered.connect(self.open_file)
+        open_file.triggered.connect(self.open_model)
         self.recent_models_menu.aboutToShow.connect(self.recent_model_list)
 
     @pyqtSlot()
     def create_file(self):
         self.mainWindow.tree_clear()
-        self.mainWindow.load_default_model()
+        self.mainWindow.tree_view.load_default_model()
 
     @pyqtSlot()
-    def open_file(self):
-        folder_path = self.mainWindow.open_dir_dialog()
-        if folder_path:
-            self.clear_file()
-            self.mainWindow.load_model(folder_path)
+    def open_model(self):
+        dialog = model_open_dialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            if dialog.model_name and dialog.model_path:
+                self.mainWindow.tree_view.load_model(dialog.model_name, dialog.model_path)
 
     def clear_file(self):
         self.mainWindow.clear_ui()
@@ -92,11 +93,11 @@ class model_menu(QMenuBar):
         # 添加最近文件到子菜单
         for file in self.mainWindow.recent_models:
             recent_file_action = QAction(file, self)
-            recent_file_action.triggered.connect(lambda checked, f=file: self.mainWindow.load_model(f))
+            recent_file_action.triggered.connect(lambda checked, f=file: self.mainWindow.tree_view.load_model(f,self.models_parameters[f][common_const.model_path]))
             self.recent_models_menu.addAction(recent_file_action)
 
     def model_parameters_setting(self):
-        parameters = self.models_parameters[self.mainWindow.select_models_path]
+        parameters = self.models_parameters[self.mainWindow.select_model_name]
         dialog = model_parameters_dialog(
             self,
             max_new_tokens=parameters[common_const.max_new_tokens],
@@ -109,18 +110,18 @@ class model_menu(QMenuBar):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             parameters = dialog.get_parameters()
-            self.models_parameters[self.mainWindow.select_models_path].update(parameters)
+            self.models_parameters[self.mainWindow.select_model_name].update(parameters)
 
-    def setting_model_default_parameters(self, folder_path):
-        self.models_parameters[folder_path] = {}
+    def setting_model_default_parameters(self, model_name, folder_path):
+        self.models_parameters[model_name] = {}
 
-        self.models_parameters[folder_path][common_const.model_name] = os.path.basename(folder_path)
-        self.models_parameters[folder_path][common_const.model_path] = folder_path
-        self.models_parameters[folder_path][common_const.model_type] = model_enum.model
+        self.models_parameters[model_name][common_const.model_name] = model_name
+        self.models_parameters[model_name][common_const.model_path] = folder_path
+        self.models_parameters[model_name][common_const.model_type] = model_enum.model
 
-        self.models_parameters[folder_path][common_const.max_new_tokens] = 500
-        self.models_parameters[folder_path][common_const.do_sample] = True
-        self.models_parameters[folder_path][common_const.temperature] = 0.9
-        self.models_parameters[folder_path][common_const.top_k] = 50
-        self.models_parameters[folder_path][common_const.input_max_length] = 2048
-        self.models_parameters[folder_path][common_const.parameters_editable] = True
+        self.models_parameters[model_name][common_const.max_new_tokens] = 500
+        self.models_parameters[model_name][common_const.do_sample] = True
+        self.models_parameters[model_name][common_const.temperature] = 0.9
+        self.models_parameters[model_name][common_const.top_k] = 50
+        self.models_parameters[model_name][common_const.input_max_length] = 2048
+        self.models_parameters[model_name][common_const.parameters_editable] = True

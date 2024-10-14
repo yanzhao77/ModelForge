@@ -4,8 +4,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QComboBox, QLineEdit, QPushButton, QTableWidget,
     QTableWidgetItem, QApplication, QHBoxLayout, QHeaderView, QFormLayout, QMessageBox
 )
-
-from common.const.common_const import common_const  # 确保正确导入了 common_const 模块
+from common.const.common_const import common_const
 
 
 class AddMessageDialog(QDialog):
@@ -84,30 +83,78 @@ class interface_show_dialog(QDialog):
         self.dynamic_params_layout = QFormLayout()
 
         # 模型名称输入框
-        self.model_name_label = QLabel("模型名称:")
+        model_name_label = QLabel("模型名称:")
         self.model_name_edit = QLineEdit()
         if self.flag:
             self.model_name_edit.setReadOnly(True)  # 设置为只读
             self.model_name_edit.setStyleSheet("background-color: lightgray;")  # 设置背景颜色为灰色
-        self.model_name_edit.setMaximumWidth(200)  # 调整输入框宽度
-        self.dynamic_params_layout.addRow(self.model_name_label, self.model_name_edit)
+
+        self.dynamic_params_layout.addRow(model_name_label, self.model_name_edit)
 
         # API Key 输入框
+        api_key_label = QLabel("API Key:")
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)  # 设置为密码模式
         self.api_key_edit.setReadOnly(False)  # 可以编辑
         self.api_key_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)  # 禁用右键菜单
-        self.api_key_edit.setMaximumWidth(200)  # 调整输入框宽度
-        self.dynamic_params_layout.addRow("API Key:", self.api_key_edit)
+
+        self.dynamic_params_layout.addRow(api_key_label, self.api_key_edit)
 
         # Base URL 输入框
+        base_url_label = QLabel("Base URL:")
         self.base_url_edit = QLineEdit()
         self.base_url_edit.setReadOnly(False)  # 可以编辑
         self.base_url_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)  # 禁用右键菜单
-        self.base_url_edit.setMaximumWidth(200)  # 调整输入框宽度
-        self.dynamic_params_layout.addRow("Base URL:", self.base_url_edit)
+
+        self.dynamic_params_layout.addRow(base_url_label, self.base_url_edit)
 
         layout.addLayout(self.dynamic_params_layout)
+
+        interface_temperature_label = QLabel("Temperature:")
+        self.interface_temperature_edit = QLineEdit()
+        layout.addWidget(interface_temperature_label)
+        layout.addWidget(self.interface_temperature_edit)
+
+        interface_top_p_label = QLabel("Top-p:")
+        self.interface_top_p_edit = QLineEdit()
+        layout.addWidget(interface_top_p_label)
+        layout.addWidget(self.interface_top_p_edit)
+
+        interface_n_label = QLabel("N:")
+        self.interface_n_edit = QLineEdit()
+        layout.addWidget(interface_n_label)
+        layout.addWidget(self.interface_n_edit)
+
+        interface_max_tokens_label = QLabel("Max Tokens:")
+        self.interface_max_tokens_edit = QLineEdit()
+        layout.addWidget(interface_max_tokens_label)
+        layout.addWidget(self.interface_max_tokens_edit)
+
+        interface_presence_penalty_label = QLabel("Presence Penalty:")
+        self.interface_presence_penalty_edit = QLineEdit()
+        layout.addWidget(interface_presence_penalty_label)
+        layout.addWidget(self.interface_presence_penalty_edit)
+
+        interface_frequency_penalty_label = QLabel("Frequency Penalty:")
+        self.interface_frequency_penalty_edit = QLineEdit()
+        layout.addWidget(interface_frequency_penalty_label)
+        layout.addWidget(self.interface_frequency_penalty_edit)
+
+        interface_timeout_label = QLabel("Timeout (s):")
+        self.interface_timeout_edit = QLineEdit()
+        layout.addWidget(interface_timeout_label)
+        layout.addWidget(self.interface_timeout_edit)
+
+        self.model_name_edit.setPlaceholderText("Qwen2.5-0.5B")
+        self.api_key_edit.setPlaceholderText("KjHgFtDzXvNmLpQwRcEa:VbNfTrDxJmZqLkPnGhWc")
+        self.base_url_edit.setPlaceholderText("https://spark-api-open.xf-yun.com/v1")
+        self.interface_temperature_edit.setPlaceholderText(str(1.0))
+        self.interface_top_p_edit.setPlaceholderText(str(1.0))
+        self.interface_n_edit.setPlaceholderText(str(1))
+        self.interface_max_tokens_edit.setPlaceholderText(str(60))
+        self.interface_presence_penalty_edit.setPlaceholderText(str(0.0))
+        self.interface_frequency_penalty_edit.setPlaceholderText(str(0.0))
+        self.interface_timeout_edit.setPlaceholderText(str(4096))
 
         # 消息信息标签和按钮
         message_layout = QHBoxLayout()
@@ -253,6 +300,22 @@ class interface_show_dialog(QDialog):
         self.interface_parameters[common_const.interface_api_key] = api_key
         self.interface_parameters[common_const.interface_base_url] = base_url
         self.interface_parameters[common_const.interface_message_dict] = messages
+
+        interface_temperature = float(self.interface_temperature_edit.text() or 1.0)
+        interface_top_p = float(self.interface_top_p_edit.text() or 1.0)
+        interface_n = int(self.interface_n_edit.text() or 1)
+        interface_max_tokens = int(self.interface_max_tokens_edit.text() or 4096)
+        interface_presence_penalty = float(self.interface_presence_penalty_edit.text() or 0.0)
+        interface_frequency_penalty = float(self.interface_frequency_penalty_edit.text() or 0.0)
+        interface_timeout = float(self.interface_timeout_edit.text() or 60)
+
+        self.interface_parameters[common_const.interface_temperature] = interface_temperature
+        self.interface_parameters[common_const.interface_top_p] = interface_top_p
+        self.interface_parameters[common_const.interface_n] = interface_n
+        self.interface_parameters[common_const.interface_max_tokens] = interface_max_tokens
+        self.interface_parameters[common_const.interface_presence_penalty] = interface_presence_penalty
+        self.interface_parameters[common_const.interface_frequency_penalty] = interface_frequency_penalty
+        self.interface_parameters[common_const.interface_timeout] = interface_timeout
         return self.interface_parameters
 
     def set_data(self):
@@ -263,6 +326,18 @@ class interface_show_dialog(QDialog):
         self.model_name_edit.setText(self.interface_parameters[common_const.interface_model_name])
         self.api_key_edit.setText(self.interface_parameters[common_const.interface_api_key])
         self.base_url_edit.setText(self.interface_parameters[common_const.interface_base_url])
+
+        self.interface_temperature_edit.setText(
+            str(self.interface_parameters.get(common_const.interface_temperature, 0)))
+        self.interface_top_p_edit.setText(str(self.interface_parameters.get(common_const.interface_top_p, 0)))
+        self.interface_n_edit.setText(str(self.interface_parameters.get(common_const.interface_n, 0)))
+        self.interface_max_tokens_edit.setText(str(self.interface_parameters.get(common_const.interface_max_tokens, 0)))
+        self.interface_presence_penalty_edit.setText(
+            str(self.interface_parameters.get(common_const.interface_presence_penalty, 0)))
+        self.interface_frequency_penalty_edit.setText(
+            str(self.interface_parameters.get(common_const.interface_frequency_penalty, 0)))
+        self.interface_timeout_edit.setText(str(self.interface_parameters.get(common_const.interface_timeout, 0)))
+
         self.message_table_clear()
         for item in self.interface_parameters[common_const.interface_message_dict]:
             self.add_message_pair(item)
