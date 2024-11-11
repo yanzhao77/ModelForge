@@ -5,9 +5,9 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog
 
 from common.const.common_const import common_const, model_enum
-from pyqt6 import MainWindow
-from pyqt6.dialog.model_open_dialog import model_open_dialog
-from pyqt6.dialog.model_parameters_dialog import model_parameters_dialog
+from qt6 import MainWindow
+from qt6.dialog.model_open_dialog import model_open_dialog
+from qt6.dialog.model_parameters_dialog import model_parameters_dialog
 
 
 class model_menu(QMenuBar):

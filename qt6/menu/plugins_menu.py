@@ -2,7 +2,7 @@ from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenuBar, QMenu
 
-from pyqt6 import MainWindow
+from qt6 import MainWindow
 
 
 class plugins_menu(QMenuBar):

@@ -7,13 +7,13 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QSp
     QProgressBar, QHBoxLayout, QFileDialog, QMenuBar
 
 from common.const.common_const import common_const
-from pyqt6.menu.edit_menu import edit_menu
-from pyqt6.menu.help_menu import help_menu
-from pyqt6.menu.interface_menu import interface_menu
-from pyqt6.menu.model_menu import model_menu
-from pyqt6.menu.plugins_menu import plugins_menu
-from pyqt6.text_area import text_area
-from pyqt6.tree_view.tree_view_pane import tree_view_pane
+from qt6.menu.edit_menu import edit_menu
+from qt6.menu.help_menu import help_menu
+from qt6.menu.interface_menu import interface_menu
+from qt6.menu.model_menu import model_menu
+from qt6.menu.plugins_menu import plugins_menu
+from qt6.text_area import text_area
+from qt6.tree_view.tree_view_pane import tree_view_pane
 
 
 class MainWindow(QMainWindow):

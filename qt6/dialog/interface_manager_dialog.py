@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QPushButton, QTableWidget,
                              QTableWidgetItem, QHBoxLayout, QMessageBox, QHeaderView)
 
 from common.const.common_const import common_const, model_enum
-from pyqt6.dialog.interface_show_dialog import interface_show_dialog
+from qt6.dialog.interface_show_dialog import interface_show_dialog
 
 
 class InterfaceManagerDialog(QDialog):

@@ -6,7 +6,7 @@ from PyQt6.QtCore import Qt, QThreadPool, pyqtSlot
 from PyQt6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
 from PyQt6.QtWidgets import QSplitter, QTextEdit, QLineEdit, QVBoxLayout, QWidget
 
-from pyqt6.ui_service import CustomStdin, CustomStdout, ui_model_run, ui_model_lunch, ui_interface_lunch
+from qt6.ui_service import CustomStdin, CustomStdout, ui_model_run, ui_model_lunch, ui_interface_lunch
 
 
 class text_area(QWidget):
