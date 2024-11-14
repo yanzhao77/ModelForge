@@ -1,6 +1,6 @@
 from swarm import Agent
 
-from common.swarm_local import Swarm_local
+from test.swarm_local import Swarm_local
 
 
 class local_Agent_test1():

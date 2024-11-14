@@ -16,7 +16,12 @@ class common_const():
     # main
     project_name = "ModelForge"
     version = "1.0.0"
-    icon_dir = "icon/布莱恩.png"
+    icon_main_view = "icon/logo.ico"
+    icon_clouds_view = "icon/treeview/clouds.ico"
+    icon_model_view = "icon/treeview/model.ico"
+    icon_tree_model_view = "icon/treeview/tree_model.ico"
+
+
     default_model_path = "model/Qwen2.5-0.5B"
 
     # model_parameters_setting

@@ -1,7 +1,7 @@
 import os
 
 from PyQt6.QtCore import Qt, QModelIndex, QTimer
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt6.QtWidgets import QTabWidget, QSplitter, QTreeView
 
 from common.const.common_const import common_const, model_enum
@@ -25,7 +25,26 @@ class tree_view_pane(QTabWidget):
         # 连接双击事件
         self.tree_view.doubleClicked.connect(self.on_double_click)
         self.tree_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
+        # 连接键盘事件
+        self.tree_view.keyPressEvent = self.keyPressEvent
 
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete:
+            self.delete_selected_item()
+
+    def delete_selected_item(self):
+        # 获取当前选中的索引
+        indexes = self.tree_view.selectedIndexes()
+        if indexes:
+            index = indexes[0]
+            parent = index.parent()
+            if parent.isValid():
+                # 删除子节点
+                parent_item = self.model.itemFromIndex(parent)
+                parent_item.removeRow(index.row())
+            else:
+                # 删除根节点
+                self.model.removeRow(index.row())
     def set_main_data(self):
         self.model_bar = self.mainWindow.model_bar
         self.progress_bar = self.mainWindow.progress_bar
@@ -37,7 +56,8 @@ class tree_view_pane(QTabWidget):
         item = self.model.itemFromIndex(index)
         data = item.data(self.tree_custom_role)
         self.select_item(data)
-        if self.text_area.get_model(data[common_const.model_name]) and data[common_const.model_name] == self.text_area.model.model_name:
+        if (self.text_area.get_model(data[common_const.model_name])
+                and data[common_const.model_name] == self.text_area.model.model_name):
             return
         elif not self.text_area.get_model(data[common_const.model_name]):
             self.loading_model(data)
@@ -65,7 +85,12 @@ class tree_view_pane(QTabWidget):
         root_item = QStandardItem(parameters_dict[common_const.model_name])
         root_item.setFlags(root_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # 禁止编辑
         root_item.setData(parameters_dict, self.tree_custom_role)
-        self.tree_view.model().appendRow(root_item)
+        if parameters_dict[common_const.model_type] == model_enum.interface:
+            root_item.setIcon(QIcon(common_const.icon_clouds_view))  # 设置根节点的图标
+        elif parameters_dict[common_const.model_type] == model_enum.model:
+            root_item.setIcon(QIcon(common_const.icon_model_view))  # 设置根节点的图标
+
+        self.model.appendRow(root_item)
         # 展开所有项
         self.tree_view.expandAll()
 
@@ -84,11 +109,6 @@ class tree_view_pane(QTabWidget):
         self.model.clear()
 
     def load_default_model(self):
-        folder_path = common_const.default_model_path
-        self.mainWindow.select_model_name = os.path.basename(folder_path)
-        self.model_bar.setting_model_default_parameters(self.mainWindow.select_model_name, folder_path)
-        self.load_for_treeview(self.models_parameters[self.mainWindow.select_model_name])
-
         interface_dict = self.interface_bar.load_default_interface()
         self.load_for_treeview(interface_dict)
 

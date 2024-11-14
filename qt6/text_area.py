@@ -4,8 +4,9 @@ import sys
 import markdown
 from PyQt6.QtCore import Qt, QThreadPool, pyqtSlot
 from PyQt6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
-from PyQt6.QtWidgets import QSplitter, QTextEdit, QLineEdit, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
+from qt6.QTextArea import QTextArea
 from qt6.ui_service import CustomStdin, CustomStdout, ui_model_run, ui_model_lunch, ui_interface_lunch
 
 
@@ -22,17 +23,17 @@ class text_area(QWidget):
         layout = QVBoxLayout()
         self.setLayout(layout)
         # 上面的文本区域 (只显示文本)
-        self.display_text_area = QTextEdit()
+        self.display_text_area = QTextArea()
         self.display_text_area.setReadOnly(True)
         self.progress_bar = None
         # 下面的单行输入区域(允许输入)
-        self.input_line_edit = QLineEdit()
+        self.input_line_edit = QTextArea()
         self.input_line_edit.setPlaceholderText("请输入...")
         # 设置字体
         # font = QFont("SimSun", 12)  # 设置字体类型  设置字体大小
         self.font = QFont("Microsoft YaHei", 10)
         self.input_line_edit.setFont(self.font)
-        self.input_line_edit.setMaximumHeight(32)
+        self.input_line_edit.setMinimumHeight(20)
 
         self.display_text_area.setFont(self.font)
         # 创建垂直分割器
@@ -42,7 +43,7 @@ class text_area(QWidget):
         right_pane.setSizes([350, 50])  # 设置右侧上下文本区域的初始大小
         # 将分割器添加到布局中
         layout.addWidget(right_pane)
-        self.input_line_edit.returnPressed.connect(self.submit)
+        self.input_line_edit.submitTextSignal.connect(self.submit)
         # 重定向标准输入
         sys.stdin = CustomStdin(self.input_line_edit)
         sys.stdout = CustomStdout(self.display_text_area)
@@ -133,7 +134,7 @@ class text_area(QWidget):
         self.input_line_edit.setText(text)
 
     def get_input_text(self):
-        return self.input_line_edit.text()
+        return self.input_line_edit.toPlainText()
 
     def clear_input(self):
         self.input_line_edit.clear()
@@ -147,7 +148,7 @@ class text_area(QWidget):
 
     @pyqtSlot()
     def submit(self):
-        if self.input_line_edit.text().strip() == "":
+        if self.input_line_edit.toPlainText().strip() == "":
             return
             # 显示进度条并初始化进度
         self.progress_bar.setVisible(True)

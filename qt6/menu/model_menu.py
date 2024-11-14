@@ -2,7 +2,7 @@ import os
 
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog
+from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog, QMessageBox
 
 from common.const.common_const import common_const, model_enum
 from qt6 import MainWindow
@@ -97,7 +97,13 @@ class model_menu(QMenuBar):
             self.recent_models_menu.addAction(recent_file_action)
 
     def model_parameters_setting(self):
-        parameters = self.models_parameters[self.mainWindow.select_model_name]
+        if not self.mainWindow.select_model_name:
+            QMessageBox.warning(self, "提示", "请先选择模型")
+            return
+
+        parameters = self.models_parameters.get(self.mainWindow.select_model_name)
+        if parameters is None:
+            return
         dialog = model_parameters_dialog(
             self,
             max_new_tokens=parameters[common_const.max_new_tokens],

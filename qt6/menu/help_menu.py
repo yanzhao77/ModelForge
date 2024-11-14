@@ -11,14 +11,13 @@ class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"About {common_const.project_name} {common_const.version}")
-        self.setWindowIcon(QIcon(common_const.icon_dir))  # 你可以替换为你的应用图标
 
         # 创建布局
         layout = QVBoxLayout()
 
         # 添加图标
         icon_label = QLabel(self)
-        pixmap = QPixmap(common_const.icon_dir).scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
+        pixmap = QPixmap(common_const.icon_main_view).scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
                                             Qt.TransformationMode.SmoothTransformation)
         icon_label.setPixmap(pixmap)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)

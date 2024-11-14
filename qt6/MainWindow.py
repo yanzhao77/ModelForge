@@ -26,7 +26,7 @@ class MainWindow(QMainWindow):
         self.models_parameters = {}
         # 设置窗口最小大小
         self.setMinimumSize(800, 500)
-        self.setWindowIcon(QIcon(common_const.icon_dir))  # 你可以替换为你的应用图标
+        self.setWindowIcon(QIcon(common_const.icon_main_view))  # 你可以替换为你的应用图标
         # Main container widget
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
