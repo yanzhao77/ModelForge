@@ -44,6 +44,7 @@ class interface_menu(QMenuBar):
             interface_parameters_dict = dialog.get_data()
             self.interface_parameters[
                 interface_parameters_dict[common_const.model_name]] = interface_parameters_dict
+            self.mainWindow.tree_view.load_model(interface_parameters_dict[common_const.model_name], interface_parameters_dict)
 
     @pyqtSlot()
     def open_interface(self):

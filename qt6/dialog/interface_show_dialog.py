@@ -280,11 +280,11 @@ class interface_show_dialog(QDialog):
             clipboard.setText(json_data, QClipboard.Mode.Clipboard)
 
     def get_data(self):
-        interface_name = self.interface_name_edit.text()
+        interface_name = self.interface_name_edit.text() if self.interface_name_edit.text() else self.interface_name_edit.placeholderText()
         interface_type = self.interface_type_combo.currentText()
-        model_name = self.model_name_edit.text()
-        api_key = self.api_key_edit.text()
-        base_url = self.base_url_edit.text()
+        model_name = self.model_name_edit.text() if self.model_name_edit.text() else self.model_name_edit.placeholderText()
+        api_key = self.api_key_edit.text() if self.api_key_edit.text() else self.api_key_edit.placeholderText()
+        base_url = self.base_url_edit.text() if self.base_url_edit.text() else self.base_url_edit.placeholderText()
         messages = []
         roles = set()  # 用于存储已经出现过的角色
         for row in range(self.message_table.rowCount()):
@@ -301,13 +301,20 @@ class interface_show_dialog(QDialog):
         self.interface_parameters[common_const.interface_base_url] = base_url
         self.interface_parameters[common_const.interface_message_dict] = messages
 
-        interface_temperature = float(self.interface_temperature_edit.text() or 1.0)
-        interface_top_p = float(self.interface_top_p_edit.text() or 1.0)
-        interface_n = int(self.interface_n_edit.text() or 1)
-        interface_max_tokens = int(self.interface_max_tokens_edit.text() or 4096)
-        interface_presence_penalty = float(self.interface_presence_penalty_edit.text() or 0.0)
-        interface_frequency_penalty = float(self.interface_frequency_penalty_edit.text() or 0.0)
-        interface_timeout = float(self.interface_timeout_edit.text() or 60)
+        interface_temperature = float(
+            self.interface_temperature_edit.text() if self.interface_temperature_edit.text() else self.interface_temperature_edit.placeholderText())
+        interface_top_p = float(
+            self.interface_top_p_edit.text() if self.interface_top_p_edit.text() else self.interface_top_p_edit.placeholderText())
+        interface_n = int(
+            self.interface_n_edit.text() if self.interface_n_edit.text() else self.interface_n_edit.placeholderText())
+        interface_max_tokens = int(
+            self.interface_max_tokens_edit.text() if self.interface_max_tokens_edit.text() else self.interface_max_tokens_edit.placeholderText())
+        interface_presence_penalty = float(
+            self.interface_presence_penalty_edit.text() if self.interface_presence_penalty_edit.text() else self.interface_presence_penalty_edit.placeholderText())
+        interface_frequency_penalty = float(
+            self.interface_frequency_penalty_edit.text() if self.interface_frequency_penalty_edit.text() else self.interface_frequency_penalty_edit.placeholderText())
+        interface_timeout = float(
+            self.interface_timeout_edit.text() if self.interface_timeout_edit.text() else self.interface_timeout_edit.placeholderText())
 
         self.interface_parameters[common_const.interface_temperature] = interface_temperature
         self.interface_parameters[common_const.interface_top_p] = interface_top_p
