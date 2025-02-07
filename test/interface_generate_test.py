@@ -110,8 +110,47 @@ def get_glm_4_2_response():
     )
     print(response.choices[0].message)
 
+def get_deepseek():
+    client = OpenAI(
+        # 控制台获取key和secret拼接，假使控制台获取的APIPassword是123456
+        api_key="sk-9079b4507d3943a299487270de3055f4",
+        base_url='https://api.deepseek.com'  # 指向讯飞星火的请求地址
+    )
+    completion = client.chat.completions.create(
+        model="deepseek-chat",  # 指定请求的版本
+        messages=[
+            {
+                "role": "user",
+                "content": '说一个程序员才懂的笑话'
+            }
+        ],
+    stream = False
+    )
+    print(completion.choices[0].message)
+
+def get_deepseek1():
+    # Please install OpenAI SDK first: `pip3 install openai`
+    client = OpenAI(api_key="sk-d0072ee63cc14e82be849eb5f92d8c63", base_url="https://api.deepseek.com")
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        # model="deepseek-reasoner",
+        messages=[
+            {"role": "system", "content": "你是一位历史学专家，用户将提供一系列问题，你的回答应当简明扼要，并以`Answer:`开头"},
+            {"role": "user", "content": "请问秦始皇统一六国是在哪一年？"},
+            {"role": "assistant", "content": "Answer:公元前221年"},
+            {"role": "user", "content": "请问汉朝的建立者是谁？"},
+            {"role": "assistant", "content": "Answer:刘邦"},
+            {"role": "user", "content": "请问唐朝最后一任皇帝是谁"},
+            {"role": "assistant", "content": "Answer:李柷"},
+            {"role": "user", "content": "请问明朝的开国皇帝是谁？"},
+            {"role": "assistant", "content": "Answer:朱元璋"},
+            {"role": "user", "content": "请问商朝是什么时候灭亡的"},
+        ],
+        stream=False
+    )
+    print(response.choices[0].message.content)
 
 if __name__ == '__main__':
     # call_with_messages()
     # get_response()
-    get_glm_4_response()
+    get_deepseek1()
