@@ -11,11 +11,20 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
 class interface_generate(base_generate):
-    def __init__(self, api_key: str, base_url: str, interface_model_name: str, model_type: str = interface_type_enum.openai.value,
-                 role: str = "user", interface_temperature: int = None, interface_top_p: float = None,
-                 interface_n: int = None, interface_max_tokens: int = None,
-                 interface_presence_penalty: float = None, interface_frequency_penalty: float = None,
-                 interface_timeout: int = None):
+    def __init__(self,
+                 api_key: str,
+                 base_url: str,
+                 interface_model_name: str,
+                 model_type: str = interface_type_enum.openai.value,
+                 role: str = "user",
+                 interface_temperature: int = None,
+                 interface_top_p: float = None,
+                 interface_n: int = None,
+                 interface_max_tokens: int = None,
+                 interface_presence_penalty: float = None,
+                 interface_frequency_penalty: float = None,
+                 interface_timeout: int = None,
+                 interface_message_dict: dict = None):
         super().__init__()
         try:
             # 加载预训练模型和分词器
@@ -34,6 +43,7 @@ class interface_generate(base_generate):
             self.interface_presence_penalty = interface_presence_penalty
             self.interface_frequency_penalty = interface_frequency_penalty
             self.interface_timeout = interface_timeout
+            self.interface_message_dict = interface_message_dict
         except Exception as e:
             print(f"Error loading model or tokenizer: {e}")
             return
@@ -55,11 +65,11 @@ class interface_generate(base_generate):
             return
 
         self.command.append(value)
-
+        self.interface_message_dict.append({'role': self.role, 'content': value})
         # 构建参数字典
         kwargs = {
             'model': self.interface_model_name,
-            'messages': [{'role': self.role, 'content': value}]
+            'messages': self.interface_message_dict
         }
 
         # 检查并添加其他参数
@@ -84,6 +94,7 @@ class interface_generate(base_generate):
             result = completion.model_dump_json()
             result_dict = json.loads(result)['choices'][0]['message']
             self.command.append(result_dict['content'])
+            self.interface_message_dict.append({'role': "assistant", 'content': result_dict['content']})
             return result_dict['content']
         except Exception as e:
             print(f"Error during model inference: {e}")
