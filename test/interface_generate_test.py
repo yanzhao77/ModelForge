@@ -99,6 +99,23 @@ def get_glm_4_response():
     )
     print(completion.choices[0].message)
 
+def get_glm_4_free():
+    client = OpenAI(
+        # 控制台获取key和secret拼接，假使控制台获取的APIPassword是123456
+        api_key="lENFVHvOGLIGcTBkZROk:sLkBPDgAFbjqlpDgNRll",
+        base_url='https://spark-api-open.xf-yun.com/v1'  # 指向讯飞星火的请求地址
+    )
+    completion = client.chat.completions.create(
+        model='generalv3.5',  # 指定请求的版本
+        messages=[
+            {"role": "system", "content": "你是一个聪明且富有创造力的小说作家"},
+            {"role": "user", "content": "请你作为童话故事大王，写一篇短篇童话故事，故事的主题是要永远保持一颗善良的心。"}
+        ],
+        top_p=0.7,
+        temperature=0.9
+    )
+    print(completion.choices[0].message)
+
 
 def get_glm_4_2_response():
     client = ZhipuAI(api_key="0d62ab35210808d52040993cd53788a5.NrIcZR8TpXjbUwrz")  # 请填写您自己的APIKey
@@ -153,4 +170,4 @@ def get_deepseek1():
 if __name__ == '__main__':
     # call_with_messages()
     # get_response()
-    get_deepseek1()
+    get_glm_4_free()

@@ -118,8 +118,7 @@ class tree_view_pane(QTabWidget):
             self.mainWindow.select_model_name = model_name
             self.text_area.print(f"Selected folder: {self.mainWindow.select_model_name}")
             self.mainWindow.recent_models[self.mainWindow.select_model_name] = folder_path
-
-            self.model_bar.setting_model_default_parameters(self.mainWindow.select_model_name, folder_path)
+            # self.load_for_treeview(self.mainWindow.models_parameters[self.mainWindow.select_model_name])
             # 显示进度条并初始化进度
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)

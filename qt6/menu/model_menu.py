@@ -66,6 +66,7 @@ class model_menu(QMenuBar):
         dialog = model_open_dialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             if dialog.model_name and dialog.model_path:
+                self.setting_model_default_parameters(dialog.model_name,dialog.model_path)
                 self.mainWindow.tree_view.load_model(dialog.model_name, dialog.model_path)
 
     def clear_file(self):

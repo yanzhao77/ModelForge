@@ -62,7 +62,8 @@ class ui_model_lunch(BaseRunnable):
                     self.models_parameters[common_const.do_sample],
                     self.models_parameters[common_const.temperature],
                     self.models_parameters[common_const.top_k],
-                    self.models_parameters[common_const.input_max_length]
+                    self.models_parameters[common_const.input_max_length],
+                    self.models_parameters[common_const.interface_message_dict]
                 )
             else:
                 self.text_area.model = model_generate(self.models_parameters[common_const.model_path])
@@ -101,7 +102,15 @@ class ui_interface_lunch(ui_model_lunch):
                 self.models_parameters[common_const.interface_base_url],
                 self.models_parameters[common_const.interface_model_name],
                 self.models_parameters[common_const.interface_type],
-                self.models_parameters[common_const.interface_role]
+                None,
+                self.models_parameters[common_const.interface_temperature],
+                self.models_parameters[common_const.interface_top_p],
+                self.models_parameters[common_const.interface_n],
+                self.models_parameters[common_const.interface_max_tokens],
+                self.models_parameters[common_const.interface_presence_penalty],
+                self.models_parameters[common_const.interface_frequency_penalty],
+                self.models_parameters[common_const.interface_timeout],
+                self.models_parameters[common_const.interface_message_dict]
             )
             self.text_area.model.pipeline_question()
             self.text_area.set_model_name(self.models_parameters[common_const.model_name])

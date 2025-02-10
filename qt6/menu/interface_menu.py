@@ -44,7 +44,8 @@ class interface_menu(QMenuBar):
             interface_parameters_dict = dialog.get_data()
             self.interface_parameters[
                 interface_parameters_dict[common_const.model_name]] = interface_parameters_dict
-            self.mainWindow.tree_view.load_model(interface_parameters_dict[common_const.model_name], interface_parameters_dict)
+            self.mainWindow.tree_view.load_model(interface_parameters_dict[common_const.model_name],
+                                                 interface_parameters_dict)
 
     @pyqtSlot()
     def open_interface(self):
@@ -82,25 +83,37 @@ class interface_menu(QMenuBar):
         self.interface_list_menu.clear()
 
     def load_default_interface(self):
+        model_name = "deepseek"
+
+        interface_type = "OpenAI"
+        interface_model_name = "deepseek-chat"
+        interface_api_key = "sk-d0072ee63cc14e82be849eb5f92d8c63"
+        interface_base_url = 'https://api.deepseek.com'
+        return self.setting_interface_default_parameters(model_name, interface_type, interface_model_name,
+                                                         interface_api_key,
+                                                         interface_base_url)
+
+    def setting_interface_default_parameters(self, model_name, interface_type, interface_model_name, interface_api_key,
+                                             interface_base_url):
         default_interface_parameters = {}
-        default_interface_parameters[common_const.model_name] = "Spark Lite"
+        default_interface_parameters[common_const.model_name] = model_name
         default_interface_parameters[common_const.model_type] = model_enum.interface
         default_interface_parameters[common_const.parameters_editable] = True
-        default_interface_parameters[common_const.interface_type] = "OpenAI"
-        default_interface_parameters[common_const.interface_model_name] = "general"
-
+        default_interface_parameters[common_const.interface_type] = interface_type
+        default_interface_parameters[common_const.interface_model_name] = interface_model_name
         default_interface_parameters[common_const.interface_temperature] = 1.0
         default_interface_parameters[common_const.interface_top_p] = 1.0
         default_interface_parameters[common_const.interface_n] = 1
         default_interface_parameters[common_const.interface_max_tokens] = 4096
+        default_interface_parameters[common_const.interface_presence_penalty] = 0.0
         default_interface_parameters[common_const.interface_frequency_penalty] = 0.0
         default_interface_parameters[common_const.interface_timeout] = 60
 
         default_interface_parameters[common_const.interface_role] = "user"
         default_interface_parameters[
-            common_const.interface_api_key] = "lENFVHvOGLIGcTBkZROk:sLkBPDgAFbjqlpDgNRll"  # 如果您没有配置环境变量，请在此处用您的API Key进行替换
+            common_const.interface_api_key] = interface_api_key  # 如果您没有配置环境变量，请在此处用您的API Key进行替换
         default_interface_parameters[
-            common_const.interface_base_url] = 'https://spark-api-open.xf-yun.com/v1'  # 填写DashScope SDK的base_url
+            common_const.interface_base_url] = interface_base_url  # 填写DashScope SDK的base_url
 
         # 定义 JSON 格式的字符串
         a = f'{{"role": "user", "content": "你是谁"}}'
@@ -109,7 +122,7 @@ class interface_menu(QMenuBar):
         # 将字符串解析为字典
         dict_a = json.loads(a)
         dict_b = json.loads(b)
-        default_interface_parameters[common_const.interface_message_dict] = (dict_a, dict_b)
+        default_interface_parameters[common_const.interface_message_dict] = [dict_a, dict_b]
         self.interface_parameters[
             default_interface_parameters[common_const.model_name]] = default_interface_parameters
         return default_interface_parameters

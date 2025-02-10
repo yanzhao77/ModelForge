@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog, QMessageBox, QDialog
 )
@@ -51,6 +53,7 @@ class model_open_dialog(QDialog):
         self.model_path = self.model_path_input.text().strip()
 
         if not self.model_name or not self.model_path:
-            QMessageBox.warning(self, '警告', '模型名称和地址不能为空！')
-            return
+            # QMessageBox.warning(self, '警告', '模型名称和地址不能为空！')
+            # return
+            self.model_name = Path(self.model_path).name
         self.accept()  # 关闭对话框

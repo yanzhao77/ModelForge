@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QComboBox, QLineEdit, QPushButton, QTableWidget,
     QTableWidgetItem, QApplication, QHBoxLayout, QHeaderView, QFormLayout, QMessageBox
 )
-from common.const.common_const import common_const
+from common.const.common_const import common_const, model_enum
 
 
 class AddMessageDialog(QDialog):
@@ -148,6 +148,10 @@ class interface_show_dialog(QDialog):
         self.model_name_edit.setPlaceholderText("Qwen2.5-0.5B")
         self.api_key_edit.setPlaceholderText("KjHgFtDzXvNmLpQwRcEa:VbNfTrDxJmZqLkPnGhWc")
         self.base_url_edit.setPlaceholderText("https://spark-api-open.xf-yun.com/v1")
+        # self.model_name_edit.setPlaceholderText("deepseek-chat")
+        # self.api_key_edit.setPlaceholderText("sk-d0072ee63cc14e82be849eb5f92d8c63")
+        # self.base_url_edit.setPlaceholderText("https://api.deepseek.com")
+
         self.interface_temperature_edit.setPlaceholderText(str(1.0))
         self.interface_top_p_edit.setPlaceholderText(str(1.0))
         self.interface_n_edit.setPlaceholderText(str(1))
@@ -300,6 +304,7 @@ class interface_show_dialog(QDialog):
         self.interface_parameters[common_const.interface_api_key] = api_key
         self.interface_parameters[common_const.interface_base_url] = base_url
         self.interface_parameters[common_const.interface_message_dict] = messages
+        self.interface_parameters[common_const.model_type] = model_enum.interface
 
         interface_temperature = float(
             self.interface_temperature_edit.text() if self.interface_temperature_edit.text() else self.interface_temperature_edit.placeholderText())
