@@ -9,7 +9,7 @@ os.environ["HF_MODELS_HOME"] = os.path.join(os.path.dirname(os.path.dirname(os.p
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # 指定本地模型路径
 local_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model')
-model_name = "Qwen2.5-0.5B"  # 请替换为实际的模型名称
+model_name = "DeepSeek-R1-Distill-Qwen-1.5B"  # 请替换为实际的模型名称
 defeat_model_path = os.path.join(local_model_path, model_name)
 
 
@@ -61,14 +61,14 @@ class model_generate(base_generate):
             print(f"Error during model inference: {e}")
             self.is_running = False
 
-    def pipeline_answer(self, value):
-        if value.lower() == 'exit':
+    def pipeline_answer(self, question):
+        if question.lower() == 'exit':
             print("结束对话。")
             self.release_resources()
             self.is_running = False
             return
         # 添加用户输入到历史
-        self.message_dict.append({"role": "user", "content": value})
+        self.message_dict.append({"role": "user", "content": question})
 
         # 构造包含历史对话的完整提示
         conversation = ""
