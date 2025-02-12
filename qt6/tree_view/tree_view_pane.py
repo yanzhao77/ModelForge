@@ -108,9 +108,11 @@ class tree_view_pane(QTabWidget):
     def tree_clear(self):
         self.model.clear()
 
-    def load_default_model(self):
-        interface_dict = self.interface_bar.load_default_interface()
-        self.load_for_treeview(interface_dict)
+    def load_default_model_for_treeview(self):
+        # interface_dict = self.interface_bar.load_default_interface()
+        # self.load_for_treeview(interface_dict)
+        model = self.model_bar.load_default_model()
+        self.load_for_treeview(model)
 
     def load_model(self, model_name, folder_path):
         if folder_path:

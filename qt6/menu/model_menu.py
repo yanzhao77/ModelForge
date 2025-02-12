@@ -59,7 +59,7 @@ class model_menu(QMenuBar):
     @pyqtSlot()
     def create_file(self):
         self.mainWindow.tree_clear()
-        self.mainWindow.tree_view.load_default_model()
+        self.mainWindow.tree_view.load_default_model_for_treeview()
 
     @pyqtSlot()
     def open_model(self):
@@ -119,6 +119,9 @@ class model_menu(QMenuBar):
             parameters = dialog.get_parameters()
             self.models_parameters[self.mainWindow.select_model_name].update(parameters)
 
+    def load_default_model(self):
+        model_name = "DeepSeek-R1-Distill-Qwen-1.5B"
+        return self.setting_model_default_parameters(model_name, "E:\\workspace\\pythonDownloads\\ModelForge\\model\\"+model_name)
     def setting_model_default_parameters(self, model_name, folder_path):
         self.models_parameters[model_name] = {}
 
@@ -132,3 +135,5 @@ class model_menu(QMenuBar):
         self.models_parameters[model_name][common_const.top_k] = 50
         self.models_parameters[model_name][common_const.input_max_length] = 2048
         self.models_parameters[model_name][common_const.parameters_editable] = True
+        self.models_parameters[model_name][common_const.interface_message_dict] = []
+        return self.models_parameters[model_name]

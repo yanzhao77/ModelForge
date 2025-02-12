@@ -86,7 +86,7 @@ class MainWindow(QMainWindow):
         self.text_area.progress_bar = self.progress_bar
         self.tree_view.set_main_data()
         # 加载默认模型
-        self.tree_view.load_default_model()
+        self.tree_view.load_default_model_for_treeview()
 
     def load_model_ui(self):
         self.model_bar.open_model()
