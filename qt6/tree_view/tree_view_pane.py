@@ -1,5 +1,3 @@
-import os
-
 from PyQt6.QtCore import Qt, QModelIndex, QTimer
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt6.QtWidgets import QTabWidget, QSplitter, QTreeView
@@ -14,8 +12,8 @@ class tree_view_pane(QTabWidget):
         self.tree_view = QTreeView()
         file_tab.addWidget(self.tree_view)
         self.addTab(file_tab, '列表栏')
-        self.model = QStandardItemModel()
-        self.tree_view.setModel(self.model)
+        self.itemModel = QStandardItemModel()
+        self.tree_view.setModel(self.itemModel)
         main_splitter.addWidget(self)
         self.mainWindow = main_ui
         self.models_parameters = self.mainWindow.models_parameters
@@ -40,11 +38,11 @@ class tree_view_pane(QTabWidget):
             parent = index.parent()
             if parent.isValid():
                 # 删除子节点
-                parent_item = self.model.itemFromIndex(parent)
+                parent_item = self.itemModel.itemFromIndex(parent)
                 parent_item.removeRow(index.row())
             else:
                 # 删除根节点
-                self.model.removeRow(index.row())
+                self.itemModel.removeRow(index.row())
     def set_main_data(self):
         self.model_bar = self.mainWindow.model_bar
         self.progress_bar = self.mainWindow.progress_bar
@@ -53,7 +51,7 @@ class tree_view_pane(QTabWidget):
 
     def on_double_click(self, index: QModelIndex):
         # 获取双击项的路径
-        item = self.model.itemFromIndex(index)
+        item = self.itemModel.itemFromIndex(index)
         data = item.data(self.tree_custom_role)
         self.select_item(data)
         if (self.text_area.get_model(data[common_const.model_name])
@@ -69,7 +67,7 @@ class tree_view_pane(QTabWidget):
         indexes = self.tree_view.selectionModel().selectedIndexes()
         if indexes:
             for index in indexes:
-                model_dict = self.model.itemFromIndex(index).data(self.tree_custom_role)
+                model_dict = self.itemModel.itemFromIndex(index).data(self.tree_custom_role)
 
                 self.select_item(model_dict)
                 if model_dict[common_const.model_type] == model_enum.model:
@@ -90,7 +88,7 @@ class tree_view_pane(QTabWidget):
         elif parameters_dict[common_const.model_type] == model_enum.model:
             root_item.setIcon(QIcon(common_const.icon_model_view))  # 设置根节点的图标
 
-        self.model.appendRow(root_item)
+        self.itemModel.appendRow(root_item)
         # 展开所有项
         self.tree_view.expandAll()
 
@@ -106,11 +104,11 @@ class tree_view_pane(QTabWidget):
         self.text_area.loading_interface(models_parameters)
 
     def tree_clear(self):
-        self.model.clear()
+        self.itemModel.clear()
 
     def load_default_model_for_treeview(self):
-        # interface_dict = self.interface_bar.load_default_interface()
-        # self.load_for_treeview(interface_dict)
+        interface_dict = self.interface_bar.load_default_interface()
+        self.load_for_treeview(interface_dict)
         model = self.model_bar.load_default_model()
         self.load_for_treeview(model)
 

@@ -63,7 +63,7 @@ class InterfaceManagerDialog(QDialog):
             self.table.insertRow(row)
             self.table.setItem(row, 0, QTableWidgetItem(interface[common_const.model_name]))
             self.table.setItem(row, 1, QTableWidgetItem(interface[common_const.interface_type]))
-            self.table.setItem(row, 2, QTableWidgetItem(interface[common_const.interface_model_name]))
+            self.table.setItem(row, 2, QTableWidgetItem(interface[common_const.model_type_name]))
             self.table.setItem(row, 3, QTableWidgetItem(interface[common_const.interface_api_key]))
             self.table.setItem(row, 4, QTableWidgetItem(interface[common_const.interface_base_url]))
 
@@ -77,7 +77,7 @@ class InterfaceManagerDialog(QDialog):
             interface_parameters_dict = dialog.get_data()
             if all(key in interface_parameters_dict for key in [
                 common_const.model_name, common_const.interface_type,
-                common_const.interface_model_name, common_const.interface_api_key,
+                common_const.model_type_name, common_const.interface_api_key,
                 common_const.interface_base_url]):
                 self.interfaces[interface_parameters_dict[common_const.model_name]] = interface_parameters_dict
                 self.populate_table()
@@ -98,7 +98,7 @@ class InterfaceManagerDialog(QDialog):
                 updated_interface = dialog.get_data()
                 if all(key in updated_interface for key in [
                     common_const.model_name, common_const.interface_type,
-                    common_const.interface_model_name, common_const.interface_api_key,
+                    common_const.model_type_name, common_const.interface_api_key,
                     common_const.interface_base_url]):
                     self.interfaces[updated_interface[common_const.model_name]] = updated_interface
                     self.populate_table()

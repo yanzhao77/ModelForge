@@ -66,7 +66,7 @@ class model_menu(QMenuBar):
         dialog = model_open_dialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             if dialog.model_name and dialog.model_path:
-                self.setting_model_default_parameters(dialog.model_name,dialog.model_path)
+                self.setting_model_default_parameters(dialog.model_name, dialog.model_path)
                 self.mainWindow.tree_view.load_model(dialog.model_name, dialog.model_path)
 
     def clear_file(self):
@@ -94,7 +94,10 @@ class model_menu(QMenuBar):
         # 添加最近文件到子菜单
         for file in self.mainWindow.recent_models:
             recent_file_action = QAction(file, self)
-            recent_file_action.triggered.connect(lambda checked, f=file: self.mainWindow.tree_view.load_model(f,self.models_parameters[f][common_const.model_path]))
+            recent_file_action.triggered.connect(lambda checked, f=file: self.mainWindow.tree_view.load_model(f,
+                                                                                                              self.models_parameters[
+                                                                                                                  f][
+                                                                                                                  common_const.model_path]))
             self.recent_models_menu.addAction(recent_file_action)
 
     def model_parameters_setting(self):
@@ -107,7 +110,7 @@ class model_menu(QMenuBar):
             return
         dialog = model_parameters_dialog(
             self,
-            max_new_tokens=parameters[common_const.max_new_tokens],
+            max_new_tokens=parameters[common_const.max_tokens],
             do_sample=parameters[common_const.do_sample],
             temperature=parameters[common_const.temperature],
             top_k=parameters[common_const.top_k],
@@ -117,11 +120,12 @@ class model_menu(QMenuBar):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             parameters = dialog.get_parameters()
-            self.models_parameters[self.mainWindow.select_model_name].update(parameters)
+            self.models_parameters[self.mainWindow.tree_view_pane].update(parameters)
 
     def load_default_model(self):
-        model_name = "DeepSeek-R1-Distill-Qwen-1.5B"
-        return self.setting_model_default_parameters(model_name, "E:\\workspace\\pythonDownloads\\ModelForge\\model\\"+model_name)
+        model_name = common_const.default_model_name
+        return self.setting_model_default_parameters(model_name, common_const.default_model_path + model_name)
+
     def setting_model_default_parameters(self, model_name, folder_path):
         self.models_parameters[model_name] = {}
 
@@ -129,7 +133,7 @@ class model_menu(QMenuBar):
         self.models_parameters[model_name][common_const.model_path] = folder_path
         self.models_parameters[model_name][common_const.model_type] = model_enum.model
 
-        self.models_parameters[model_name][common_const.max_new_tokens] = 500
+        self.models_parameters[model_name][common_const.max_tokens] = 500
         self.models_parameters[model_name][common_const.do_sample] = True
         self.models_parameters[model_name][common_const.temperature] = 0.9
         self.models_parameters[model_name][common_const.top_k] = 50

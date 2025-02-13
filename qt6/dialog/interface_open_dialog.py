@@ -11,7 +11,7 @@ class interface_open_dialog(QDialog):
         self.interface_dict = {}
         for item in interface_parameters.values():
             if item[common_const.model_type] == model_enum.interface:
-                self.interface_dict[item[common_const.model_name]] = item[common_const.interface_model_name]
+                self.interface_dict[item[common_const.model_name]] = item[common_const.model_type_name]
 
         # 设置布局
         layout = QVBoxLayout()

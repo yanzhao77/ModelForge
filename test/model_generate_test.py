@@ -3,6 +3,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
 from pytorch.base_generate import base_generate
+from pytorch.webSearcher import WebSearcher
 
 # 设置环境变量
 os.environ["HF_MODELS_HOME"] = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model')
@@ -16,12 +17,13 @@ defeat_model_path = os.path.join(local_model_path, model_name)
 class model_generate(base_generate):
     def __init__(self,
                  model_path=defeat_model_path,
-                 max_new_tokens=500,
+                 max_new_tokens=800,
                  do_sample=True,
-                 temperature=0.9,
+                 temperature=0.7,
                  top_k=50,
                  input_max_length=4096,
-                 message_dict: dict = None):
+                 message_dict: dict = None,
+                 repetition_penalty=1.2):
         super().__init__()
         try:
             # 加载预训练模型和分词器
@@ -35,6 +37,7 @@ class model_generate(base_generate):
             self.input_max_length = input_max_length  # 指定序列的最大长度。如果序列超过这个长度，将会被截断；如果序列短于这个长度，将会被填充
             self.is_running = True  # 标志变量，控制对话是否继续
             self.message_dict = [] if message_dict is None else message_dict  # 维护对话历史
+            self.repetition_penalty = repetition_penalty
         except Exception as e:
             print(f"Error loading model or tokenizer: {e}")
             self.is_running = False
@@ -61,14 +64,25 @@ class model_generate(base_generate):
             print(f"Error during model inference: {e}")
             self.is_running = False
 
-    def pipeline_answer(self, value):
-        if value.lower() == 'exit':
+    def pipeline_answer(self, question):
+        if question.lower() == 'exit':
             print("结束对话。")
             self.release_resources()
             self.is_running = False
             return
+
+        # 网络搜索增强
+        # if self.need_web_search(question):
+        search_results = WebSearcher.cached_search(question)
+        search_context = "\n".join([f"• {item['title']}: {item['content']}"
+                                    for item in search_results])
+        question = f"{question}\n[相关网络信息]:\n{search_context}"
         # 添加用户输入到历史
-        self.message_dict.append({"role": "user", "content": value})
+        # 生成时添加思维链
+        self.message_dict.append({
+            "role": "user",
+            "content": f"{question}\n请逐步思考后给出详细回答："
+        })
 
         # 构造包含历史对话的完整提示
         conversation = ""
@@ -101,8 +115,12 @@ class model_generate(base_generate):
                 temperature=self.temperature,
                 top_k=self.top_k,
                 top_p=0.9,
+                repetition_penalty=self.repetition_penalty,
                 pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id
+                eos_token_id=self.tokenizer.eos_token_id,
+                do_sample=self.do_sample,
+                num_beams=3,  # 使用束搜索
+                early_stopping=True
             )
             response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
         return self.release_response(response)
@@ -138,6 +156,14 @@ class model_generate(base_generate):
         del self.model
         del self.tokenizer
         torch.cuda.empty_cache()  # 清理 GPU 缓存（如果有使用 GPU）
+
+    def need_web_search(self, question: str) -> bool:
+        """基于关键词的简单搜索需求判断"""
+        search_keywords = [
+            "最新", "当前", "现在", "搜索", "过去", "怎么安装",
+            "如何配置", "推荐", "新闻", "实时"
+        ]
+        return any(keyword in question for keyword in search_keywords)
 
 
 if __name__ == '__main__':

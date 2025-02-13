@@ -241,13 +241,6 @@ class interface_show_dialog(QDialog):
         """
         role = message["role"]
         content = message["content"]
-
-        # 检查是否有同名的 role
-        for row in range(self.message_table.rowCount()):
-            if self.message_table.item(row, 0).text() == role:
-                QMessageBox.warning(self, "警告", f" '{role}' 已存在，请使用不同的名称。")
-                return
-
         row_count = self.message_table.rowCount()
         self.message_table.insertRow(row_count)
         self.message_table.setItem(row_count, 0, QTableWidgetItem(role))
@@ -300,7 +293,7 @@ class interface_show_dialog(QDialog):
 
         self.interface_parameters[common_const.model_name] = interface_name
         self.interface_parameters[common_const.interface_type] = interface_type
-        self.interface_parameters[common_const.interface_model_name] = model_name
+        self.interface_parameters[common_const.model_type_name] = model_name
         self.interface_parameters[common_const.interface_api_key] = api_key
         self.interface_parameters[common_const.interface_base_url] = base_url
         self.interface_parameters[common_const.interface_message_dict] = messages
@@ -321,13 +314,13 @@ class interface_show_dialog(QDialog):
         interface_timeout = float(
             self.interface_timeout_edit.text() if self.interface_timeout_edit.text() else self.interface_timeout_edit.placeholderText())
 
-        self.interface_parameters[common_const.interface_temperature] = interface_temperature
-        self.interface_parameters[common_const.interface_top_p] = interface_top_p
-        self.interface_parameters[common_const.interface_n] = interface_n
-        self.interface_parameters[common_const.interface_max_tokens] = interface_max_tokens
-        self.interface_parameters[common_const.interface_presence_penalty] = interface_presence_penalty
-        self.interface_parameters[common_const.interface_frequency_penalty] = interface_frequency_penalty
-        self.interface_parameters[common_const.interface_timeout] = interface_timeout
+        self.interface_parameters[common_const.temperature] = interface_temperature
+        self.interface_parameters[common_const.top_p] = interface_top_p
+        self.interface_parameters[common_const.top_n] = interface_n
+        self.interface_parameters[common_const.max_tokens] = interface_max_tokens
+        self.interface_parameters[common_const.presence_penalty] = interface_presence_penalty
+        self.interface_parameters[common_const.frequency_penalty] = interface_frequency_penalty
+        self.interface_parameters[common_const.timeout] = interface_timeout
         return self.interface_parameters
 
     def set_data(self):
@@ -335,20 +328,20 @@ class interface_show_dialog(QDialog):
         index = self.interface_type_combo.findText(self.interface_parameters[common_const.interface_type])
         if index >= 0:  # 确保找到的项存在
             self.interface_type_combo.setCurrentIndex(index)
-        self.model_name_edit.setText(self.interface_parameters[common_const.interface_model_name])
+        self.model_name_edit.setText(self.interface_parameters[common_const.model_type_name])
         self.api_key_edit.setText(self.interface_parameters[common_const.interface_api_key])
         self.base_url_edit.setText(self.interface_parameters[common_const.interface_base_url])
 
         self.interface_temperature_edit.setText(
-            str(self.interface_parameters.get(common_const.interface_temperature, 0)))
-        self.interface_top_p_edit.setText(str(self.interface_parameters.get(common_const.interface_top_p, 0)))
-        self.interface_n_edit.setText(str(self.interface_parameters.get(common_const.interface_n, 0)))
-        self.interface_max_tokens_edit.setText(str(self.interface_parameters.get(common_const.interface_max_tokens, 0)))
+            str(self.interface_parameters.get(common_const.temperature, 0)))
+        self.interface_top_p_edit.setText(str(self.interface_parameters.get(common_const.top_p, 0)))
+        self.interface_n_edit.setText(str(self.interface_parameters.get(common_const.top_n, 0)))
+        self.interface_max_tokens_edit.setText(str(self.interface_parameters.get(common_const.max_tokens, 0)))
         self.interface_presence_penalty_edit.setText(
-            str(self.interface_parameters.get(common_const.interface_presence_penalty, 0)))
+            str(self.interface_parameters.get(common_const.presence_penalty, 0)))
         self.interface_frequency_penalty_edit.setText(
-            str(self.interface_parameters.get(common_const.interface_frequency_penalty, 0)))
-        self.interface_timeout_edit.setText(str(self.interface_parameters.get(common_const.interface_timeout, 0)))
+            str(self.interface_parameters.get(common_const.frequency_penalty, 0)))
+        self.interface_timeout_edit.setText(str(self.interface_parameters.get(common_const.timeout, 0)))
 
         self.message_table_clear()
         for item in self.interface_parameters[common_const.interface_message_dict]:

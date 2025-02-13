@@ -58,7 +58,7 @@ class ui_model_lunch(BaseRunnable):
             if self.models_parameters:
                 self.text_area.model = model_generate(
                     self.models_parameters[common_const.model_path],
-                    self.models_parameters[common_const.max_new_tokens],
+                    self.models_parameters[common_const.max_tokens],
                     self.models_parameters[common_const.do_sample],
                     self.models_parameters[common_const.temperature],
                     self.models_parameters[common_const.top_k],
@@ -100,16 +100,16 @@ class ui_interface_lunch(ui_model_lunch):
             self.text_area.model = interface_generate(
                 self.models_parameters[common_const.interface_api_key],
                 self.models_parameters[common_const.interface_base_url],
-                self.models_parameters[common_const.interface_model_name],
+                self.models_parameters[common_const.model_type_name],
                 self.models_parameters[common_const.interface_type],
-                None,
-                self.models_parameters[common_const.interface_temperature],
-                self.models_parameters[common_const.interface_top_p],
-                self.models_parameters[common_const.interface_n],
-                self.models_parameters[common_const.interface_max_tokens],
-                self.models_parameters[common_const.interface_presence_penalty],
-                self.models_parameters[common_const.interface_frequency_penalty],
-                self.models_parameters[common_const.interface_timeout],
+                self.models_parameters[common_const.interface_role],
+                self.models_parameters[common_const.temperature],
+                self.models_parameters[common_const.top_p],
+                self.models_parameters[common_const.top_n],
+                self.models_parameters[common_const.max_tokens],
+                self.models_parameters[common_const.presence_penalty],
+                self.models_parameters[common_const.frequency_penalty],
+                self.models_parameters[common_const.timeout],
                 self.models_parameters[common_const.interface_message_dict]
             )
             self.text_area.model.pipeline_question()

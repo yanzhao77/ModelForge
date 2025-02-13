@@ -93,21 +93,22 @@ class interface_menu(QMenuBar):
                                                          interface_api_key,
                                                          interface_base_url)
 
-    def setting_interface_default_parameters(self, model_name, interface_type, interface_model_name, interface_api_key,
+    def setting_interface_default_parameters(self, model_name, interface_type, model_type_name, interface_api_key,
                                              interface_base_url):
         default_interface_parameters = {}
         default_interface_parameters[common_const.model_name] = model_name
         default_interface_parameters[common_const.model_type] = model_enum.interface
         default_interface_parameters[common_const.parameters_editable] = True
         default_interface_parameters[common_const.interface_type] = interface_type
-        default_interface_parameters[common_const.interface_model_name] = interface_model_name
-        default_interface_parameters[common_const.interface_temperature] = 1.0
-        default_interface_parameters[common_const.interface_top_p] = 1.0
-        default_interface_parameters[common_const.interface_n] = 1
-        default_interface_parameters[common_const.interface_max_tokens] = 4096
-        default_interface_parameters[common_const.interface_presence_penalty] = 0.0
-        default_interface_parameters[common_const.interface_frequency_penalty] = 0.0
-        default_interface_parameters[common_const.interface_timeout] = 60
+        default_interface_parameters[common_const.model_type_name] = model_type_name
+        default_interface_parameters[common_const.temperature] = 1.0
+        default_interface_parameters[common_const.top_p] = 1.0
+        default_interface_parameters[common_const.top_n] = 1
+        default_interface_parameters[common_const.max_tokens] = 4096
+        default_interface_parameters[common_const.presence_penalty] = 0.0
+        default_interface_parameters[common_const.frequency_penalty] = 0.0
+        default_interface_parameters[common_const.repetition_penalty] = 1.2
+        default_interface_parameters[common_const.timeout] = 60
 
         default_interface_parameters[common_const.interface_role] = "user"
         default_interface_parameters[
@@ -116,13 +117,10 @@ class interface_menu(QMenuBar):
             common_const.interface_base_url] = interface_base_url  # 填写DashScope SDK的base_url
 
         # 定义 JSON 格式的字符串
-        a = f'{{"role": "user", "content": "你是谁"}}'
-        b = f'{{"role": "assistant", "content": "我是你的助手"}}'
-
+        a = f'{{"role": "system", "content": "你是一个AI助手"}}'
         # 将字符串解析为字典
         dict_a = json.loads(a)
-        dict_b = json.loads(b)
-        default_interface_parameters[common_const.interface_message_dict] = [dict_a, dict_b]
+        default_interface_parameters[common_const.interface_message_dict] = [dict_a]
         self.interface_parameters[
             default_interface_parameters[common_const.model_name]] = default_interface_parameters
         return default_interface_parameters

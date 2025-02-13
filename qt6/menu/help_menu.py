@@ -1,8 +1,7 @@
-import sys
-from PyQt6.QtWidgets import QApplication, QMainWindow, QMenuBar, QDialog, QVBoxLayout, QLabel, QPushButton, \
-    QTextEdit
-from PyQt6.QtGui import QIcon, QPixmap, QAction
+from PyQt6.QtWidgets import QMenuBar, QDialog, QVBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtGui import QPixmap, QAction
+from PyQt6.QtWidgets import QMenuBar, QDialog, QVBoxLayout, QLabel, QPushButton
 
 from common.const.common_const import common_const
 
