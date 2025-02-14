@@ -1,4 +1,7 @@
 import os
+import re
+import time
+
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
@@ -14,16 +17,48 @@ model_name = "DeepSeek-R1-Distill-Qwen-1.5B"  # 请替换为实际的模型名�
 defeat_model_path = os.path.join(local_model_path, model_name)
 
 
+def monitor_performance(func):
+    def wrapper(self, *args, **kwargs):
+        start_time = time.time()
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # 如果是CUDA设备，则重置显存统计信息
+        if device.type == 'cuda':
+            torch.cuda.reset_peak_memory_stats(device)
+
+        try:
+            result = func(self, *args, **kwargs)
+        except Exception as e:
+            print(f"Error occurred in {func.__name__}: {e}")
+            raise  # 重新抛出异常
+        finally:
+            elapsed_time = time.time() - start_time
+            if device.type == 'cuda':
+                max_memory_allocated = torch.cuda.max_memory_allocated(device) // (1024 ** 2)
+            else:
+                max_memory_allocated = 0  # CPU不计算显存使用情况
+
+            print(f"生成耗时: {elapsed_time:.2f}s")
+            if device.type == 'cuda':
+                print(f"显存峰值显存峰值: {max_memory_allocated}MB")
+
+        return result
+
+    return wrapper
+
+
 class model_generate(base_generate):
     def __init__(self,
                  model_path=defeat_model_path,
-                 max_new_tokens=800,
+                 max_new_tokens=2048,
                  do_sample=True,
                  temperature=0.7,
                  top_k=50,
-                 input_max_length=2048,
+                 input_max_length=4096,
                  message_dict: dict = None,
-                 repetition_penalty=1.2):
+                 repetition_penalty=1.2,
+                 is_deepSeek=False,
+                 online_search=False,
+                 ):
 
         super().__init__()
         try:
@@ -39,6 +74,13 @@ class model_generate(base_generate):
             self.is_running = True  # 标志变量，控制对话是否继续
             self.message_dict = [] if message_dict is None else message_dict  # 维护对话历史
             self.repetition_penalty = repetition_penalty
+            self.is_deepSeek = is_deepSeek
+            self.online_search = online_search
+            self.generation_priority = {
+                "normal": {"num_beams": 3, "max_new_tokens": 500},
+                "speed": {"num_beams": 1, "max_new_tokens": 300},
+                "quality": {"num_beams": 5, "max_new_tokens": 800}
+            }
         except Exception as e:
             print(f"Error loading model or tokenizer: {e}")
             self.is_running = False
@@ -73,18 +115,17 @@ class model_generate(base_generate):
             return
 
         # 网络搜索增强
-        if self.need_web_search(question):
+        if self.need_web_search(question) or self.online_search:
             search_results = WebSearcher.cached_search(question)
             search_context = "\n".join([f"• {item['title']}: {item['content']}"
                                         for item in search_results])
             question = f"{question}\n[相关网络信息]:\n{search_context}"
             # 添加用户输入到历史
             # 生成时添加思维链
-            self.message_dict.append({
-                "role": "user",
-                "content": f"{question}\n请逐步思考后给出详细回答："
-            })
-
+        self.message_dict.append({
+            "role": "user",
+            "content": f"{question}\n思考后给出详细回答："
+        })
         # 构造包含历史对话的完整提示
         conversation = ""
         for msg in self.message_dict:
@@ -93,38 +134,154 @@ class model_generate(base_generate):
             else:
                 conversation += f"Assistant: {msg['content']}\n"
         conversation += "Assistant: "
-        response = self.generate_response(conversation)
+        try:
+            response = self.generate_response(conversation)
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e):
+                self.handle_memory_error()
+                return "生成内容过长，已自动优化，请重试"
+            return f"生成错误：{str(e)}"
+        except Exception as e:
+            return f"意外错误：{str(e)}"
+
         # 将助手的回答也添加到对话历史中
         self.message_dict.append({"role": "assistant", "content": response})
         # 打印模型的响应
         return response
 
+    def format_response(self, text):
+        """格式化响应文本"""
+        # 自动分段处理
+        text = re.sub(r"(\n{3,})", "\n\n", text)  # 合并多余空行
+        return text.strip()
+
+    @monitor_performance
     def generate_response(self, prompt):
+        # 动态生成参数配置
+        generation_config = self._get_generation_config()
+
+        # 添加系统提示词增强思考深度
+        if self.is_deepSeek:
+            enhanced_prompt = (
+                "【深度思考模式】你是一个严谨的AI助手，请按照以下步骤分析：\n"
+                "1. 问题本质分析\n2. 多角度验证\n3. 逻辑推理\n4. 最终结论\n"
+                f"对话历史：{prompt}\n回答："
+            )
+        else:
+            enhanced_prompt = (
+                "【快速响应模式】请直接给出简明回答：\n"
+                f"{prompt}\n回答："
+            )
+            generation_config["early_stopping"] = False  #early_stopping只适用于波束搜索
+
+
         # 对整段对话进行编码
-        inputs = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=self.input_max_length
-        ).to(self.device)
-        # 生成响应
-        with torch.no_grad():
+        # 长文本策略调整
+        tokens = self.tokenizer.encode(enhanced_prompt, truncation=False)
+        if len(tokens) > self.input_max_length - 100:
+            truncated = self.tokenizer.decode(
+                tokens[:self._get_truncate_length()],
+                skip_special_tokens=True
+            )
+            enhanced_prompt = f"[截断提示]...{truncated}"
+
+            # 生成过程优化
+        with torch.inference_mode():
+            inputs = self.tokenizer(
+                enhanced_prompt,
+                return_tensors="pt",
+                max_length=self.input_max_length,
+                truncation=True
+            ).to(self.device, non_blocking=True)
+
+            # 动态调整长文本策略
+            if inputs.input_ids.shape[1] > 512:
+                generation_config["num_beams"] = max(1, generation_config["num_beams"] - 1)
+                generation_config["temperature"] = max(0.4, generation_config["temperature"])
+
             outputs = self.model.generate(
                 **inputs,
-                max_length=self.input_max_length,
-                temperature=self.temperature,
-                top_k=self.top_k,
-                top_p=0.9,
-                repetition_penalty=self.repetition_penalty,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-                do_sample=self.do_sample,
-                num_beams=3,  # 使用束搜索
-                early_stopping=True
+                **generation_config
             )
-            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        return self.release_response(response)
+
+            response = self.tokenizer.decode(
+                outputs[0],
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )
+
+        return self.postprocess_response(response, original_prompt=prompt)
+
+    def _get_generation_config(self):
+        """动态生成参数配置"""
+        base_config = {
+            "max_new_tokens": self.max_new_tokens,
+            "temperature": self.temperature,
+            "top_k": self.top_k,
+            "top_p": 0.9,
+            "repetition_penalty": self.repetition_penalty,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "do_sample": self.do_sample,
+            "early_stopping": True
+        }
+
+        if self.is_deepSeek:
+            # 深度思考模式参数
+            return {
+                **base_config,
+                "num_beams": 5,
+                "temperature": max(0.5, self.temperature),
+                "no_repeat_ngram_size": 3,
+                "length_penalty": 1.2,
+                "max_new_tokens": min(self.max_new_tokens, 800)
+            }
+        else:
+            # 快速响应模式参数
+            return {
+                **base_config,
+                "num_beams": 1 if self.do_sample else 3,
+                "temperature": min(0.9, self.temperature + 0.2),
+                "top_k": max(30, self.top_k),
+                "max_new_tokens": min(self.max_new_tokens, 400)
+            }
+
+    def _get_truncate_length(self):
+        """动态截断长度策略"""
+        if self.is_deepSeek:
+            return self.input_max_length - 200  # 保留更多上下文
+        else:
+            return self.input_max_length - 100  # 更激进的截断
+
+    def postprocess_response(self, response, original_prompt):
+        response = self.release_response(response)
+        """差异化后处理"""
+        if self.is_deepSeek:
+            # 深度思考模式后处理
+            return self._deep_postprocess(response, original_prompt)
+        else:
+            # 快速模式后处理
+            return self._fast_postprocess(response, original_prompt)
+
+    def _deep_postprocess(self, response, original_prompt):
+        """深度思考模式后处理"""
+        # 提取结构化内容
+        prompt_len = len(original_prompt)
+        clean_response = response[prompt_len:].strip()
+
+        # 添加格式优化
+        structured_response = ""
+        for i, line in enumerate(clean_response.split('\n')):
+            if "步骤" in line or "分析" in line:
+                structured_response += f"\n## 分析阶段 {i + 1} ##\n{line}"
+            else:
+                structured_response += line
+        return self.format_response(structured_response)
+
+    def _fast_postprocess(self, response, original_prompt):
+        """快速响应后处理"""
+        # 直接提取有效内容
+        return self.format_response(response.strip())
 
     def release_response(self, full_output):
         # 假设prompt中最后一个角色是'User:'，我们需要找到它之后的部分作为助手的回答
@@ -159,7 +316,14 @@ class model_generate(base_generate):
     def need_web_search(self, question: str) -> bool:
         """基于关键词的简单搜索需求判断"""
         search_keywords = [
-            "最新", "当前", "现在", "搜索", "过去", "怎么安装",
-            "如何配置", "推荐", "新闻", "实时"
+            "最新", "当前", "现在", "搜索", "过去", "推荐", "新闻", "实时", "怎么安装", "如何配置",
         ]
         return any(keyword in question for keyword in search_keywords)
+
+    def handle_memory_error(self):
+        """内存错误处理策略"""
+        torch.cuda.empty_cache()
+        self.model.to('cpu')
+        # 自动降级配置
+        self.max_new_tokens = min(self.max_new_tokens, 300)
+        self.temperature = max(self.temperature, 0.5)

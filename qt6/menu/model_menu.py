@@ -106,7 +106,7 @@ class model_menu(QMenuBar):
             return
 
         parameters = self.models_parameters.get(self.mainWindow.select_model_name)
-        if parameters is None:
+        if parameters is None or parameters[common_const.model_type] == model_enum.interface:
             return
         dialog = model_parameters_dialog(
             self,
@@ -140,4 +140,7 @@ class model_menu(QMenuBar):
         self.models_parameters[model_name][common_const.input_max_length] = 2048
         self.models_parameters[model_name][common_const.parameters_editable] = True
         self.models_parameters[model_name][common_const.interface_message_dict] = []
+        self.models_parameters[model_name][common_const.repetition_penalty] = 1.2
+        self.models_parameters[model_name][common_const.is_deepSeek] = False
+        self.models_parameters[model_name][common_const.online_search] = False
         return self.models_parameters[model_name]

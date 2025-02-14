@@ -38,6 +38,9 @@ class common_const():
     presence_penalty = "presence_penalty"
     frequency_penalty = "frequency_penalty"
 
+    is_deepSeek = "is_deepSeek"
+    online_search = "online_search"
+
     # model
     model_name = "model_name"
     model_type_name = "model_type_name"

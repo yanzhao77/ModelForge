@@ -6,8 +6,10 @@ from PyQt6.QtCore import Qt, QThreadPool, pyqtSlot
 from PyQt6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
 from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
+from common.baseCustom.Custom import CustomStdin, CustomStdout
 from qt6.QTextArea import QTextArea
-from qt6.ui_service import CustomStdin, CustomStdout, ui_model_run, ui_model_lunch, ui_interface_lunch
+from qt6.tree_view.radio_layout import RadioLayout
+from common.baseCustom.ui_service import ui_model_run, ui_model_lunch
 
 
 class text_area(QWidget):
@@ -41,8 +43,12 @@ class text_area(QWidget):
         right_pane.addWidget(self.display_text_area)
         right_pane.addWidget(self.input_line_edit)
         right_pane.setSizes([350, 50])  # 设置右侧上下文本区域的初始大小
+
+        self.radio_layout = RadioLayout(self)  # 创建一个新的水平布局用于单选按钮
+
         # 将分割器添加到布局中
         layout.addWidget(right_pane)
+        layout.addWidget(self.radio_layout)  # 将底部布局添加到主布局中，使其位于最底部
         self.input_line_edit.submitTextSignal.connect(self.submit)
         # 重定向标准输入
         sys.stdin = CustomStdin(self.input_line_edit)
@@ -63,14 +69,16 @@ class text_area(QWidget):
 
     @pyqtSlot()
     def loading_model(self, models_parameters):
+        self.radio_layout.setVisible(True)
         self.clear_output()
         model_run = ui_model_lunch(models_parameters, self)
         self.thread_pool.start(model_run)
 
     @pyqtSlot()
     def loading_interface(self, models_parameters):
+        self.radio_layout.hide()
         self.clear_output()
-        model_run = ui_interface_lunch(models_parameters, self)
+        model_run = ui_model_lunch(models_parameters, self)
         self.thread_pool.start(model_run)
 
     @pyqtSlot()
@@ -145,6 +153,8 @@ class text_area(QWidget):
     def clear(self):
         self.clear_input()
         self.clear_output()
+    def check_models_parameters(self,models_parameters):
+        self.radio_layout.check_models_parameters(models_parameters)
 
     @pyqtSlot()
     def submit(self):
@@ -159,3 +169,4 @@ class text_area(QWidget):
 
     def stop_model(self):
         pass
+

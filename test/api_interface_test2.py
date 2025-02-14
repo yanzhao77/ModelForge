@@ -57,25 +57,5 @@ def get_localhost_model():
             print(e.response.text)
 
 
-def get_deepseek():
-    client = OpenAI(
-
-        # 控制台获取key和secret拼接，假使控制台获取的APIPassword是123456
-        api_key="sk-9079b4507d3943a299487270de3055f4",
-        base_url='https://api.deepseek.com'  # 指向讯飞星火的请求地址
-    )
-    completion = client.chat.completions.create(
-        model="deepseek-chat",  # 指定请求的版本
-        messages=[
-            {
-                "role": "user",
-                "content": '说一个程序员才懂的笑话'
-            }
-        ],
-        stream=False
-    )
-    print(completion.choices[0].message)
-
-
 if __name__ == '__main__':
     get_localhost_model()

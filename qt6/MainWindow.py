@@ -77,8 +77,7 @@ class MainWindow(QMainWindow):
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setFixedHeight(10)  # 设置进度条的高度
-        self.progress_bar.setVisible(False)  # 初始隐藏进度条
-        self.progress_bar.setTextVisible(False)
+        self.progress_bar.hide()  # 初始隐藏进度条
         progress_layout.addStretch()
         progress_layout.addWidget(self.progress_bar)
         progress_layout.addStretch()

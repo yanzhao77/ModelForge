@@ -93,6 +93,7 @@ class tree_view_pane(QTabWidget):
         self.tree_view.expandAll()
 
     def loading_model(self, models_parameters):
+        self.text_area.check_models_parameters(models_parameters)
         self.mainWindow.select_model_name = models_parameters[common_const.model_name]
         if models_parameters[common_const.model_type] == model_enum.model:
             self.text_area.loading_model(models_parameters)
