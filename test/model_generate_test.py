@@ -2,14 +2,15 @@ import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
+from common.const.common_const import common_const
 from pytorch.base_generate import base_generate
 from pytorch.webSearcher import WebSearcher
 
 # 设置环境变量
-os.environ["HF_MODELS_HOME"] = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model')
+os.environ["HF_MODELS_HOME"] = common_const.default_model_path
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # 指定本地模型路径
-local_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model')
+local_model_path = common_const.default_model_path
 model_name = "DeepSeek-R1-Distill-Qwen-1.5B"  # 请替换为实际的模型名称
 defeat_model_path = os.path.join(local_model_path, model_name)
 

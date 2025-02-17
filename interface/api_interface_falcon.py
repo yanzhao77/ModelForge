@@ -4,6 +4,8 @@ import uuid
 from wsgiref import simple_server
 
 import falcon
+
+from common.const.common_const import common_const
 from pytorch.model_generate import model_generate
 
 
@@ -39,7 +41,7 @@ class FalconOpenAIChatCompletionResource:
             messages = request_data['messages']
             self.model_name = request_data.get('model', 'default-model')
             if self.model is None:
-                local_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model')
+                local_model_path = common_const.default_model_path
                 self.model = model_generate(model_path=os.path.join(local_model_path, self.model_name))
                 self.model.pipeline_question()
             temperature = request_data.get('temperature', 0.7)

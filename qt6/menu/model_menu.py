@@ -147,7 +147,7 @@ class model_menu(QMenuBar):
 
     def load_default_model(self):
         model_name = common_const.default_model_name
-        return self.setting_model_default_parameters(model_name, common_const.default_model_path + model_name)
+        return self.setting_model_default_parameters(model_name, os.path.join(common_const.default_model_path, model_name))
 
     def setting_model_default_parameters(self, model_name, folder_path):
         self.models_parameters[model_name] = {}

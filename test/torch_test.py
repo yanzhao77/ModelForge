@@ -20,6 +20,11 @@ def check_torch():
         x_gpu = x.to('cuda')
         print("Tensor after moving to GPU:\n", x_gpu)
 
+    print(torch.__version__)
+    print(torch.cuda.is_available())
+    print(torch.backends.cuda.flash_sdp_enabled())  # 检查硬件支持性
+    print(torch.backends.cudnn.is_available())
+    print(torch.backends.cudnn.version())
 
 if __name__ == '__main__':
     check_torch()

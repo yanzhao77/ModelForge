@@ -5,9 +5,10 @@ import uuid
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header
-from modelscope.server import run_server
 from pydantic import BaseModel
 from typing import List, Optional
+
+from common.const.common_const import common_const
 from pytorch.model_generate import model_generate
 
 
@@ -74,10 +75,7 @@ class FastAPIChatCompletionResource:
         self.model_name = request_data.model
 
         if self.model_instance is None:
-            local_model_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                'model'
-            )
+            local_model_path = common_const.default_model_path
             self.model_instance = model_generate(model_path=os.path.join(local_model_path, self.model_name))
             self.model_instance.pipeline_question()
 

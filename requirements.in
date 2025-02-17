@@ -1,0 +1,13 @@
+torch
+torchaudio
+torchvision
+uvicorn
+transformers
+PyQt6
+numpy
+openai
+Markdown
+huggingface-hub
+duckduckgo_search
+falcon
+fastapi

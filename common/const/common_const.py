@@ -1,3 +1,4 @@
+import os
 from enum import Enum
 
 
@@ -22,7 +23,7 @@ class common_const():
     icon_tree_model_view = "icon/treeview/tree_model.ico"
 
     default_model_name = "DeepSeek-R1-Distill-Qwen-1.5B"
-    default_model_path = "E:\\workspace\\pythonDownloads\\ModelForge\\model\\"
+    default_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'model')
 
     # model_parameters_setting
     max_tokens = 'max_tokens'
