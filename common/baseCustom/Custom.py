@@ -8,6 +8,10 @@ class CustomStdout:
 
     def print(self, text):
         self.text_area.print(text)
+    def isatty(self):
+        return False
+    def flush(self):
+        self.text_area.flush()
 
 
 class CustomStdin:

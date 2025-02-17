@@ -1,10 +1,11 @@
 import os
 
 from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog, QMessageBox
 
 from common.const.common_const import common_const, model_enum
+from interface.api_interface_fastapi import FastAPIChatCompletionResource
 from qt6 import MainWindow
 from qt6.dialog.model_open_dialog import model_open_dialog
 from qt6.dialog.model_parameters_dialog import model_parameters_dialog
@@ -39,6 +40,20 @@ class model_menu(QMenuBar):
         model_parameters = QAction("模型参数", self)
         model_menu.addAction(model_parameters)
 
+        api_menu = model_menu.addMenu("api选项")
+        # 创建互斥的Action组
+        self.action_group = QActionGroup(self)
+        self.action_group.setExclusive(True)  # 设置互斥
+
+        self.action1 = QAction("开放api", self, checkable=True)
+        action2 = QAction("关闭api", self, checkable=True)
+        action2.setChecked(True)
+        self.action_group.addAction(self.action1)
+        self.action_group.addAction(action2)
+        api_menu.addActions([self.action1, action2])
+        self.api_on_flag = False
+        self.api = None
+
         model_menu.addSeparator()
         restart_file = QAction("重启", self)
         model_menu.addAction(restart_file)
@@ -55,6 +70,7 @@ class model_menu(QMenuBar):
         clear_file.triggered.connect(self.clear_file)
         open_file.triggered.connect(self.open_model)
         self.recent_models_menu.aboutToShow.connect(self.recent_model_list)
+        self.action_group.triggered.connect(self.api_on_action)  # 每次切换选中项时会触发
 
     @pyqtSlot()
     def create_file(self):
@@ -79,6 +95,13 @@ class model_menu(QMenuBar):
     @pyqtSlot()
     def restart_file(self):
         self.mainWindow.restart()
+
+    @pyqtSlot()
+    def api_on_action(self):
+        self.api_on_flag = self.action1.isChecked()
+        if self.api is None:
+            resource = FastAPIChatCompletionResource(self.api_on_flag, self.mainWindow.text_area)
+            resource.thread_run()
 
     @pyqtSlot()
     def recent_model_list(self):

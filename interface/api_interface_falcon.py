@@ -7,7 +7,7 @@ import falcon
 from pytorch.model_generate import model_generate
 
 
-class OpenAIChatCompletionResource:
+class FalconOpenAIChatCompletionResource:
     def __init__(self):
         self.model = None
         self.app = falcon.App()

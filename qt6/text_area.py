@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 from common.baseCustom.Custom import CustomStdin, CustomStdout
 from qt6.QTextArea import QTextArea
 from qt6.tree_view.radio_layout import RadioLayout
-from common.baseCustom.ui_service import ui_model_run, ui_model_lunch
+from common.baseCustom.ui_service import ui_model_run, ui_model_lunch, BaseRunnable
 
 
 class text_area(QWidget):
@@ -51,8 +51,9 @@ class text_area(QWidget):
         layout.addWidget(self.radio_layout)  # 将底部布局添加到主布局中，使其位于最底部
         self.input_line_edit.submitTextSignal.connect(self.submit)
         # 重定向标准输入
+        sys.stdout = CustomStdout(self)
         sys.stdin = CustomStdin(self.input_line_edit)
-        sys.stdout = CustomStdout(self.display_text_area)
+        # sys.stderr = CustomStdout(self)
 
     def set_model_name(self, model_name):
         self.model.model_name = model_name
@@ -153,7 +154,8 @@ class text_area(QWidget):
     def clear(self):
         self.clear_input()
         self.clear_output()
-    def check_models_parameters(self,models_parameters):
+
+    def check_models_parameters(self, models_parameters):
         self.radio_layout.check_models_parameters(models_parameters)
 
     @pyqtSlot()

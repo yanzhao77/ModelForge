@@ -14,12 +14,10 @@ class BaseRunnable(QRunnable):
         self.text_area = text_area
 
     def run(self):
-        # 重定向标准输出
-        sys.stdout = CustomStdout(self.text_area)
         self._run()
 
     def _run(self):
-        raise NotImplementedError("Subclasses must implement the _run method")
+        pass
 
 
 # 模型加载基类
