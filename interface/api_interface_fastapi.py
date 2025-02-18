@@ -122,5 +122,5 @@ class FastAPIChatCompletionResource:
 
 
 # 在模块级别实例化并暴露应用
-resource = FastAPIChatCompletionResource(False, None)
+resource = FastAPIChatCompletionResource(True, None)
 app = resource.app

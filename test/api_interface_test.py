@@ -10,7 +10,7 @@ if __name__ == '__main__':
     # app = resource.app
     # # 使用 uvicorn 的导入字符串，确保 reload 或 workers 生效
     # uvicorn.run("main:app", host="0.0.0.0", port=7783, reload=True)
-    resource = FastAPIChatCompletionResource()
+    resource = FastAPIChatCompletionResource(True,None)
     resource.run()
     # app = resource.app
     # 注意这里使用导入字符串 "main:app"（假设文件名为 main.py）
