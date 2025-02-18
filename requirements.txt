@@ -2,13 +2,16 @@ falcon==4.0.2
 fastapi==0.115.8
 uvicorn==0.34.0
 #torch 版本和 torchaudio torchvision 是绑定关系
+#pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 torchaudio==2.2.0 --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu118/
 torch==2.2.0+cu118
 torchaudio==2.2.0+cu118
 torchvision==0.17.0+cu118
 openai==1.63.1
-transformers==4.48.3
+transformers==4.49.0
 datasets==3.3.0
 Markdown==3.7
 pydantic==2.10.6
 duckduckgo_search==7.4.2
 pyqt6==6.8.1
+NumPy==1.26.4
+#huggingface_hub==0.28.1

@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog, QMessageBox
 from common.const.common_const import common_const, model_enum
 from interface.api_interface_fastapi import FastAPIChatCompletionResource
 from qt6 import MainWindow
+from qt6.dialog.download_model_dialog import DownloadModelMainWindow
 from qt6.dialog.model_open_dialog import model_open_dialog
 from qt6.dialog.model_parameters_dialog import model_parameters_dialog
 
@@ -40,6 +41,10 @@ class model_menu(QMenuBar):
         model_parameters = QAction("模型参数", self)
         model_menu.addAction(model_parameters)
 
+        model_menu.addSeparator()
+        model_download = QAction("下载模型", self)
+        model_menu.addAction(model_download)
+
         api_menu = model_menu.addMenu("api选项")
         # 创建互斥的Action组
         self.action_group = QActionGroup(self)
@@ -67,6 +72,7 @@ class model_menu(QMenuBar):
         exit_file.triggered.connect(self.exit_file)
         restart_file.triggered.connect(self.restart_file)
         model_parameters.triggered.connect(self.model_parameters_setting)
+        model_download.triggered.connect(self.model_download_show)
         clear_file.triggered.connect(self.clear_file)
         open_file.triggered.connect(self.open_model)
         self.recent_models_menu.aboutToShow.connect(self.recent_model_list)
@@ -95,6 +101,12 @@ class model_menu(QMenuBar):
     @pyqtSlot()
     def restart_file(self):
         self.mainWindow.restart()
+
+    def model_download_show(self):
+        dialog = DownloadModelMainWindow()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_model = dialog.selected_models
+            print(selected_model)
 
     @pyqtSlot()
     def api_on_action(self):
@@ -147,7 +159,8 @@ class model_menu(QMenuBar):
 
     def load_default_model(self):
         model_name = common_const.default_model_name
-        return self.setting_model_default_parameters(model_name, os.path.join(common_const.default_model_path, model_name))
+        return self.setting_model_default_parameters(model_name,
+                                                     os.path.join(common_const.default_model_path, model_name))
 
     def setting_model_default_parameters(self, model_name, folder_path):
         self.models_parameters[model_name] = {}
