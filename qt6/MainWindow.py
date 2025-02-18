@@ -1,10 +1,10 @@
 import os
 import sys
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QToolBar, \
-    QProgressBar, QHBoxLayout, QFileDialog, QMenuBar
+    QProgressBar, QHBoxLayout, QMenuBar
 
 from common.const.common_const import common_const
 from qt6.menu.edit_menu import edit_menu

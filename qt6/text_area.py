@@ -7,9 +7,9 @@ from PyQt6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
 from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 from common.baseCustom.Custom import CustomStdin, CustomStdout
+from common.baseCustom.ui_service import ui_model_run, ui_model_lunch
 from qt6.QTextArea import QTextArea
 from qt6.tree_view.radio_layout import RadioLayout
-from common.baseCustom.ui_service import ui_model_run, ui_model_lunch, BaseRunnable
 
 
 class text_area(QWidget):
@@ -171,4 +171,3 @@ class text_area(QWidget):
 
     def stop_model(self):
         pass
-

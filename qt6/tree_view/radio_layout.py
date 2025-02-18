@@ -1,6 +1,3 @@
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QCheckBox
-
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QCheckBox
 
 from common.const.common_const import common_const

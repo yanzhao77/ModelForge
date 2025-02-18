@@ -1,6 +1,6 @@
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenuBar, QMenu
+from PyQt6.QtWidgets import QMenuBar
 
 from qt6 import MainWindow
 
@@ -20,15 +20,11 @@ class plugins_menu(QMenuBar):
         plugins_management = QAction("插件管理", self)
         plugins_menu.addAction(plugins_management)
 
-
-
         # 连接动作到槽函数
         insert_plugin.triggered.connect(self.insert_plugin)
         load_plugin.triggered.connect(self.load_plugin)
 
         plugins_management.triggered.connect(self.plugins_management)
-
-
 
     @pyqtSlot()
     def insert_plugin(self):

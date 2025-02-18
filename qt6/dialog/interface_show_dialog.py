@@ -2,7 +2,7 @@ from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QClipboard
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QComboBox, QLineEdit, QPushButton, QTableWidget,
-    QTableWidgetItem, QApplication, QHBoxLayout, QHeaderView, QFormLayout, QMessageBox
+    QTableWidgetItem, QApplication, QHBoxLayout, QHeaderView, QFormLayout
 )
 from common.const.common_const import common_const, model_enum
 
