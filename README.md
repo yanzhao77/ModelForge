@@ -15,7 +15,5 @@ Nuitka-Plugins:WARNING: options-nanny: Module has parameter: Torch JIT is disabl
 conda打包命令
 # conda create -n modelForge python=3.10
 # conda activate modelForge
-# Pyinstaller -F -w -i C:\\workspace\\pythonDownloads\\ModelForge\\icon\\logo.ico main.py
-
-14:32
-14:48
+# pyinstaller -F -w -i C:\\workspace\\pythonDownloads\\ModelForge\\icon\\logo.ico main.py
+# pyinstaller .\main.spec
