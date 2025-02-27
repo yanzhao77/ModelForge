@@ -17,10 +17,11 @@ class common_const():
     # main
     project_name = "ModelForge"
     version = "1.0.0"
-    icon_main_view = "icon/logo.ico"
-    icon_clouds_view = "icon/treeview/clouds.ico"
-    icon_model_view = "icon/treeview/model.ico"
-    icon_tree_model_view = "icon/treeview/tree_model.ico"
+    icon_main_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/logo.ico')
+    transition_main_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/icon.png')
+    icon_clouds_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/treeview/clouds.ico')
+    icon_model_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/treeview/model.ico')
+    icon_tree_model_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/treeview/tree_model.ico')
 
     default_model_name = "DeepSeek-R1-Distill-Qwen-1.5B"
     default_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'model')
@@ -51,7 +52,6 @@ class common_const():
     interface_type = "interface_type"
     interface_api_key = "interface_api_key"
     interface_base_url = "interface_base_url"
-
 
     interface_COLUMN_HEADERS = ["接口名称", "接口类型", "模型名称", "API Key", "Base URL"]
 

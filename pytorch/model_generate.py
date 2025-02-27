@@ -193,7 +193,7 @@ class model_generate(base_generate):
                 return_tensors="pt",
                 max_length=self.input_max_length,
                 truncation=True
-            ).to(self.device, non_blocking=True)
+            ).to(self.device)
 
             # 动态调整长文本策略
             if inputs.input_ids.shape[1] > 512:
