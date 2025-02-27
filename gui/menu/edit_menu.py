@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMenuBar
+from PySide6.QtWidgets import QMenuBar
 
 
 class edit_menu(QMenuBar):

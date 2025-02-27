@@ -1,7 +1,6 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QTreeView, QVBoxLayout, QWidget
-from PyQt6.QtGui import QIcon, QStandardItemModel, QStandardItem
-from PyQt6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QTreeView, QVBoxLayout, QWidget
+from PySide6.QtGui import QIcon, QStandardItemModel, QStandardItem
 
 class TreeViewWithDelete(QWidget):
     def __init__(self):

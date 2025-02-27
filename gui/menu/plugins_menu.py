@@ -1,8 +1,8 @@
-from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenuBar
+from PySide6.QtCore import Slot
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMenuBar
 
-from qt6 import MainWindow
+from gui import MainWindow
 
 
 class plugins_menu(QMenuBar):
@@ -26,15 +26,15 @@ class plugins_menu(QMenuBar):
 
         plugins_management.triggered.connect(self.plugins_management)
 
-    @pyqtSlot()
+    @Slot()
     def insert_plugin(self):
         pass
 
-    @pyqtSlot()
+    @Slot()
     def load_plugin(self):
         pass
 
-    @pyqtSlot()
+    @Slot()
     def plugins_management(self):
         pass
 
@@ -44,6 +44,6 @@ class plugins_menu(QMenuBar):
     def update_plugin_list(self):
         pass
 
-    @pyqtSlot()
+    @Slot()
     def refresh_plugins(self):
         pass

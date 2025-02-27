@@ -1,6 +1,6 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QLabel, QVBoxLayout, QWidget
-from PyQt6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QMainWindow, QTextEdit, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
 
 class MainWindow(QMainWindow):
     def __init__(self):

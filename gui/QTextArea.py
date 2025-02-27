@@ -1,9 +1,9 @@
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QTextEdit
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QTextEdit
 
 
 class QTextArea(QTextEdit):
-    submitTextSignal = pyqtSignal(str)
+    submitTextSignal = Signal(str)
 
     def __init__(self, *args, **kwargs):
         super(QTextArea, self).__init__(*args, **kwargs)

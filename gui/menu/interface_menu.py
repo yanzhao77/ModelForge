@@ -1,13 +1,13 @@
 import json
 
-from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog
+from PySide6.QtCore import Slot
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMenuBar, QMenu, QDialog
 
-from common.const.common_const import common_const, model_enum
-from qt6.dialog.interface_manager_dialog import InterfaceManagerDialog
-from qt6.dialog.interface_open_dialog import interface_open_dialog
-from qt6.dialog.interface_show_dialog import interface_show_dialog
+from common.const.common_const import common_const, model_enum, interface_xinghuo_enum
+from gui.dialog.interface_manager_dialog import InterfaceManagerDialog
+from gui.dialog.interface_open_dialog import interface_open_dialog
+from gui.dialog.interface_show_dialog import interface_show_dialog
 
 
 class interface_menu(QMenuBar):
@@ -36,7 +36,7 @@ class interface_menu(QMenuBar):
 
         # self.interface_list_menu.aboutToShow.connect(self.recent_interface_list_menu)
 
-    @pyqtSlot()
+    @Slot()
     def create_interface(self):
         dialog = interface_show_dialog(self, flag=False)  # 创建对话框
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -47,7 +47,7 @@ class interface_menu(QMenuBar):
             self.mainWindow.tree_view.load_model(interface_parameters_dict[common_const.model_name],
                                                  interface_parameters_dict)
 
-    @pyqtSlot()
+    @Slot()
     def open_interface(self):
         dialog = interface_open_dialog(self, self.interface_parameters)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -61,7 +61,7 @@ class interface_menu(QMenuBar):
         recent_file_action = QAction(interface_parameters_dict[common_const.model_name], self)
         self.interface_list_menu.addAction(recent_file_action)
 
-    @pyqtSlot()
+    @Slot()
     def interface_management(self):
         dialog = InterfaceManagerDialog(self, interfaces=self.interface_parameters)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -73,25 +73,19 @@ class interface_menu(QMenuBar):
     def update_interface_list(self):
         pass
 
-    @pyqtSlot()
+    @Slot()
     def refresh_interface(self):
         pass
 
-    @pyqtSlot()
+    @Slot()
     def recent_interface_list_menu(self):
         # 清空现有的子菜单
         self.interface_list_menu.clear()
 
     def load_default_interface(self):
-        model_name = "deepseek"
 
-        interface_type = "OpenAI"
-        interface_model_name = "deepseek-chat"
-        interface_api_key = "sk-d0072ee63cc14e82be849eb5f92d8c63"
-        interface_base_url = 'https://api.deepseek.com'
-        return self.setting_interface_default_parameters(model_name, interface_type, interface_model_name,
-                                                         interface_api_key,
-                                                         interface_base_url)
+        return self.setting_interface_default_parameters(interface_xinghuo_enum.model_name.value, interface_xinghuo_enum.interface_type.value, interface_xinghuo_enum.model_type_name.value,
+                                                         interface_xinghuo_enum.api_key.value, interface_xinghuo_enum.base_url.value)
 
     def setting_interface_default_parameters(self, model_name, interface_type, model_type_name, interface_api_key,
                                              interface_base_url):

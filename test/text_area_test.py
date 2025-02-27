@@ -1,9 +1,9 @@
 import sys
 
 import markdown
-from PyQt6.QtCore import Qt, QThreadPool, pyqtSlot
-from PyQt6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
-from PyQt6.QtWidgets import QSplitter, QTextEdit, QLineEdit, QVBoxLayout, QApplication, QMainWindow, \
+from PySide6.QtCore import Qt, QThreadPool, Slot
+from PySide6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
+from PySide6.QtWidgets import QSplitter, QTextEdit, QLineEdit, QVBoxLayout, QApplication, QMainWindow, \
     QWidget
 
 from common.baseCustom.Custom import CustomStdin, CustomStdout
@@ -48,13 +48,13 @@ class text_area(QWidget):
         sys.stdin = CustomStdin(self.input_line_edit)
         sys.stdout = CustomStdout(self.display_text_area)
 
-    @pyqtSlot()
+    @Slot()
     def loading(self, folder_path, models_parameters):
         self.display_text_area.clear()
         model_run = ui_model_lunch(folder_path,models_parameters, self)
         self.thread_pool.start(model_run)
 
-    @pyqtSlot()
+    @Slot()
     def print(self, text):
         if text.strip() == "":
             return
@@ -64,12 +64,12 @@ class text_area(QWidget):
         self.display_text_area.insertHtml(html_content)
         # self.display_text_area.append(text)
 
-    @pyqtSlot()
+    @Slot()
     def append_you(self, text):
         """追加带有 '你: ' 样式的文本"""
         self._append_styled_text("user:  ", 11, True, Qt.GlobalColor.blue, text)
 
-    @pyqtSlot()
+    @Slot()
     def append_model(self, text):
         """追加带有 '模型: ' 样式的文本"""
         self._append_styled_text("model:  ", 11, True, Qt.GlobalColor.blue, text)
@@ -109,7 +109,7 @@ class text_area(QWidget):
         self.input_line_edit.clear()
         self.display_text_area.clear()
 
-    @pyqtSlot()
+    @Slot()
     def submit(self):
         if self.input_line_edit.text().strip() == "":
             return

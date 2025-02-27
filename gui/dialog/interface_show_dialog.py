@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QClipboard
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QClipboard
+from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QComboBox, QLineEdit, QPushButton, QTableWidget,
     QTableWidgetItem, QApplication, QHBoxLayout, QHeaderView, QFormLayout
 )
@@ -145,8 +145,8 @@ class interface_show_dialog(QDialog):
         layout.addWidget(interface_timeout_label)
         layout.addWidget(self.interface_timeout_edit)
 
-        self.model_name_edit.setPlaceholderText("Qwen2.5-0.5B")
-        self.api_key_edit.setPlaceholderText("KjHgFtDzXvNmLpQwRcEa:VbNfTrDxJmZqLkPnGhWc")
+        self.model_name_edit.setPlaceholderText(common_const.default_model_name)
+        self.api_key_edit.setPlaceholderText("*************************************")
         self.base_url_edit.setPlaceholderText("https://spark-api-open.xf-yun.com/v1")
         # self.model_name_edit.setPlaceholderText("deepseek-chat")
         # self.api_key_edit.setPlaceholderText("sk-d0072ee63cc14e82be849eb5f92d8c63")
@@ -221,7 +221,7 @@ class interface_show_dialog(QDialog):
             self.set_data()
             self.interface_name_edit.setEnabled(False)
 
-    @pyqtSlot()
+    @Slot()
     def add_message(self):
         dialog = AddMessageDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -232,7 +232,7 @@ class interface_show_dialog(QDialog):
         self.message_table.clearContents()
         self.message_table.setRowCount(0)
 
-    @pyqtSlot()
+    @Slot()
     def add_message_pair(self, message):
         """
         添加单个消息到消息表中。
@@ -246,7 +246,7 @@ class interface_show_dialog(QDialog):
         self.message_table.setItem(row_count, 0, QTableWidgetItem(role))
         self.message_table.setItem(row_count, 1, QTableWidgetItem(content))
 
-    @pyqtSlot()
+    @Slot()
     def edit_selected_row(self, item):
         selected_items = self.message_table.selectedItems()
         if selected_items:
@@ -259,14 +259,14 @@ class interface_show_dialog(QDialog):
                 self.message_table.setItem(current_row, 0, QTableWidgetItem(data["name"]))
                 self.message_table.setItem(current_row, 1, QTableWidgetItem(data["value"]))
 
-    @pyqtSlot()
+    @Slot()
     def delete_selected_row(self):
         selected_items = self.message_table.selectedItems()
         if selected_items:
             current_row = self.message_table.currentRow()
             self.message_table.removeRow(current_row)
 
-    @pyqtSlot()
+    @Slot   ()
     def copy_selected_row_to_clipboard(self):
         selected_items = self.message_table.selectedItems()
         if selected_items:

@@ -1,7 +1,7 @@
 import sys
 
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QLabel
-from PyQt6.QtGui import QFont
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QLabel
+from PySide6.QtGui import QFont
 
 class MyWindow(QWidget):
     def __init__(self):

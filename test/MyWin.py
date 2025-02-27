@@ -1,7 +1,6 @@
-import sys
-from PyQt6.QtWidgets import *
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QMouseEvent, QAction
+from PySide6.QtWidgets import *
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon, QMouseEvent, QAction
 from ato_upgrade import Ui_app  # 导入生成的 UI 类
 
 class auto_main(QMainWindow, Ui_app):  # 继承 QMainWindow 和生成的 UI 类

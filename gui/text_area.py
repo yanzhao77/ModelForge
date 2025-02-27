@@ -2,14 +2,14 @@ import copy
 import sys
 
 import markdown
-from PyQt6.QtCore import Qt, QThreadPool, pyqtSlot
-from PyQt6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
-from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QThreadPool, Slot
+from PySide6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
+from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 from common.baseCustom.Custom import CustomStdin, CustomStdout
 from common.baseCustom.ui_service import ui_model_run, ui_model_lunch
-from qt6.QTextArea import QTextArea
-from qt6.tree_view.radio_layout import RadioLayout
+from gui.QTextArea import QTextArea
+from gui.tree_view.radio_layout import RadioLayout
 
 
 class text_area(QWidget):
@@ -68,21 +68,21 @@ class text_area(QWidget):
         if self.model_dict and model_name in self.model_dict:
             return self.model_dict[model_name]
 
-    @pyqtSlot()
+    @Slot()
     def loading_model(self, models_parameters):
         self.radio_layout.setVisible(True)
         self.clear_output()
         model_run = ui_model_lunch(models_parameters, self)
         self.thread_pool.start(model_run)
 
-    @pyqtSlot()
+    @Slot()
     def loading_interface(self, models_parameters):
         self.radio_layout.hide()
         self.clear_output()
         model_run = ui_model_lunch(models_parameters, self)
         self.thread_pool.start(model_run)
 
-    @pyqtSlot()
+    @Slot()
     def print(self, text):
         if text.strip() == "":
             return
@@ -92,12 +92,12 @@ class text_area(QWidget):
         self.display_text_area.insertHtml(html_content)
         # self.display_text_area.append(text)
 
-    @pyqtSlot()
+    @Slot()
     def append_you(self, text):
         """追加带有 '你: ' 样式的文本"""
         self._append_styled_text("user:  ", 11, True, Qt.GlobalColor.blue, text)
 
-    @pyqtSlot()
+    @Slot()
     def append_model(self, model_name: str = "model", text: str = ""):
         """追加带有 '模型: ' 样式的文本"""
         self._append_styled_text(f"{model_name}:  ", 11, True, Qt.GlobalColor.blue, text)
@@ -158,7 +158,7 @@ class text_area(QWidget):
     def check_models_parameters(self, models_parameters):
         self.radio_layout.check_models_parameters(models_parameters)
 
-    @pyqtSlot()
+    @Slot()
     def submit(self):
         if self.input_line_edit.toPlainText().strip() == "":
             return

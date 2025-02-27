@@ -11,6 +11,13 @@ class interface_type_enum(Enum):
     openai = "OpenAI"
     xinghuo = "星火"
 
+class interface_xinghuo_enum(Enum):
+    model_name = "Spark Lite"
+    model_type_name = 'general'
+    interface_type = 'OpenAI'
+    api_key = "lENFVHvOGLIGcTBkZROk:sLkBPDgAFbjqlpDgNRll"
+    base_url = 'https://spark-api-open.xf-yun.com/v1'  # 指向讯飞星火的请求地址
+
 
 # 常量
 class common_const():

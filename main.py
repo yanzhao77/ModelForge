@@ -1,10 +1,10 @@
 import sys
 
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
 
 from common.const.common_const import common_const
-from qt6.MainWindow import MainWindow
+from gui.MainWindow import MainWindow
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

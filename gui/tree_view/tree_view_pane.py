@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt, QModelIndex, QTimer
-from PyQt6.QtGui import QStandardItemModel, QStandardItem, QIcon
-from PyQt6.QtWidgets import QTabWidget, QSplitter, QTreeView
+from PySide6.QtCore import Qt, QModelIndex, QTimer
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon
+from PySide6.QtWidgets import QTabWidget, QSplitter, QTreeView
 
 from common.const.common_const import common_const, model_enum
 
@@ -110,8 +110,8 @@ class tree_view_pane(QTabWidget):
     def load_default_model_for_treeview(self):
         interface_dict = self.interface_bar.load_default_interface()
         self.load_for_treeview(interface_dict)
-        model = self.model_bar.load_default_model()
-        self.load_for_treeview(model)
+        # model = self.model_bar.load_default_model()
+        # self.load_for_treeview(model)
 
     def load_model(self, model_name, folder_path):
         if folder_path:

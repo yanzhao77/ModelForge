@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QRunnable
+from PySide6.QtCore import QRunnable
 
 from common.const.common_const import common_const, model_enum
 from pytorch.interface_generate import interface_generate

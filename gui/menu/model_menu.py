@@ -1,15 +1,15 @@
 import os
 
-from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtWidgets import QMenuBar, QMenu, QDialog, QMessageBox
+from PySide6.QtCore import Slot
+from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import QMenuBar, QMenu, QDialog, QMessageBox
 
 from common.const.common_const import common_const, model_enum
 from interface.api_interface_fastapi import FastAPIChatCompletionResource
-from qt6 import MainWindow
-from qt6.dialog.download_model_dialog import DownloadModelMainWindow
-from qt6.dialog.model_open_dialog import model_open_dialog
-from qt6.dialog.model_parameters_dialog import model_parameters_dialog
+from gui import MainWindow
+from gui.dialog.download_model_dialog import DownloadModelMainWindow
+from gui.dialog.model_open_dialog import model_open_dialog
+from gui.dialog.model_parameters_dialog import model_parameters_dialog
 
 
 class model_menu(QMenuBar):
@@ -78,12 +78,12 @@ class model_menu(QMenuBar):
         self.recent_models_menu.aboutToShow.connect(self.recent_model_list)
         self.action_group.triggered.connect(self.api_on_action)  # 每次切换选中项时会触发
 
-    @pyqtSlot()
+    @Slot()
     def create_file(self):
         self.mainWindow.tree_clear()
         self.mainWindow.tree_view.load_default_model_for_treeview()
 
-    @pyqtSlot()
+    @Slot()
     def open_model(self):
         dialog = model_open_dialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -94,11 +94,11 @@ class model_menu(QMenuBar):
     def clear_file(self):
         self.mainWindow.clear_ui()
 
-    @pyqtSlot()
+    @Slot()
     def exit_file(self):
         self.mainWindow.exit_ui()
 
-    @pyqtSlot()
+    @Slot()
     def restart_file(self):
         self.mainWindow.restart()
 
@@ -108,14 +108,14 @@ class model_menu(QMenuBar):
             selected_model = dialog.selected_models
             print(selected_model)
 
-    @pyqtSlot()
+    @Slot()
     def api_on_action(self):
         self.api_on_flag = self.action1.isChecked()
         if self.api is None:
             resource = FastAPIChatCompletionResource(self.api_on_flag, self.mainWindow.text_area)
             resource.thread_run()
 
-    @pyqtSlot()
+    @Slot()
     def recent_model_list(self):
         # 清空现有的子菜单
         self.recent_models_menu.clear()

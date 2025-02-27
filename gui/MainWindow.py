@@ -1,19 +1,19 @@
 import os
 import sys
 
-from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QToolBar, \
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QAction, QIcon
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QToolBar, \
     QProgressBar, QHBoxLayout, QMenuBar
 
 from common.const.common_const import common_const
-from qt6.menu.edit_menu import edit_menu
-from qt6.menu.help_menu import help_menu
-from qt6.menu.interface_menu import interface_menu
-from qt6.menu.model_menu import model_menu
-from qt6.menu.plugins_menu import plugins_menu
-from qt6.text_area import text_area
-from qt6.tree_view.tree_view_pane import tree_view_pane
+from gui.menu.edit_menu import edit_menu
+from gui.menu.help_menu import help_menu
+from gui.menu.interface_menu import interface_menu
+from gui.menu.model_menu import model_menu
+from gui.menu.plugins_menu import plugins_menu
+from gui.text_area import text_area
+from gui.tree_view.tree_view_pane import tree_view_pane
 
 
 class MainWindow(QMainWindow):
@@ -90,19 +90,19 @@ class MainWindow(QMainWindow):
     def load_model_ui(self):
         self.model_bar.open_model()
 
-    @pyqtSlot()
+    @Slot()
     def print(self, text):
         # sys.stdout = sys.__stdout__
         self.text_area.print(text)
 
-    @pyqtSlot()
+    @Slot()
     def input(self, text):
         self.text_area.input(text)
 
     def stop_model(self):
         self.text_area.stop_model()
 
-    @pyqtSlot()
+    @Slot()
     def tree_clear(self):
         self.tree_view.tree_clear()
 

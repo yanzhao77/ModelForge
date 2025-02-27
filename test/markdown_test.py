@@ -1,7 +1,7 @@
 import sys
 
 import markdown
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTextBrowser, QVBoxLayout, QWidget, QTextEdit
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QTextEdit
 
 
 class MarkdownViewer(QMainWindow):

@@ -1,31 +1,29 @@
 import json
 import random
 from http import HTTPStatus
-import dashscope
 from openai import OpenAI
 import requests
-from zhipuai import ZhipuAI
 
-dashscope.api_key = "sk-3f2d7473809f4f0492976b33f3146299"
-
-
-def call_with_messages():
-    messages = [
-        {'role': 'user', 'content': '用萝卜、土豆、茄子做饭，给我个菜谱'}]
-    response = dashscope.Generation.call(
-        'qwen1.5-0.5b-chat',
-        messages=messages,
-        # set the random seed, optional, default to 1234 if not set
-        seed=random.randint(1, 10000),
-        result_format='message',  # set the result to be "message" format.
-    )
-    if response.status_code == HTTPStatus.OK:
-        print(response)
-    else:
-        print('Request id: %s, Status code: %s, error code: %s, error message: %s' % (
-            response.request_id, response.status_code,
-            response.code, response.message
-        ))
+# dashscope.api_key = "sk-3f2d7473809f4f0492976b33f3146299"
+#
+#
+# def call_with_messages():
+#     messages = [
+#         {'role': 'user', 'content': '用萝卜、土豆、茄子做饭，给我个菜谱'}]
+#     response = dashscope.Generation.call(
+#         'qwen1.5-0.5b-chat',
+#         messages=messages,
+#         # set the random seed, optional, default to 1234 if not set
+#         seed=random.randint(1, 10000),
+#         result_format='message',  # set the result to be "message" format.
+#     )
+#     if response.status_code == HTTPStatus.OK:
+#         print(response)
+#     else:
+#         print('Request id: %s, Status code: %s, error code: %s, error message: %s' % (
+#             response.request_id, response.status_code,
+#             response.code, response.message
+#         ))
 
 
 def get_response():
@@ -52,7 +50,7 @@ def get_spark_response():
         messages=[
             {
                 "role": "user",
-                "content": '说一个程序员才懂的笑话'
+                "content": '你是谁？你是哪个版本的模型'
             }
         ]
     )
@@ -99,6 +97,7 @@ def get_glm_4_response():
     )
     print(completion.choices[0].message)
 
+
 def get_glm_4_free():
     client = OpenAI(
         # 控制台获取key和secret拼接，假使控制台获取的APIPassword是123456
@@ -117,15 +116,16 @@ def get_glm_4_free():
     print(completion.choices[0].message)
 
 
-def get_glm_4_2_response():
-    client = ZhipuAI(api_key="0d62ab35210808d52040993cd53788a5.NrIcZR8TpXjbUwrz")  # 请填写您自己的APIKey
-    response = client.chat.completions.create(
-        model="glm-4-flash",  # 请填写您要调用的模型名称
-        messages=[
-            {"role": "user", "content": "说一个程序员才懂的笑话"}
-        ],
-    )
-    print(response.choices[0].message)
+# def get_glm_4_2_response():
+#     client = ZhipuAI(api_key="0d62ab35210808d52040993cd53788a5.NrIcZR8TpXjbUwrz")  # 请填写您自己的APIKey
+#     response = client.chat.completions.create(
+#         model="glm-4-flash",  # 请填写您要调用的模型名称
+#         messages=[
+#             {"role": "user", "content": "说一个程序员才懂的笑话"}
+#         ],
+#     )
+#     print(response.choices[0].message)
+
 
 def get_deepseek():
     client = OpenAI(
@@ -141,9 +141,10 @@ def get_deepseek():
                 "content": '说一个程序员才懂的笑话'
             }
         ],
-    stream = False
+        stream=False
     )
     print(completion.choices[0].message)
+
 
 def get_deepseek1():
     # Please install OpenAI SDK first: `pip3 install openai`
@@ -152,7 +153,8 @@ def get_deepseek1():
         model="deepseek-chat",
         # model="deepseek-reasoner",
         messages=[
-            {"role": "system", "content": "你是一位历史学专家，用户将提供一系列问题，你的回答应当简明扼要，并以`Answer:`开头"},
+            {"role": "system",
+             "content": "你是一位历史学专家，用户将提供一系列问题，你的回答应当简明扼要，并以`Answer:`开头"},
             {"role": "user", "content": "请问秦始皇统一六国是在哪一年？"},
             {"role": "assistant", "content": "Answer:公元前221年"},
             {"role": "user", "content": "请问汉朝的建立者是谁？"},
@@ -167,7 +169,27 @@ def get_deepseek1():
     )
     print(response.choices[0].message.content)
 
+
+def xinghuo():
+    client = OpenAI(
+        # 控制台获取key和secret拼接，假使控制台获取的APIPassword是123456
+        # api_key="lENFVHvOGLIGcTBkZROk:sLkBPDgAFbjqlpDgNRll",
+        api_key="GjbdckSJbPhzZrISUUeL:gWVwFNweCUyBUthigoXN",
+        base_url='https://spark-api-open.xf-yun.com/v1/chat/completions'  # 指向讯飞星火的请求地址
+    )
+    completion = client.chat.completions.create(
+        model='Spark4.0 Ultra',  # 指定请求的版本
+        messages=[
+            {
+                "role": "user",
+                "content": '说一个程序员才懂的笑话'
+            }
+        ]
+    )
+    print(completion.choices[0].message)
+
+
 if __name__ == '__main__':
     # call_with_messages()
     # get_response()
-    get_glm_4_free()
+    get_spark_response()

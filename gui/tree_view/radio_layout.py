@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QCheckBox
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QCheckBox
 
 from common.const.common_const import common_const
 
@@ -26,7 +26,11 @@ class RadioLayout(QWidget):
         # 监听复选框的变化（如果需要）
         self.deepSeek_checkbox.stateChanged.connect(self.on_checkbox_state_changed)
         self.online_search_checkbox.stateChanged.connect(self.on_checkbox_state_changed)
+        self.model_button_hide()
 
+    def model_button_hide(self):
+        self.deepSeek_checkbox.hide()
+        self.online_search_checkbox.hide()
     def on_checkbox_state_changed(self, state):
         if self.text_area.model is None:
             return

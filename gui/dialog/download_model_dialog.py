@@ -5,8 +5,8 @@ import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from PyQt6.QtCore import QThreadPool, Qt, QTimer, pyqtSignal, QObject, QRunnable
-from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout,
+from PySide6.QtCore import QThreadPool, Qt, QTimer, Signal, QObject, QRunnable
+from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                              QMessageBox, QAbstractItemView, QProgressBar,
                              QHeaderView, QLabel, QSizePolicy, QDialog)
@@ -121,10 +121,10 @@ class WorkerSignals(QObject):
     """
     定义工作线程信号类，用于在线程中传递结果、错误、进度和完成信号。
     """
-    finished = pyqtSignal()
-    error = pyqtSignal(str)
-    progress = pyqtSignal(int, str)
-    result = pyqtSignal(object)
+    finished = Signal()
+    error = Signal(str)
+    progress = Signal(int, str)
+    result = Signal(object)
 
 
 class BaseWorker(QRunnable):
@@ -299,7 +299,6 @@ class DownloadModelMainWindow(QDialog):
         self.setLayout(layout)
 
     def _create_model_table(self) -> QTableWidget:
-        from PyQt6.QtWidgets import QTableWidget
         table = QTableWidget()
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(["ID", "模型名称", "框架", "任务类型", "下载量"])

@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QPixmap, QAction
-from PyQt6.QtWidgets import QMenuBar, QDialog, QVBoxLayout, QLabel, QPushButton
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QPixmap, QAction
+from PySide6.QtWidgets import QMenuBar, QDialog, QVBoxLayout, QLabel, QPushButton
 
 from common.const.common_const import common_const
 
@@ -63,7 +63,7 @@ class help_menu(QMenuBar):
         about_action.triggered.connect(self.show_about_dialog)  # 连接槽函数
         help_menu.addAction(about_action)
 
-    @pyqtSlot()
+    @Slot()
     def show_about_dialog(self):
         # 显示关于对话框
         dialog = AboutDialog(self)

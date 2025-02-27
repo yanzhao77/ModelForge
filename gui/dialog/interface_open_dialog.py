@@ -1,5 +1,5 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView
-from PyQt6.QtCore import pyqtSlot
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView
+from PySide6.QtCore import Slot
 
 from common.const.common_const import common_const, model_enum
 
@@ -40,7 +40,7 @@ class interface_open_dialog(QDialog):
             self.table.setItem(row, 0, model_name_item)
             self.table.setItem(row, 1, interface_name_item)
 
-    @pyqtSlot(QTableWidgetItem)
+    @Slot(QTableWidgetItem)
     def on_item_double_clicked(self):
         # selected_row = self.table.currentRow()
         # if selected_row >= 0:

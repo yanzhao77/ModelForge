@@ -81,10 +81,10 @@ class interface_generate(base_generate):
             kwargs['n'] = self.interface_n
         if self.interface_max_tokens is not None:
             kwargs['max_tokens'] = self.interface_max_tokens
-        if self.interface_presence_penalty is not None:
-            kwargs['presence_penalty'] = self.interface_presence_penalty
-        if self.interface_frequency_penalty is not None:
-            kwargs['frequency_penalty'] = self.interface_frequency_penalty
+        # if self.interface_presence_penalty is not None:
+        #     kwargs['presence_penalty'] = self.interface_presence_penalty
+        # if self.interface_frequency_penalty is not None:
+        #     kwargs['frequency_penalty'] = self.interface_frequency_penalty
         if self.interface_timeout is not None:
             kwargs['timeout'] = self.interface_timeout
 
