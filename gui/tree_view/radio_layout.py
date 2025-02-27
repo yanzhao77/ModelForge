@@ -29,8 +29,8 @@ class RadioLayout(QWidget):
         self.model_button_hide()
 
     def model_button_hide(self):
-        self.deepSeek_checkbox.hide()
-        self.online_search_checkbox.hide()
+        self.hide()
+
     def on_checkbox_state_changed(self, state):
         if self.text_area.model is None:
             return
