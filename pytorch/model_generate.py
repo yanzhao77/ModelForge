@@ -12,6 +12,7 @@ from pytorch.webSearcher import WebSearcher
 # 设置环境变量
 os.environ["HF_MODELS_HOME"] = common_const.default_model_path
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["ENABLE_FLASH_ATTENTION"] = "ON"
 # 指定本地模型路径
 local_model_path = common_const.default_model_path
 model_name = "DeepSeek-R1-Distill-Qwen-1.5B"  # 请替换为实际的模型名称
