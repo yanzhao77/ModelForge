@@ -15,7 +15,7 @@ class AboutDialog(QDialog):
 
         # 添加图标
         icon_label = QLabel(self)
-        pixmap = QPixmap(common_const.icon_main_view).scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
+        pixmap = QPixmap(common_const.transition_main_view).scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
                                             Qt.TransformationMode.SmoothTransformation)
         icon_label.setPixmap(pixmap)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
