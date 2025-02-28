@@ -17,3 +17,4 @@ conda打包命令
 # conda activate modelForge
 # pyinstaller -F -w -i C:\\workspace\\pythonDownloads\\ModelForge\\icon\\logo.ico main.py
 # pyinstaller .\main.spec
+# 
