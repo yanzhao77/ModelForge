@@ -1,0 +1,57 @@
+{
+    "project_name": "lifeChat",
+    "version": "峨眉峰_1.0.0",
+    "description": "lifeChat - 一个强大的AI模型应用平台",
+    "author": "azir",
+    "paths": {
+        "workspace_root": "C:\\workspace\\pythonDownloads\\ModelForge"
+    },
+    "default_model_name": "DeepSeek-R1-Distill-Qwen-1.5B",
+    "default_model_path": "C:\\workspace\\pythonDownloads\\ModelForge\\model",
+    "icon_main_view": "C:\\workspace\\pythonDownloads\\ModelForge\\icon/logo.ico",
+    "transition_main_view": "C:\\workspace\\pythonDownloads\\ModelForge\\icon/logo-512x512.png",
+    "transition_main_gif": "C:\\workspace\\pythonDownloads\\ModelForge\\icon/guys/神经网络编织.gif",
+    "icon_clouds_view": "C:\\workspace\\pythonDownloads\\ModelForge\\icon/treeview/clouds.ico",
+    "icon_model_view": "C:\\workspace\\pythonDownloads\\ModelForge\\icon/treeview/model.ico",
+    "icon_tree_model_view": "C:\\workspace\\pythonDownloads\\ModelForge\\icon/treeview/tree_model.ico",
+    "default_language": "zh_CN",
+    "default_theme": "light",
+    "window_title": "lifeChat v峨眉峰_1.0.0",
+    "window_size": {
+        "width": 1280,
+        "height": 720
+    },
+    "window_position": {
+        "x": 100,
+        "y": 100
+    },
+    "icon_paths": {
+        "app": "C:\\workspace\\pythonDownloads\\ModelForge\\icon\\logo.ico",
+        "transition": "C:\\workspace\\pythonDownloads\\ModelForge\\icon\\logo-512x512.png",
+        "transition_gif": "C:\\workspace\\pythonDownloads\\ModelForge\\icon\\guys\\神经网络编织.gif",
+        "clouds": "C:\\workspace\\pythonDownloads\\ModelForge\\icon\\treeview\\clouds.ico",
+        "model": "C:\\workspace\\pythonDownloads\\ModelForge\\icon\\treeview\\model.ico",
+        "tree_model": "C:\\workspace\\pythonDownloads\\ModelForge\\icon\\treeview\\tree_model.ico"
+    },
+    "theme": {
+        "name": "default",
+        "dark_mode": false,
+        "primary_color": "#1a73e8",
+        "secondary_color": "#5f6368",
+        "background_color": "#ffffff",
+        "text_color": "#202124",
+        "font_family": "Microsoft YaHei",
+        "font_size": 14
+    },
+    "locale": {
+        "language": "zh_CN",
+        "timezone": "Asia/Shanghai",
+        "date_format": "%Y-%m-%d",
+        "time_format": "%H:%M:%S",
+        "datetime_format": "%Y-%m-%d %H:%M:%S"
+    },
+    "debug_mode": false,
+    "auto_save": true,
+    "save_interval": 300,
+    "max_history": 100
+}
