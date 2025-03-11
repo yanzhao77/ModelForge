@@ -13,7 +13,11 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                              QHeaderView, QLabel, QSizePolicy)
 from huggingface_hub import model_info, snapshot_download, HfApi
 
-from common.const.common_const import common_const
+from common.const.common_const import common_const, LOG_CONFIG, LoggerNames, get_logger
+
+# 初始化日志系统
+logging.config.dictConfig(LOG_CONFIG)
+logger = get_logger(LoggerNames.ROOT)
 
 # ---------------------------
 # 日志配置

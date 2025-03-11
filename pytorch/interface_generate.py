@@ -1,101 +1,185 @@
 import json
 import os
+from typing import Optional, Dict, Any, List
+from dataclasses import dataclass, field
 
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 
-from common.const.common_const import interface_type_enum
-from pytorch.base_generate import base_generate
+from common.const.common_const import InterfaceType, LoggerNames, get_logger
+from pytorch.base_generate import BaseGenerate
+
+logger = get_logger(LoggerNames.MODEL)
 
 # 设置环境变量
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+@dataclass
+class InterfaceConfig:
+    """接口配置"""
+    api_key: str
+    base_url: str
+    model_name: str
+    model_type: str = InterfaceType.OPENAI.value
+    role: str = "user"
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    n: Optional[int] = None
+    max_tokens: Optional[int] = None
+    presence_penalty: Optional[float] = None
+    frequency_penalty: Optional[float] = None
+    timeout: Optional[int] = None
+    message_dict: List[Dict[str, str]] = field(default_factory=list)
+    
+    def __post_init__(self):
+        """验证配置参数"""
+        if not self.api_key:
+            raise ValueError("API密钥不能为空")
+        if not self.base_url:
+            raise ValueError("基础URL不能为空")
+        if not self.model_name:
+            raise ValueError("模型名称不能为空")
+            
+        # 验证参数范围
+        if self.temperature is not None and not 0 <= self.temperature <= 2:
+            raise ValueError("temperature必须在0到2之间")
+        if self.top_p is not None and not 0 <= self.top_p <= 1:
+            raise ValueError("top_p必须在0到1之间")
+        if self.n is not None and self.n < 1:
+            raise ValueError("n必须大于0")
+        if self.max_tokens is not None and self.max_tokens < 1:
+            raise ValueError("max_tokens必须大于0")
+        if self.timeout is not None and self.timeout < 1:
+            raise ValueError("timeout必须大于0")
 
-class interface_generate(base_generate):
-    def __init__(self,
-                 api_key: str,
-                 base_url: str,
-                 interface_model_name: str,
-                 model_type: str = interface_type_enum.openai.value,
-                 role: str = "user",
-                 interface_temperature: int = None,
-                 interface_top_p: float = None,
-                 interface_n: int = None,
-                 interface_max_tokens: int = None,
-                 interface_presence_penalty: float = None,
-                 interface_frequency_penalty: float = None,
-                 interface_timeout: int = None,
-                 interface_message_dict: dict = None):
+class InterfaceGenerate(BaseGenerate):
+    """接口生成类"""
+    
+    def __init__(self, config: InterfaceConfig):
+        """初始化接口生成器"""
         super().__init__()
         try:
-            # 加载预训练模型和分词器
-            self.command = []
-            self.api_key = api_key
-            self.base_url = base_url
-            self.interface_model_name = interface_model_name
-            self.model_type = model_type
-            self.role = role
-            self.client = None
-
-            self.interface_temperature = interface_temperature
-            self.interface_top_p = interface_top_p
-            self.interface_n = interface_n
-            self.interface_max_tokens = interface_max_tokens
-            self.interface_presence_penalty = interface_presence_penalty
-            self.interface_frequency_penalty = interface_frequency_penalty
-            self.interface_timeout = interface_timeout
-            self.interface_message_dict = interface_message_dict
+            self.config = config
+            self.command: List[str] = []
+            self.client: Optional[OpenAI] = None
+            logger.info(f"接口生成器初始化完成，模型: {config.model_name}")
         except Exception as e:
-            print(f"Error loading model or tokenizer: {e}")
-            return
+            logger.error(f"初始化失败: {str(e)}")
+            raise
 
-    def pipeline_question(self):
+    def pipeline_question(self) -> None:
+        """准备模型管道"""
         try:
             self.client = OpenAI(
-                api_key=self.api_key,  # 如果您没有配置环境变量，请在此处用您的API Key进行替换
-                base_url=self.base_url,  # 填写DashScope SDK的base_url
+                api_key=self.config.api_key,
+                base_url=self.config.base_url
             )
-            # 开始持续对话
-            print("开始对话，输入 'exit' 退出。")
+            logger.info("开始对话，输入 'exit' 退出")
         except Exception as e:
-            print(f"Error during model inference: {e}")
+            logger.error(f"模型管道准备失败: {str(e)}")
+            raise
 
-    def pipeline_answer(self, value):
-        if value.lower() == 'exit':
-            print("结束对话。")
-            return
-
-        self.command.append(value)
-        self.interface_message_dict.append({'role': self.role, 'content': value})
-        # 构建参数字典
-        kwargs = {
-            'model': self.interface_model_name,
-            'messages': self.interface_message_dict
-        }
-
-        # 检查并添加其他参数
-        if self.interface_temperature is not None:
-            kwargs['temperature'] = self.interface_temperature
-        if self.interface_top_p is not None:
-            kwargs['top_p'] = self.interface_top_p
-        if self.interface_n is not None:
-            kwargs['n'] = self.interface_n
-        if self.interface_max_tokens is not None:
-            kwargs['max_tokens'] = self.interface_max_tokens
-        # if self.interface_presence_penalty is not None:
-        #     kwargs['presence_penalty'] = self.interface_presence_penalty
-        # if self.interface_frequency_penalty is not None:
-        #     kwargs['frequency_penalty'] = self.interface_frequency_penalty
-        if self.interface_timeout is not None:
-            kwargs['timeout'] = self.interface_timeout
-
-        # 调用 API
+    def pipeline_answer(self, text: str) -> str:
+        """生成回答"""
         try:
+            if text.lower() == 'exit':
+                logger.info("结束对话")
+                return "对话已结束"
+
+            # 更新消息历史
+            self.command.append(text)
+            self.config.message_dict.append({
+                'role': self.config.role,
+                'content': text
+            })
+
+            # 构建API参数
+            kwargs = self._build_api_kwargs()
+            
+            # 调用API
+            completion = self._call_api(kwargs)
+            if not completion:
+                return ""
+                
+            # 处理响应
+            response = self._process_response(completion)
+            logger.debug(f"生成回答成功，长度: {len(response)}")
+            return response
+            
+        except Exception as e:
+            logger.error(f"生成回答失败: {str(e)}")
+            return ""
+
+    def _build_api_kwargs(self) -> Dict[str, Any]:
+        """构建API参数"""
+        try:
+            kwargs = {
+                'model': self.config.model_name,
+                'messages': self.config.message_dict
+            }
+
+            # 添加可选参数
+            optional_params = {
+                'temperature': self.config.temperature,
+                'top_p': self.config.top_p,
+                'n': self.config.n,
+                'max_tokens': self.config.max_tokens,
+                'timeout': self.config.timeout
+            }
+
+            kwargs.update({
+                k: v for k, v in optional_params.items()
+                if v is not None
+            })
+            
+            logger.debug(f"API参数构建完成: {kwargs}")
+            return kwargs
+            
+        except Exception as e:
+            logger.error(f"构建API参数失败: {str(e)}")
+            raise
+
+    def _call_api(self, kwargs: Dict[str, Any]) -> Optional[ChatCompletion]:
+        """调用API"""
+        try:
+            if not self.client:
+                raise ValueError("客户端未初始化")
+                
             completion = self.client.chat.completions.create(**kwargs)
+            logger.debug("API调用成功")
+            return completion
+            
+        except Exception as e:
+            logger.error(f"API调用失败: {str(e)}")
+            return None
+
+    def _process_response(self, completion: ChatCompletion) -> str:
+        """处理API响应"""
+        try:
             result = completion.model_dump_json()
             result_dict = json.loads(result)['choices'][0]['message']
-            self.command.append(result_dict['content'])
-            self.interface_message_dict.append({'role': "assistant", 'content': result_dict['content']})
-            return result_dict['content']
+            
+            # 更新消息历史
+            response = result_dict['content']
+            self.command.append(response)
+            self.config.message_dict.append({
+                'role': "assistant",
+                'content': response
+            })
+            
+            return response
+            
         except Exception as e:
-            print(f"Error during model inference: {e}")
-            return ""
+            logger.error(f"处理响应失败: {str(e)}")
+            raise
+
+    def release_resources(self) -> None:
+        """释放资源"""
+        try:
+            self.client = None
+            self.command.clear()
+            self.config.message_dict.clear()
+            logger.info("资源已释放")
+        except Exception as e:
+            logger.error(f"释放资源失败: {str(e)}")
+            raise

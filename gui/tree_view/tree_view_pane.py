@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt, QModelIndex, QTimer
 from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PySide6.QtWidgets import QTabWidget, QSplitter, QTreeView
 
-from common.const.common_const import common_const, model_enum
+from common.const.common_const import common_const
 
 
 class tree_view_pane(QTabWidget):

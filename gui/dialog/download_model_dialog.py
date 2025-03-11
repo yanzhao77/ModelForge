@@ -1,4 +1,4 @@
-import logging
+import logging.config
 import os
 import threading
 import traceback
@@ -7,24 +7,15 @@ from typing import List, Dict, Any, Optional
 
 from PySide6.QtCore import QThreadPool, Qt, QTimer, Signal, QObject, QRunnable
 from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout,
-                             QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
-                             QMessageBox, QAbstractItemView, QProgressBar,
-                             QHeaderView, QLabel, QSizePolicy, QDialog)
+                               QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+                               QMessageBox, QAbstractItemView, QProgressBar,
+                               QHeaderView, QLabel, QSizePolicy, QDialog)
 from huggingface_hub import model_info, snapshot_download, HfApi
 
-from common.const.common_const import common_const
+from common.const.config import get_logger, LoggerNames, config_manager
 
-# ---------------------------
-# 日志配置
-# ---------------------------
-log_dir = os.path.join(os.path.dirname(common_const.default_model_path), 'log')
-os.makedirs(log_dir, exist_ok=True)
-logging.basicConfig(
-    filename=os.path.join(log_dir, 'hf_downloader.log'),
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    filemode='a'
-)
+# 初始化日志系统
+logger = get_logger(LoggerNames.ROOT)
 
 
 # ---------------------------
@@ -33,7 +24,7 @@ logging.basicConfig(
 class AppConfig:
     HF_ENDPOINT = "https://hf-mirror.com"
     PAGE_SIZE = 50
-    DOWNLOAD_DIR = Path(common_const.default_model_path).expanduser()
+    DOWNLOAD_DIR = Path(config_manager.app_config.default_model_path).expanduser()
     MAX_RETRIES = 3
     CACHE_EXPIRE = 3600  # 1小时缓存
     MAX_CONCURRENT = 4  # 最大并发下载数
