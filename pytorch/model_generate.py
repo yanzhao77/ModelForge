@@ -9,44 +9,38 @@ from common.const.common_const import common_const
 from pytorch.base_generate import base_generate
 from pytorch.webSearcher import WebSearcher
 
-# 设置环境变量
+# 新增：导入llama-cpp-python
+try:
+    from llama_cpp import Llama
+    llama_cpp_available = True
+except ImportError:
+    llama_cpp_available = False
+
 os.environ["HF_MODELS_HOME"] = common_const.default_model_path
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["ENABLE_FLASH_ATTENTION"] = "ON"
-# 指定本地模型路径
 local_model_path = common_const.default_model_path
-model_name = "DeepSeek-R1-Distill-Qwen-1.5B"  # 请替换为实际的模型名称
+model_name = "DeepSeek-R1-Distill-Qwen-1.5B"
 defeat_model_path = os.path.join(local_model_path, model_name)
 
+def is_gguf_model(model_path):
+    # 判断是否为gguf文件
+    if os.path.isfile(model_path) and model_path.lower().endswith(".gguf"):
+        return True
+    # 目录下是否有gguf文件
+    if os.path.isdir(model_path):
+        for f in os.listdir(model_path):
+            if f.lower().endswith(".gguf"):
+                return True
+    return False
 
 def monitor_performance(func):
-    def wrapper(self, *args, **kwargs):
-        start_time = time.time()
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # 如果是CUDA设备，则重置显存统计信息
-        if device.type == 'cuda':
-            torch.cuda.reset_peak_memory_stats(device)
-
-        try:
-            result = func(self, *args, **kwargs)
-        except Exception as e:
-            print(f"Error occurred in {func.__name__}: {e}")
-            raise  # 重新抛出异常
-        finally:
-            elapsed_time = time.time() - start_time
-            if device.type == 'cuda':
-                max_memory_allocated = torch.cuda.max_memory_allocated(device) // (1024 ** 2)
-            else:
-                max_memory_allocated = 0  # CPU不计算显存使用情况
-
-            print(f"生成耗时: {elapsed_time:.2f}s")
-            if device.type == 'cuda':
-                print(f"显存峰值显存峰值: {max_memory_allocated}MB")
-
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        print(f"{func.__name__} 执行耗时: {time.time() - start:.2f}s")
         return result
-
     return wrapper
-
 
 class model_generate(base_generate):
     def __init__(self,
@@ -61,28 +55,42 @@ class model_generate(base_generate):
                  is_deepSeek=False,
                  online_search=False,
                  ):
-
         super().__init__()
+        self.model_path = model_path
+        self.max_new_tokens = max_new_tokens
+        self.do_sample = do_sample
+        self.temperature = temperature
+        self.top_k = top_k
+        self.input_max_length = input_max_length
+        self.is_running = True
+        self.message_dict = [] if message_dict is None else message_dict
+        self.repetition_penalty = repetition_penalty
+        self.is_deepSeek = is_deepSeek
+        self.online_search = online_search
+        self.generation_priority = {
+            "normal": {"num_beams": 3, "max_new_tokens": 500},
+            "speed": {"num_beams": 1, "max_new_tokens": 300},
+            "quality": {"num_beams": 5, "max_new_tokens": 800}
+        }
+        self.is_gguf = is_gguf_model(model_path)
+        self.llama_cpp_model = None
         try:
-            # 加载预训练模型和分词器
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-            self.model_path = model_path
-            self.command = []
-            self.max_new_tokens = max_new_tokens  # 生成的新 tokens 数量，可以根据需要调整
-            self.do_sample = do_sample  # 启用基于温度的采样
-            self.temperature = temperature  # 控制生成文本的多样性
-            self.top_k = top_k  # 控制生成文本的质量
-            self.input_max_length = input_max_length  # 指定序列的最大长度。如果序列超过这个长度，将会被截断；如果序列短于这个长度，将会被填充
-            self.is_running = True  # 标志变量，控制对话是否继续
-            self.message_dict = [] if message_dict is None else message_dict  # 维护对话历史
-            self.repetition_penalty = repetition_penalty
-            self.is_deepSeek = is_deepSeek
-            self.online_search = online_search
-            self.generation_priority = {
-                "normal": {"num_beams": 3, "max_new_tokens": 500},
-                "speed": {"num_beams": 1, "max_new_tokens": 300},
-                "quality": {"num_beams": 5, "max_new_tokens": 800}
-            }
+            if self.is_gguf:
+                if not llama_cpp_available:
+                    raise ImportError("llama-cpp-python未安装，无法加载gguf模型")
+                # 查找gguf文件路径
+                if os.path.isfile(model_path):
+                    gguf_path = model_path
+                else:
+                    gguf_files = [os.path.join(model_path, f) for f in os.listdir(model_path) if f.lower().endswith(".gguf")]
+                    if not gguf_files:
+                        raise FileNotFoundError("未找到gguf模型文件")
+                    gguf_path = gguf_files[0]
+                self.llama_cpp_model = Llama(model_path=gguf_path, n_ctx=self.input_max_length)
+                self.tokenizer = None  # llama-cpp自带tokenizer
+                print(f"已使用llama-cpp-python加载gguf模型: {gguf_path}")
+            else:
+                self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         except Exception as e:
             print(f"Error loading model or tokenizer: {e}")
             self.is_running = False
@@ -90,45 +98,42 @@ class model_generate(base_generate):
 
     def pipeline_question(self):
         try:
-            # 如果模型没有设置 pad_token_id，手动设置
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-            # 确保模型和数据都在 CPU 上
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_path,
-                trust_remote_code=True,
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
-            ).to(self.device)
-            print(f"Using device: {self.device}")
-            self.model.eval()
-            # 开始持续对话
-            print("开始对话，输入 'exit' 退出。")
-            # prompt = input("你: ")
+            if self.is_gguf:
+                print("已加载gguf模型，准备推理。")
+                self.device = "cpu"
+                self.model = self.llama_cpp_model
+                print("输入 'exit' 退出")
+            else:
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+                self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_path,
+                    trust_remote_code=True,
+                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
+                ).to(self.device)
+                print(f"Using device: {self.device}")
+                self.model.eval()
+                print("模型加载完成，输入 'exit' 退出")
         except Exception as e:
             print(f"Error during model inference: {e}")
             self.is_running = False
 
     def pipeline_answer(self, question):
         if question.lower() == 'exit':
-            print("结束对话。")
+            print("退出对话")
             self.release_resources()
             self.is_running = False
             return
 
-        # 网络搜索增强
         if self.need_web_search(question) or self.online_search:
             search_results = WebSearcher.cached_search(question)
-            search_context = "\n".join([f"• {item['title']}: {item['content']}"
-                                        for item in search_results])
-            question = f"{question}\n[相关网络信息]:\n{search_context}"
-            # 添加用户输入到历史
-            # 生成时添加思维链
+            search_context = "\n".join([f"• {item['title']}: {item['content']}" for item in search_results])
+            question = f"{question}\n[网络搜索结果]:\n{search_context}"
         self.message_dict.append({
             "role": "user",
-            "content": f"{question}\n思考后给出详细回答："
+            "content": f"{question}\n请用中文回答"
         })
-        # 构造包含历史对话的完整提示
         conversation = ""
         for msg in self.message_dict:
             if msg["role"] == "user":
@@ -141,10 +146,10 @@ class model_generate(base_generate):
         except RuntimeError as e:
             if "CUDA out of memory" in str(e):
                 self.handle_memory_error()
-                return "生成内容过长，已自动优化，请重试"
-            return f"生成错误：{str(e)}"
+                return "显存不足，请减少生成长度或重试"
+            return f"运行时错误: {str(e)}"
         except Exception as e:
-            return f"意外错误：{str(e)}"
+            return f"发生异常: {str(e)}"
 
         # 将助手的回答也添加到对话历史中
         self.message_dict.append({"role": "assistant", "content": response})
@@ -159,60 +164,52 @@ class model_generate(base_generate):
 
     @monitor_performance
     def generate_response(self, prompt):
-        # 动态生成参数配置
-        generation_config = self._get_generation_config()
-
-        # 添加系统提示词增强思考深度
-        if self.is_deepSeek:
-            enhanced_prompt = (
-                "【深度思考模式】你是一个严谨的AI助手，请按照以下步骤分析：\n"
-                "1. 问题本质分析\n2. 多角度验证\n3. 逻辑推理\n4. 最终结论\n"
-                f"对话历史：{prompt}\n回答："
+        if self.is_gguf:
+            # llama-cpp-python推理
+            output = self.llama_cpp_model(
+                prompt,
+                max_tokens=self.max_new_tokens,
+                temperature=self.temperature,
+                top_k=self.top_k,
+                stop=["User:"]
             )
+            response = output["choices"][0]["text"]
+            return self.format_response(response)
         else:
-            enhanced_prompt = (
-                "【快速响应模式】请直接给出简明回答：\n"
-                f"{prompt}\n回答："
-            )
-            generation_config["early_stopping"] = False  #early_stopping只适用于波束搜索
+            generation_config = self._get_generation_config()
+            tokens = self.tokenizer.encode(prompt, truncation=False)
+            if len(tokens) > self.input_max_length - 100:
+                truncated = self.tokenizer.decode(
+                    tokens[:self._get_truncate_length()],
+                    skip_special_tokens=True
+                )
+                prompt = f"[内容过长已截断]...{truncated}"
+            with torch.inference_mode():
+                inputs = self.tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    max_length=self.input_max_length,
+                    truncation=True
+                ).to(self.device)
+                if inputs.input_ids.shape[1] > 512:
+                    generation_config["num_beams"] = max(1, generation_config["num_beams"] - 1)
+                    generation_config["temperature"] = max(0.4, generation_config["temperature"])
+                outputs = self.model.generate(
+                    **inputs,
+                    **generation_config
+                )
+                response = self.tokenizer.decode(
+                    outputs[0],
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True
+                )
+            return self.postprocess_response(response, original_prompt=prompt)
 
-
-        # 对整段对话进行编码
-        # 长文本策略调整
-        tokens = self.tokenizer.encode(enhanced_prompt, truncation=False)
-        if len(tokens) > self.input_max_length - 100:
-            truncated = self.tokenizer.decode(
-                tokens[:self._get_truncate_length()],
-                skip_special_tokens=True
-            )
-            enhanced_prompt = f"[截断提示]...{truncated}"
-
-            # 生成过程优化
-        with torch.inference_mode():
-            inputs = self.tokenizer(
-                enhanced_prompt,
-                return_tensors="pt",
-                max_length=self.input_max_length,
-                truncation=True
-            ).to(self.device)
-
-            # 动态调整长文本策略
-            if inputs.input_ids.shape[1] > 512:
-                generation_config["num_beams"] = max(1, generation_config["num_beams"] - 1)
-                generation_config["temperature"] = max(0.4, generation_config["temperature"])
-
-            outputs = self.model.generate(
-                **inputs,
-                **generation_config
-            )
-
-            response = self.tokenizer.decode(
-                outputs[0],
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=True
-            )
-
-        return self.postprocess_response(response, original_prompt=prompt)
+    def format_response(self, text):
+        """格式化响应文本"""
+        # 自动分段处理
+        text = re.sub(r"(\n{3,})", "\n\n", text)  # 合并多余空行
+        return text.strip()
 
     def _get_generation_config(self):
         """动态生成参数配置"""
