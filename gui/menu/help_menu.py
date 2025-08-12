@@ -28,16 +28,17 @@ class AboutDialog(QDialog):
 
         # 添加描述
         description_text = """
-        <p>Welcome to ModelForge 1.0, the ultimate tool for managing and running your machine learning models!</p>
-        <p>With ModelForge, you can easily load, run, and switch between different models, all from a user-friendly interface.</p>
-        <p>Features:</p>
+        <p><b>ModelForge</b> 是一个本地大模型推理与训练平台，支持多种模型格式（如 <b>safetensors</b>、<b>gguf</b>），可通过图形界面与模型交互，支持在线搜索增强与性能监控。</p>
         <ul>
-            <li>Load and run multiple models</li>
-            <li>Switch between models seamlessly</li>
-            <li>Manage resources efficiently</li>
-            <li>User-friendly GUI</li>
+            <li>支持 HuggingFace Transformers（safetensors）和 llama-cpp-python（gguf）模型加载与推理</li>
+            <li>自动识别模型格式，智能选择推理后端</li>
+            <li>PySide6 图形界面，支持启动过渡动画</li>
+            <li>在线搜索增强（Web Search）</li>
+            <li>性能监控与日志输出</li>
+            <li>支持 Windows 平台一键打包</li>
         </ul>
-        <p>Thank you for using ModelForge 1.0!</p>
+        <p>适合 AI 开发者和研究者在本地环境下高效调用和微调大模型。</p>
+        <p style="color:gray;font-size:small;">仅供学习与研究使用，禁止用于商业用途。</p>
         """
         description_label = QLabel(description_text, self)
         description_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
