@@ -4,7 +4,7 @@ import sys
 import markdown
 from PySide6.QtCore import Qt, QThreadPool, Slot
 from PySide6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
-from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget, QTextBrowser
 
 from common.baseCustom.Custom import CustomStdin, CustomStdout
 from common.baseCustom.ui_service import ui_model_run, ui_model_lunch
@@ -25,8 +25,8 @@ class text_area(QWidget):
         layout = QVBoxLayout()
         self.setLayout(layout)
         # 上面的文本区域 (只显示文本)
-        self.display_text_area = QTextArea()
-        self.display_text_area.setReadOnly(True)
+        self.display_text_area = QTextBrowser()
+        # self.display_text_area.setReadOnly(True)
         self.progress_bar = None
         # 下面的单行输入区域(允许输入)
         self.input_line_edit = QTextArea()
@@ -87,10 +87,8 @@ class text_area(QWidget):
         if text.strip() == "":
             return
         self.display_text_area.append("")
-        html_content = markdown.markdown(text)
-        self.display_text_area.moveCursor(QTextCursor.MoveOperation.End)
-        self.display_text_area.insertHtml(html_content)
-        # self.display_text_area.append(text)
+        self.display_text_area.append(text)
+        self.display_text_area.setMarkdown(text)
 
     @Slot()
     def append_you(self, text):
