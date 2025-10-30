@@ -26,6 +26,7 @@ class common_const():
     version = "1.0.0"
     icon_main_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/logo.ico')
     transition_main_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/android-chrome-512x512.png')
+    sayThankyou_main_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/sayThankyou.jpeg')
     transition_main_gif = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/guys/神经网络编织.gif')
     icon_clouds_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/treeview/clouds.ico')
     icon_model_view = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'icon/treeview/model.ico')
