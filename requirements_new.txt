@@ -1,0 +1,42 @@
+# ModelForge 依赖包（更新版）
+
+# 深度学习框架
+#torch 版本和 torchaudio torchvision 是绑定关系
+#pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 torchaudio==2.2.0 --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu118/
+torch==2.2.0+cu118
+torchaudio==2.2.0+cu118
+torchvision==0.17.0+cu118
+
+# 模型推理
+transformers>=4.30.0
+llama-cpp-python==0.3.8
+datasets
+
+# API 框架
+falcon==4.0.2
+fastapi==0.115.8
+uvicorn==0.34.0
+
+# 数据库
+sqlalchemy>=2.0.0
+alembic>=1.12.0
+
+# 认证和安全
+pyjwt>=2.8.0
+passlib>=1.7.4
+bcrypt>=4.0.1
+
+# GUI
+PySide6>=6.5.0
+
+# 工具库
+NumPy==1.26.4
+pydantic>=2.0.0
+Markdown
+duckduckgo_search
+huggingface_hub
+openai
+
+# 可选：向量化存储（用于高级记忆功能）
+# sentence-transformers
+# faiss-cpu

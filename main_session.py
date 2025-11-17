@@ -1,3 +1,6 @@
+"""
+ModelForge 主程序入口（支持会话管理和记忆系统）
+"""
 import sys
 import time
 
@@ -6,34 +9,42 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen
 
 from common.const.common_const import common_const
-from gui.MainWindow import MainWindow
+from gui.SessionMainWindow import SessionMainWindow
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-
+    
     # 设置应用图标
     app.setWindowIcon(QIcon(common_const.icon_main_view))
-
-    # 创建 Splash Screen（可以换成你的启动图片）
+    
+    # 创建 Splash Screen
     splash_pixmap = QPixmap(common_const.transition_main_view)
     splash = QSplashScreen(splash_pixmap)
-    splash.showMessage("正在加载，请稍候...", Qt.AlignBottom | Qt.AlignHCenter, Qt.black)
+    splash.showMessage("正在初始化数据库...", Qt.AlignBottom | Qt.AlignHCenter, Qt.black)
     splash.show()
-
-    # 处理事件循环，避免卡顿
+    
+    # 处理事件循环
     app.processEvents()
-
+    
     # 模拟加载过程
-    for i in range(1, 6):
-        time.sleep(0.5)  # 这里可以替换为实际的初始化逻辑
-        splash.showMessage(f"加载进度：{i * 20}%", Qt.AlignBottom | Qt.AlignHCenter, Qt.black)
+    loading_steps = [
+        "初始化数据库...",
+        "加载用户配置...",
+        "准备模型环境...",
+        "启动会话管理...",
+        "完成初始化..."
+    ]
+    
+    for i, step in enumerate(loading_steps):
+        time.sleep(0.3)
+        splash.showMessage(step, Qt.AlignBottom | Qt.AlignHCenter, Qt.black)
         app.processEvents()
-
+    
     # 创建主窗口
-    window = MainWindow()
-
+    window = SessionMainWindow()
+    
     # 关闭 Splash Screen，显示主窗口
     splash.finish(window)
     window.show()
-
+    
     sys.exit(app.exec())

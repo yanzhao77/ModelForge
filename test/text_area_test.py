@@ -2,99 +2,70 @@ import sys
 
 import markdown
 from PySide6.QtCore import Qt, QThreadPool, Slot
-from PySide6.QtGui import QTextCursor, QFont, QTextCharFormat, QColor
-from PySide6.QtWidgets import QSplitter, QTextEdit, QLineEdit, QVBoxLayout, QApplication, QMainWindow, \
-    QWidget
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QSplitter, QLineEdit, QVBoxLayout, QApplication, QMainWindow, QWidget, QTextBrowser
 
 from common.baseCustom.Custom import CustomStdin, CustomStdout
-from common.baseCustom.ui_service import ui_model_run, ui_model_lunch
-
 
 class text_area(QWidget):
     def __init__(self):
         super().__init__()
 
-        # 初始化线程池
+        # 初始化线程池及其他变量
         self.thread_pool = QThreadPool()
         self.model = None
-        # 创建垂直布局
         self.message = []
+        # 用于累计所有 Markdown 文本的变量
+        self.all_markdown = "这是一个只显示的文本区域。"
+
         layout = QVBoxLayout()
         self.setLayout(layout)
-        # 上面的文本区域 (只显示文本)
-        self.display_text_area = QTextEdit()
-        self.display_text_area.setReadOnly(True)
-        self.display_text_area.setPlainText("这是一个只显示的文本区域。")
+
+        # 创建只显示文本的 QTextBrowser，并设置初始 Markdown 内容
+        self.display_text_area = QTextBrowser()
+        self.display_text_area.setMarkdown(self.all_markdown)
         self.progress_bar = None
-        # 下面的单行输入区域(允许输入)
+
+        # 创建单行输入区域（允许输入）
         self.input_line_edit = QLineEdit()
         self.input_line_edit.setPlaceholderText("请输入...")
-        # 设置字体
-        # font = QFont("SimSun", 12)  # 设置字体类型  设置字体大小
         self.font = QFont("Microsoft YaHei", 10)
         self.input_line_edit.setFont(self.font)
         self.input_line_edit.setMaximumHeight(32)
-
         self.display_text_area.setFont(self.font)
-        # 创建垂直分割器
+
+        # 创建垂直分割器，将 QTextBrowser 和 QLineEdit 分开放置
         right_pane = QSplitter(Qt.Orientation.Vertical)
         right_pane.addWidget(self.display_text_area)
         right_pane.addWidget(self.input_line_edit)
-        right_pane.setSizes([350, 50])  # 设置右侧上下文本区域的初始大小
-        # 将分割器添加到布局中
+        right_pane.setSizes([350, 50])
         layout.addWidget(right_pane)
+
+        # 当回车时调用 submit 方法
         self.input_line_edit.returnPressed.connect(self.submit)
-        # 重定向标准输入
+
+        # 重定向标准输入输出（如果有需要）
         sys.stdin = CustomStdin(self.input_line_edit)
         sys.stdout = CustomStdout(self.display_text_area)
 
     @Slot()
-    def loading(self, folder_path, models_parameters):
-        self.display_text_area.clear()
-        model_run = ui_model_lunch(folder_path,models_parameters, self)
-        self.thread_pool.start(model_run)
-
-    @Slot()
-    def print(self, text):
-        if text.strip() == "":
-            return
-        self.display_text_area.append("")
-        html_content = markdown.markdown(text)
-        self.display_text_area.moveCursor(QTextCursor.MoveOperation.End)
-        self.display_text_area.insertHtml(html_content)
-        # self.display_text_area.append(text)
-
-    @Slot()
     def append_you(self, text):
-        """追加带有 '你: ' 样式的文本"""
-        self._append_styled_text("user:  ", 11, True, Qt.GlobalColor.blue, text)
+        """追加用户输入的文本，使用 Markdown 格式（加粗显示 'user:'）"""
+        self.all_markdown += f"\n\n**user:** {text}"
+        self.display_text_area.setMarkdown(self.all_markdown)
 
-    @Slot()
-    def append_model(self, text):
-        """追加带有 '模型: ' 样式的文本"""
-        self._append_styled_text("model:  ", 11, True, Qt.GlobalColor.blue, text)
+    # @Slot()
+    # def append_model(self, text):
+    #     """追加模型输出的文本"""
+    #     self.all_markdown += f"\n\n**model:** {text}"
+    #     self.append_markdown(self.all_markdown)
 
-    def _append_styled_text(self, prefix, size, bold, color, text):
-        self.display_text_area.append("")
-        """内部方法，用于追加带有样式的文本"""
-        cursor = self.display_text_area.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-
-        # 应用前缀样式
-        format_prefix = QTextCharFormat()
-        format_prefix.setFontPointSize(size)
-        if bold:
-            format_prefix.setFontWeight(QFont.Weight.Bold)
-        else:
-            format_prefix.setFontWeight(QFont.Weight.Normal)
-        format_prefix.setForeground(QColor(color))
-        cursor.insertText(prefix, format_prefix)
-        # 应用普通文本样式
-        format_text = QTextCharFormat()
-        format_text.setFontPointSize(self.font.pointSize())
-        format_text.setFontWeight(QFont.Weight.Normal)
-        format_text.setForeground(QColor(Qt.GlobalColor.black))
-        cursor.insertText(text, format_text)
+    def append_markdown(self, text):
+        # 先将 Markdown 转换为 HTML
+        html = markdown.markdown(text)
+        # 追加 HTML 到 QTextBrowser 中
+        self.all_markdown += "\n" + html
+        self.display_text_area.setHtml(self.all_markdown)
 
     def input(self, text):
         self.input_line_edit.setText(text)
@@ -108,30 +79,25 @@ class text_area(QWidget):
     def clear(self):
         self.input_line_edit.clear()
         self.display_text_area.clear()
+        self.all_markdown = ""
 
     @Slot()
     def submit(self):
-        if self.input_line_edit.text().strip() == "":
+        input_text = self.get_input_text()
+        if input_text.strip() == "":
             return
-            # 显示进度条并初始化进度
-        self.progress_bar.setVisible(True)
-        self.message.append(self.get_input_text())
-        # self.print("你: " + self.get_input_text())
-        self.append_you(self.get_input_text())
-        model_lunch = ui_model_run(self.get_input_text(), self.model, self)
-        self.thread_pool.start(model_lunch)
-        self.clear_input()
+        self.message.append(input_text)
+        self.append_you(input_text)
+        self.input_line_edit.clear()
 
     def stop_model(self):
         pass
 
-
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    text_area = text_area()
+    widget = text_area()
     window = QMainWindow()
     window.setMinimumSize(800, 500)
-
-    window.setCentralWidget(text_area)
+    window.setCentralWidget(widget)
     window.show()
     sys.exit(app.exec())
