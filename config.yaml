@@ -1,0 +1,4 @@
+﻿# ModelForge 2.0 Configuration
+model_path: ./models
+database_path: ./data/modelforge.db
+log_level: INFO
