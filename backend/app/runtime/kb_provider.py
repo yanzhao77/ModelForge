@@ -1,0 +1,36 @@
+"""KnowledgeProvider + HistoryProvider adapters for the Context Engine."""
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+
+class KBKnowledgeProvider:
+    """KnowledgeProvider port backed by the RAG knowledge base (spec 18)."""
+
+    def __init__(self, kb: Any = None):
+        self._kb = kb
+
+    async def retrieve(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        kb = self._kb
+        if kb is None:
+            from services.knowledge_base import get_global_kb
+            kb = get_global_kb()
+        result = kb.query(query, top_k=top_k)
+        return [
+            {"text": r.get("text", ""), "source": r.get("source", "?")}
+            for r in (result.get("results") or [])
+        ]
+
+
+class SessionHistoryProvider:
+    """HistoryProvider port backed by the sessions table (spec 5)."""
+
+    async def load(self, session_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+        from core.database import SessionLocal
+        from services.session_service import SessionService
+        with SessionLocal() as db:
+            msgs = SessionService.get_session_messages(db, session_id, limit=limit, offset=0)
+            return [
+                {"role": m.role, "content": m.content}
+                for m in msgs if m.role in ("user", "assistant")
+            ]

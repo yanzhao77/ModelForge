@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 from core.config import RuntimeSettings, Settings, settings as global_settings
 
 from .cancellation import CancellationToken
-from .context import RunContext
+from .run_context import RunContext
 from .errors import (
     AgentNotFoundError, ModelUnavailableError, RunNotFoundError, RuntimeError,
 )

@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
 from runtime.cancellation import CancellationToken
-from runtime.context import RunContext
+from runtime.run_context import RunContext
 from runtime.execution import ExecutionEngine
 from runtime.models import MockProvider, ModelResult
 from runtime.types import AgentConfig, RunRecord, RunStatus

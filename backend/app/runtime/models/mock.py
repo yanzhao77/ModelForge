@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 from typing import Any, Callable, Dict, List, Optional
 
 from .base import ModelProvider, ModelResult, ToolCall
@@ -50,7 +52,10 @@ class MockProvider(ModelProvider):
         self.call_count += 1
         self.calls.append({"messages": messages, "tools": tools, "index": self.call_count})
         if self.callback is not None:
-            return self.callback(messages, tools, self.call_count)
+            result = self.callback(messages, tools, self.call_count)
+            if asyncio.iscoroutine(result) or inspect.isawaitable(result):
+                result = await result
+            return result
         if self.script:
             return self.script.pop(0)
         return ModelResult(content="", model="mock")

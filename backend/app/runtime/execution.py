@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, Optional
 
 from .cancellation import CancellationToken
-from .context import RunContext, ToolExecutionContext
+from .run_context import RunContext, ToolExecutionContext
 from .errors import (
     AgentLoopLimitError, AgentToolCallLimitError, RunCancelledError,
     RunTimeoutError, RuntimeError, ToolNotFoundError, ToolTimeoutError,
@@ -48,7 +48,9 @@ class ExecutionEngine:
     ) -> Dict[str, Any]:
         """Run the loop; never raises - returns an outcome dict (spec 20)."""
         state = AgentState(run_id=ctx.run_id)
-        if ctx.system_prompt:
+        # system prompt is assembled by the ContextEngine when one is configured;
+        # otherwise keep it inline for plain runs (spec 68).
+        if self.context_builder is None and ctx.system_prompt:
             state.messages.append({"role": "system", "content": ctx.system_prompt})
         state.messages.append({"role": "user", "content": ctx.input_text or ""})
 

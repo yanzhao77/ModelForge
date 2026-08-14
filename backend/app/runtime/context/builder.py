@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+from ..run_context import RunContext
+
+
+class ContextBuilder:
+    """Builds the final LLM context (spec 16 pipeline):
+
+    User Input -> System Prompt -> Session History -> Memory Retrieval ->
+    Knowledge Retrieval -> Tool State -> Context Budget -> Final Prompt.
+    """
+
+    def __init__(
+        self,
+        *,
+        memory_provider: Any = None,
+        knowledge_provider: Any = None,
+        history_provider: Any = None,
+    ):
+        self.memory_provider = memory_provider
+        self.knowledge_provider = knowledge_provider
+        self.history_provider = history_provider
+
+    async def build(
+        self,
+        ctx: RunContext,
+        working_messages: List[Dict[str, Any]],
+        iteration: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Return the prompt message list for the current LLM call."""
+        system = ctx.system_prompt or "You are a helpful AI agent running tasks for the user."
+        extras: List[str] = []
+
+        # memory retrieval (spec 17)
+        memories = await self._retrieve_memories(ctx)
+        if memories:
+            extras.append("[用户记忆]")
+            extras.extend(f"- {m}" for m in memories)
+
+        # knowledge retrieval (spec 18) - only when the agent declared sources
+        knowledge = await self._retrieve_knowledge(ctx)
+        if knowledge:
+            extras.append("[知识库资料]")
+            extras.extend(f"- [{k.get('source', '?')}] {k.get('text', '')}" for k in knowledge)
+
+        if extras:
+            system = system + "\n\n" + "\n".join(extras)
+
+        prompt: List[Dict[str, Any]] = [{"role": "system", "content": system}]
+
+        # session history (spec 5: Session is long-term context)
+        if self.history_provider is not None and ctx.session_id is not None:
+            try:
+                history = await self.history_provider.load(ctx.session_id, limit=20)
+                prompt.extend(history)
+            except Exception:
+                pass
+
+        prompt.extend(working_messages)
+        return self._trim(prompt, ctx.max_context_tokens)
+
+    async def _retrieve_memories(self, ctx: RunContext) -> List[str]:
+        if self.memory_provider is None or ctx.user_id is None:
+            return []
+        if not ctx.memory_config:
+            return []
+        try:
+            items = await self.memory_provider.retrieve(
+                ctx.user_id, ctx.input_text, top_k=3,
+            )
+            return [str(i.get("value", "")) for i in items if i.get("value")]
+        except Exception:
+            return []
+
+    async def _retrieve_knowledge(self, ctx: RunContext) -> List[Dict[str, Any]]:
+        if self.knowledge_provider is None:
+            return []
+        if not ctx.knowledge_sources:
+            return []
+        try:
+            return await self.knowledge_provider.retrieve(ctx.input_text, top_k=3)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _rough_tokens(msg: Dict[str, Any]) -> int:
+        text = str(msg.get("content", "") or "")
+        return max(1, len(text) // 4)
+
+    def _trim(
+        self,
+        messages: List[Dict[str, Any]],
+        budget: int,
+    ) -> List[Dict[str, Any]]:
+        """Context budget (spec 16): keep system + recent messages, drop oldest.
+
+        Tool results and recent turns are preserved; only mid-history is dropped.
+        """
+        if budget <= 0:
+            return messages
+        total = sum(self._rough_tokens(m) for m in messages)
+        if total <= budget:
+            return messages
+        if len(messages) <= 2:
+            return messages
+        out = list(messages)
+        while len(out) > 7 and sum(self._rough_tokens(m) for m in out) > budget:
+            for idx, m in enumerate(out):
+                if m.get("role") != "system" and idx != len(out) - 1:
+                    out.pop(idx)
+                    break
+            else:
+                break
+        return out

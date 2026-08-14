@@ -45,6 +45,15 @@ def build_agent_runtime(
     agent_store = DBAgentStore(agent_engine or get_engine())
     bus = EventBus(store=event_store or SQLAlchemyEventStore())
     registry = register_builtin_tools(ToolRegistry())
+    if context_builder is None:
+        from runtime.context.builder import ContextBuilder
+        from runtime.kb_provider import KBKnowledgeProvider, SessionHistoryProvider
+        from runtime.memory.providers import DBMemoryProvider
+        context_builder = ContextBuilder(
+            memory_provider=memory_provider or DBMemoryProvider(),
+            knowledge_provider=knowledge_provider or KBKnowledgeProvider(),
+            history_provider=history_provider or SessionHistoryProvider(),
+        )
     runtime = AgentRuntime(
         run_store=run_store,
         agent_store=agent_store,

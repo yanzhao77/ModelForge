@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app
 from runtime.tools import PermissionLevel, Tool, ToolExecutor, ToolRegistry, ToolResult
 from runtime.tools.builtin import register_builtin_tools
 from runtime.errors import ToolNotFoundError, ToolTimeoutError
-from runtime.context import ToolExecutionContext
+from runtime.run_context import ToolExecutionContext
 
 
 class EchoTool(Tool):
