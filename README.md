@@ -1,97 +1,57 @@
-﻿# ModelForge 2.0
+# ModelForge 旧版桌面端（gui_old 分支）
 
-> 本地 AI Agent 工作站 —— 从模型管理到 Agent 执行的一站式平台。
+> ⚠️ 本分支是 **ModelForge 旧版 v2.0 桌面端** 的存档分支（快照）。
+> 新版（FastAPI 后端 + PySide6 瘦客户端，功能完整、152 测试全绿）在 **master** 分支。
 
-## 架构
+## 本分支内容
 
-```
-                 User
-        ---------------------
-        |                   |
-    PySide6 Client      React/Vue
-    Desktop             Future
-              |               |
-              REST API ---------
-              FastAPI
-------------------------------------------------
-|              |             |                 |
-Model        Runtime       Agent             RAG
-Manager      Engine        Engine            Engine
-|              |             |                 |
-Memory       Plugins      Database          Knowledge
-```
-
-## 功能模块
+旧版为 **PySide6 单体桌面应用**，业务逻辑与 UI 一体，包含：
 
 | 模块 | 说明 |
 |------|------|
-| **Model Manager** | AI 模型生命周期管理（扫描、安装、删除、列表） |
-| **Runtime Engine** | 本地推理运行（Ollama，可扩展） |
-| **Agent Engine** | AI Agent 创建与执行（LangGraph + 工具系统） |
-| **RAG** | 知识库（文件上传、分块、向量检索） |
-| **Memory** | 短期对话记忆 + 长期向量记忆 |
-| **Plugins** | SPI 插件架构（Model/Tool/Runtime 类型） |
-| **Client** | PySide6 桌面客户端（支持 React/Vue 替换） |
+| 用户系统 | 注册/登录、JWT 认证、PBKDF2 密码哈希（api/auth_service.py） |
+| 多会话 | 创建/删除/切换/重命名/清空会话、自动标题、消息持久化（gui/session_sidebar.py、api/session_service.py） |
+| 跨会话记忆 | 关键词提取偏好/事实、重要性评分、搜索、上下文注入（api/memory_service.py） |
+| 模型下载 | GGUF 下载对话框：HF 搜索、作者筛选、量化识别、hf-mirror（gui/dialog/gguf_download_dialog.py） |
+| 本地推理 | transformers + llama-cpp-python，支持深度思考/快速模式、OOM 降级（pytorch/model_generate.py） |
+| 接口对话 | OpenAI 兼容接口（含讯飞星火）与 /v1/chat/completions 兼容服务（pytorch/interface_generate.py、interface/） |
+| 微调脚本 | 全参微调（pytorch/trainer_model.py）、LoRA 微调（pytorch/loRA_model.py） |
+| 在线搜索 | DuckDuckGo 搜索（pytorch/webSearcher.py） |
+| 数据库 | SQLite + SQLAlchemy（database/db_manager.py、models/database_models.py） |
 
-## 快速开始
-
-### 启动后端
-
-```bash
-pip install -r requirements.txt
-uvicorn backend.app.main:app --reload --port 8000
-```
-
-API 文档：http://localhost:8000/docs
-
-### 启动客户端
+## 运行旧版
 
 ```bash
-python client/pyside6/main.py
+# 依赖（注意：torch 版本为 +cu118，仅 Linux；macOS 请自行调整）
+pip install -r requirements_new.txt
+
+# 会话版入口（会话 + 记忆 + GGUF 下载，推荐）
+python main_session.py
+
+# 原始入口（基础桌面端）
+python main.py
 ```
 
-### Docker
-
-```bash
-docker build -t modelforge:latest .
-docker run -p 8000:8000 modelforge:latest
-```
-
-## 测试
-
-```bash
-pytest tests/ -v
-```
-
-## 项目结构
+## 目录
 
 ```
-ModelForge
-├── client/pyside6/        # PySide6 桌面客户端
-│   ├── api_client/        # API 通信层
-│   ├── pages/             # 页面组件
-│   └── main.py            # 入口
-├── backend/app/           # FastAPI 后端
-│   ├── api/               # REST 路由
-│   ├── services/          # 业务逻辑
-│   ├── core/              # 核心模块（配置/数据库/插件）
-│   └── models/            # 数据模型
-├── tests/                 # 测试
-├── docs/                  # 文档
-├── Dockerfile
-└── config.yaml            # 配置文件
+ModelForge (gui_old)
+├── gui/           # PySide6 界面（主窗口/登录/会话侧边栏/对话框/菜单）
+├── pytorch/       # 推理与微调（model_generate / trainer / LoRA / 接口）
+├── api/           # 服务层（auth / session / memory）
+├── database/      # SQLite 数据库管理器
+├── models/        # SQLAlchemy 数据模型
+├── interface/     # 独立接口服务（FastAPI / Falcon chat completions）
+├── common/        # 常量与 UI 工具
+├── test/          # 手工测试脚本
+├── icon/ model/   # 资源
+├── main.py        # 原始入口
+├── main_session.py # 会话版入口（推荐）
+├── requirements_new.txt  # 依赖
+└── docs/screenshots/     # 界面截图
 ```
 
-## 配置
+## 与新版的关系
 
-编辑 `config.yaml` 或通过环境变量覆盖：
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `MODEL_PATH` | 模型存储路径 | `./models` |
-| `DATABASE_PATH` | SQLite 数据库路径 | `./data/modelforge.db` |
-| `LOG_LEVEL` | 日志级别 | `INFO` |
-
-## 版本
-
-**v2.0.0** - 首个完整架构版本
+- 旧版功能已**全部迁移**到 master 的新版架构（认证/会话/记忆/GGUF 下载/本地推理/微调脚本等），并补充了数据集、训练任务化、知识库持久化、SSE 流式、真 LangGraph Agent 等能力。
+- 本分支仅用于**存档/参考**，不再维护。需要对比或找回旧代码时切换到此分支即可。
