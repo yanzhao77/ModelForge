@@ -1,13 +1,13 @@
-# ModelForge 2.1
+# ModelForge 3.x
 
-> 本地 AI Agent 工作站 —— 从模型管理、微调训练到 Agent 执行的一站式平台。
+> 本地优先的 AI Agent Runtime Platform —— 从模型管理、微调训练到 **Agent Run / Event / Tool / Policy / MCP / Scheduler / Multi-Agent / Composable Plugin** 的一站式平台。
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-152%20passed-brightgreen)
-![API](https://img.shields.io/badge/API-58%20routes-important)
+![Tests](https://img.shields.io/badge/tests-339%20passed-brightgreen)
+![API](https://img.shields.io/badge/API-92%20routes-important)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
-基于 **FastAPI 后端 + PySide6 瘦客户端** 架构：后端承载全部业务逻辑，客户端只做展示与交互。
+基于 **FastAPI 后端 + PySide6 瘦客户端** 架构：后端承载全部业务逻辑（含 Agent Runtime），客户端只做展示与交互。
 
 ## 功能一览
 
@@ -19,7 +19,14 @@
 | 模型管理 | 扫描/登记/删除，HF 模型搜索与后台下载（GGUF 等） |
 | 推理运行时 | Ollama（SSE 流式）、本地 transformers/GGUF（需 requirements-ai.txt）、OpenAI 兼容接口 |
 | 聊天 | 统一 chat service（历史+记忆注入+持久化），**SSE 流式输出** |
-| Agent | 真 LangGraph 工具循环（读文件/搜代码/执行命令/联网搜索/知识库检索） |
+| **Agent Run** | 持久化执行单元：PENDING/RUNNING/WAITING_HUMAN/COMPLETED/FAILED/CANCELLED/TIMEOUT，可取消、可审批、可追踪 |
+| **Event System** | 23 类事件，per-run 严格 sequence，DB 持久化，SSE 断线恢复（after_sequence） |
+| **Tool Registry** | 统一 Tool 协议 + 注册表 + 执行器（超时/重试/策略门），内置/插件/MCP 工具统一管理 |
+| **Policy** | 默认拒绝网络/shell/文件写；人工审批门（WAITING_HUMAN + approve/reject API） |
+| **MCP** | MCPRegistry/MCPClient/MCPToolAdapter，MCP 工具自动进入 ToolRegistry |
+| **Scheduler** | schedule_once / schedule_interval，触发创建 Agent Run |
+| **Multi-Agent** | agent.delegate 嵌套 Run；parent_run_id/深度/循环/子数限制/取消级联/预算传播 |
+| **Composable Plugin** | PluginScope/PluginManager/PluginManifest；ToolPlugin/AgentPlugin/SkillPlugin；Capability Discovery |
 | 知识库 | 文档上传/持久化/分块查看/检索/**RAG 问答**（带引用来源） |
 | 数据集 | jsonl/csv/json/txt 上传、解析、预览、训练预检 |
 | 微调训练 | 全参/LoRA，子进程隔离执行，进度/loss 上报，SSE 日志流，产物注册到模型列表 |
@@ -32,10 +39,15 @@
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-uvicorn backend.app.main:app --reload --port 8000
+uvicorn main:app --app-dir backend/app --reload --port 8000
 ```
 
+> `backend/app` 是模块根（`from core / services / api / runtime` 等绝对导入）；
+> `--app-dir backend/app` 让 uvicorn 正确解析 `main:app`。
+
 API 文档（Swagger）：http://localhost:8000/docs
+
+健康检查：`curl http://localhost:8000/healthz` → `{"status":"ok"}`
 
 ### 2. 启动桌面客户端（可选）
 
@@ -44,7 +56,7 @@ pip install -r requirements-gui.txt
 python client/pyside6/main.py
 ```
 
-启动后先注册/登录，即可使用：聊天（SSE 流式）、会话管理、数据集上传、微调训练、知识库 RAG 问答。
+启动后先注册/登录，即可使用 5 个标签页：**聊天 / 数据集 / 训练 / 知识库 / Agent（Run Timeline）**。
 
 ### 3. AI 推理 / 训练能力（按需安装）
 
@@ -54,7 +66,16 @@ pip install -r requirements-ai.txt   # torch / transformers / llama-cpp-python /
 
 > 不安装 AI 依赖也能启动后端与客户端（Ollama 推理、认证、会话、数据集、知识库检索均可用）。
 
-## API 概览（58 条路由，前缀 /api/v1）
+### 4. Docker 启动
+
+```bash
+docker build -t modelforge:latest .
+docker run -d -p 8000:8000 --name modelforge modelforge:latest
+curl http://localhost:8000/healthz   # {"status":"ok"}
+docker rm -f modelforge
+```
+
+## API 概览（92 条路由 = 88 显式 + 4 框架内置 /docs /redoc /openapi.json /docs/oauth2-redirect；业务前缀 /api/v1）
 
 | 模块 | 端点 |
 |------|------|
@@ -67,32 +88,36 @@ pip install -r requirements-ai.txt   # torch / transformers / llama-cpp-python /
 | 数据集 | datasets/upload · datasets · datasets/{id}/validate |
 | 训练 | train/start · status · **stream（SSE 日志）** · stop · templates · tasks · {id}/register-model |
 | 知识库 | knowledge/upload · documents · query · **answer（RAG）** · stats |
-| Agent | agent/create · list · {name}/chat |
+| **Agent（2.1）** | agent/create · list · {name}/chat（LangGraph，已接入策略门） |
+| **Agent Run（3.0）** | agent/runs（POST/GET）· runs/{id} · runs/{id}/cancel · approve · reject · events · **stream（SSE）** |
+| **Agent 工具/服务（3.0）** | agent/tools · agent/metrics · agent/mcp/servers（CRUD）· agent/schedules（CRUD） |
+| **插件（3.x）** | plugins/discover · plugins/load · plugins/{name}/{start,stop,mount,unmount} · plugins/capabilities |
 | OpenAI 兼容 | /v1/chat/completions（含流式）· /v1/models |
 | 系统 | system/status · system/logs · /healthz |
 
 ## 测试
 
 ```bash
-pytest tests/ -v    # 152 个用例（单元 + API 集成 + 数据集/训练/知识库）
+pytest tests/ -q    # 339 个用例全部通过（单元 + API 集成 + 数据集/训练/知识库 + Agent Runtime + Plugin）
 ```
 
 ## 目录结构
 
 ```
 ModelForge
-├── backend/app/            # FastAPI 后端
+├── backend/app/            # FastAPI 后端（模块根）
 │   ├── api/                # 路由：auth/models/runtime/chat/sessions/memories/agent/
 │   │                       #       knowledge/datasets/train/plugins/system/openai
 │   ├── core/               # 配置/数据库/安全/日志
-│   ├── models/             # SQLAlchemy 模型（11 张表）
-│   ├── services/           # 业务层（15+ 服务）
+│   ├── models/             # SQLAlchemy 模型（14 张表）
+│   ├── repositories/       # Run/Event 仓储（SQLAlchemy 适配器）
+│   ├── runtime/            # 3.0 Agent Runtime：execution/events/tools/models/policy/
+│   │                       #       context/memory/mcp/scheduler/plugins
+│   ├── services/           # 业务层（21+ 服务）
 │   └── plugins/            # SPI 插件包
-├── client/pyside6/         # PySide6 瘦客户端
-│   ├── api_client/         # REST + SSE 客户端
-│   └── pages/              # 登录/数据集/训练/知识库页面
-├── tests/                  # pytest（152 用例）
-├── docs/                   # TECHNICAL_REPORT.md / DEVELOPMENT_PLAN.md
+├── client/pyside6/         # PySide6 瘦客户端（5 标签页）
+├── tests/                  # pytest（339 用例）
+├── docs/                   # 技术报告/审计/插件架构/API 参考/开发计划
 ├── requirements*.txt       # base / dev / gui / ai 四层依赖
 └── config.yaml             # 配置文件（支持环境变量覆盖）
 ```
@@ -110,18 +135,26 @@ ModelForge
 | `HF_ENDPOINT` | HF 镜像 | https://hf-mirror.com |
 | `DATASET_DIR` / `TRAIN_OUTPUT_DIR` | 数据集/训练产物目录 | ./data/datasets / ./outputs |
 | `LOG_LEVEL` | 日志级别 | INFO |
+| `RUNTIME_MAX_ITERATIONS` 等 | Agent Runtime 限制（runtime: 段） | 20/50/600 |
+| `PLUGINS_DIR` 对应项 | 插件目录（plugins_dir） | ./plugins |
 
 ## 分支说明
 
-- **master**：当前版本。新版架构（FastAPI + 瘦客户端），功能完整，152 测试全绿。
+- **master**：当前版本。FastAPI + 瘦客户端 + 3.0 Agent Runtime + 3.x Composable Plugin，339 测试全绿。
 - **gui_old**：旧版 v2.0 PySide6 桌面端存档分支（登录/会话/记忆/GGUF 下载/本地推理/微调脚本），不再维护，仅作参考。
 
 ## 文档
 
-- [统一架构技术报告](docs/TECHNICAL_REPORT.md) —— 架构决策、模块设计、修复/优化/新增清单、实施状态
-- [微调/数据集/知识库开发计划](docs/DEVELOPMENT_PLAN.md) —— 三大功能的设计与实施状态
+- [统一架构技术报告](docs/TECHNICAL_REPORT.md) —— 当前真实状态（339 测试 / 92 路由 / 14 表）
+- [Agent Runtime 架构](docs/AGENT_RUNTIME.md) —— 3.0 Runtime 分层/执行链/事件/工具/策略/MCP/调度/多 Agent
+- [Composable Plugin 架构](docs/PLUGIN_ARCHITECTURE.md) —— 3.x 插件化（Scope/Manager/AgentProfile/ContextContributor/Multi-Agent 护栏/能力发现）
+- [API 参考](docs/API_REFERENCE.md) —— 全量端点与错误模型
+- [Runtime 架构审计](docs/MODELFORGE_3_RUNTIME_ARCHITECTURE_AUDIT.md) —— 3.x 前的架构审计（结论 B：READY WITH REQUIRED HARDENING，已落地）
+- [微调/数据集/知识库开发计划](docs/DEVELOPMENT_PLAN.md) —— 历史设计依据（已标注执行完毕）
 
 ## 版本历史
 
-- **v2.1**（当前）：统一新版架构；认证/会话/记忆/模型/流式聊天/Agent/数据集/训练/知识库全部落地，58 条 API、152 测试。
+- **v3.1（3.x）**：Composable Agent & Tool Plugin —— PluginScope/PluginManager/ToolPlugin/AgentPlugin/SkillPlugin/Capability Discovery + Multi-Agent 护栏（parent_run_id/深度/循环/子数/取消级联/预算）。
+- **v3.0**：Agent Runtime —— Agent Run / Event System / Tool Registry / Policy / MCP / Scheduler / Multi-Agent（339 测试基线）。
+- **v2.1**：统一新版架构；认证/会话/记忆/模型/流式聊天/LangGraph Agent/数据集/训练/知识库（152 测试历史基线）。
 - **v2.0**：旧版桌面端（已归档到 gui_old 分支）。

@@ -27,9 +27,9 @@ jobs:
         run: |
           ruff check backend/app client/pyside6 --ignore E501,F401 --exit-zero || true
 
-      - name: Run tests
+      - name: Run full test suite
         run: |
-          python -m pytest tests/ -v
+          python -m pytest tests/ -q
 
   build:
     needs: test
@@ -39,4 +39,30 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t modelforge:latest .
+        run: docker build -t modelforge:ci .
+
+      - name: Start container and verify healthz
+        run: |
+          set -e
+          # unique container name per run to avoid collisions on retries
+          CONTAINER="modelforge-ci-${{ github.run_id }}-${{ github.run_attempt }}"
+          docker run -d --name "$CONTAINER" -p 8000:8000 modelforge:ci
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/healthz >/tmp/health.out 2>/dev/null; then
+              echo "healthz OK after ${i} attempts: $(cat /tmp/health.out)"
+              ok=1
+              break
+            fi
+            echo "waiting for healthz (attempt ${i}/30)...";
+            sleep 5
+          done
+          # always capture logs and clean up, regardless of success
+          docker logs "$CONTAINER" >/tmp/container.log 2>&1 || true
+          docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+          if [ "$ok" -ne 1 ]; then
+            echo "=== container logs ==="
+            cat /tmp/container.log
+            echo "::error::healthz check FAILED after 30 attempts"
+            exit 1
+          fi

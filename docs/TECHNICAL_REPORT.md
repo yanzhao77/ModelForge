@@ -15,7 +15,7 @@
 2. [架构总览](#2-架构总览)
 3. [技术选型](#3-技术选型)
 4. [数据库设计](#4-数据库设计)
-5. [API 全量清单（58 条，已全部接线）](#5-api-全量清单58-条已全部接线)
+5. [API 全量清单（92 条，已全部接线）](#5-api-全量清单92-条已全部接线)
 6. [后端模块详解](#6-后端模块详解)
 7. [Agent Runtime 3.0（新增）](#7-agent-runtime-30新增)
 8. [Agent 引擎：真 LangGraph tool loop（2.1，保持兼容）](#8-agent-引擎真-langgraph-tool-loop21保持兼容)
@@ -43,7 +43,7 @@
 | 数据库表 | **14 张**（新增 agent_runs / agent_events / tools） | SQLAlchemy metadata 实测 |
 | 后端代码 | ~7800 行（api 13 模块 + services 21 模块 + runtime 包 + repositories） | 统计 |
 | 客户端代码 | ~2300 行（api_client + 7 页面/组件） | 统计 |
-| 测试代码 | ~3500 行（23 个测试文件） | 统计 |
+| 测试代码 | ~4800 行（33 个测试文件） | 统计 |
 | 分支 | master（新版）/ gui_old（旧版存档） | git |
 
 ### 已实现功能全景
@@ -84,7 +84,7 @@
        ┌──────────▼──┐  ┌────▼─────┐  ┌───▼───────────┐
        │ SQLite       │  │ 推理运行时 │  │ 外部服务        │
        │ SQLAlchemy   │  │ Ollama    │  │ HF Hub /      │
-       │ 11 张表      │  │ 本地 HF/  │  │ ModelScope /  │
+       │ 14 张表      │  │ 本地 HF/  │  │ ModelScope /  │
        │              │  │ GGUF/OpenAI│ │ OpenAI 兼容 API│
        └─────────────┘  └──────────┘  └───────────────┘
 ```
@@ -123,7 +123,7 @@
 
 ## 4. 数据库设计
 
-11 张表（models/records.py），全部经 SQLAlchemy 声明式定义：
+14 张表（models/records.py），全部经 SQLAlchemy 声明式定义（2.1 的 11 张 + 3.0 的 agent_runs / agent_events / tools）：
 
 | 表 | 关键字段 | 用途 |
 |---|---|---|
@@ -143,7 +143,7 @@
 
 ---
 
-## 5. API 全量清单（84 条，已全部接线）
+## 5. API 全量清单（92 条，已全部接线）
 
 所有业务路由统一前缀 `/api/v1`，除 register/login 外均需 Bearer Token（chat 与 knowledge 支持匿名/可选认证）。
 
@@ -329,16 +329,17 @@
 
 ## 13. 测试
 
-**152 个用例 · 13 个文件**，四层覆盖：
+**339 个用例 · 33 个测试文件**（`pytest tests/ -q` 实测 339 passed / 0 failed / 0 skipped），覆盖：
 
 | 层 | 文件 | 内容 |
 |---|---|---|
 | 结构/配置 | test_structure、test_phase1_backend | 目录结构、FastAPI 根端点、config 三层加载 |
-| 单元 | test_phase2~phase11 | DB CRUD、模型管理、provider、运行时、client、Agent 工具、RAG、记忆、插件、工程 |
-| API 集成 | test_api_integration（20 用例） | 认证流、会话/记忆/模型 API、聊天（SSE）、OpenAI 兼容、真 LangGraph 工具循环 |
-| 数据集/训练/知识库 | test_dataset_service（解析器单测）、test_train_kb（20 用例） | 数据集解析、训练任务状态机（mock 子进程）、知识库持久化 + RAG |
+| 2.1 单元/集成 | test_phase2~11、test_api_integration | DB CRUD、模型管理、provider、运行时、client、Agent 工具、RAG、记忆、插件、工程、认证/会话/聊天（SSE）/OpenAI 兼容/真 LangGraph 工具循环 |
+| 数据集/训练/知识库 | test_dataset_service、test_train_kb | 数据集解析、训练任务状态机（mock 子进程）、知识库持久化 + RAG |
+| 3.0 Runtime | test_runtime_phase1、test_agent_runs_phase2、test_agent_events_phase3、test_tool_registry_phase4、test_context_engine_phase5、test_policy_phase6、test_mcp_phase7、test_agent_client_phase8、test_scheduler_phase9、test_multi_agent_phase10、test_runtime_e2e | Runtime 基础/Agent Run/事件（SSE+resume）/Tool Registry/Context/Policy/MCP/客户端/Scheduler/Multi-Agent/E2E 验收（spec 86） |
+| 3.x 加固+插件 | test_audit_p0_hardening、test_plugin_scope_phase1、test_plugin_manager_phase2、test_agent_profile_phase3、test_context_contributor_phase4、test_multi_agent_guards_phase5、test_capability_discovery_phase6 | Policy 下沉/作用域/PluginManager/AgentProfile/SkillPlugin/Multi-Agent 护栏/能力发现 |
 
-训练相关用例通过 `monkeypatch` mock 子进程（`_launch`）与 `_torch_available`，不依赖真实 GPU，CI 可跑。
+训练相关用例通过 `monkeypatch` mock 子进程（`_launch`）与 `_torch_available`；Agent 运行用 `MockProvider`，均不依赖真实 GPU/Ollama，CI 可跑。
 
 ---
 
@@ -363,8 +364,8 @@
 
 ## 16. 部署
 
-- **Docker**：`Dockerfile` 基于 python:3.10-slim，装 base 依赖（不含 torch），`CMD uvicorn backend.app.main:app`。
-- **本地**：`uvicorn backend.app.main:app --reload --port 8000`（详见 README）。
+- **Docker**：`Dockerfile` 基于 python:3.10-slim，装 base 依赖（不含 torch），`CMD uvicorn main:app --app-dir /app/backend/app`（容器内 WORKDIR=/app），并带 `/healthz` HEALTHCHECK。
+- **本地**：`uvicorn main:app --app-dir backend/app --reload --port 8000`（`backend/app` 是模块根，`from core/services/api/runtime` 均相对它解析；详见 README）。
 - **客户端**：`python client/pyside6/main.py`，通过 `MF_BACKEND_URL`/默认 http://localhost:8000 连后端。
 
 ---
@@ -373,7 +374,7 @@
 
 | 分支 | 内容 | 状态 |
 |---|---|---|
-| master | 新版架构（本报告描述的全部内容） | 152 测试全绿，已推送远程 |
+| master | 新版架构（本报告描述的全部内容） | 339 测试全绿，已推送远程 |
 | gui_old | 旧版 v2.0 桌面端存档（gui/pytorch/api/database/...） | 只读参考，不再维护 |
 
 版本：v2.1（后端 root 返回 `{"name":"ModelForge","version":"2.1","status":"ok"}`）。

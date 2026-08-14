@@ -122,19 +122,6 @@ class TestPluginScope:
             rt.event_bus.unsubscribe(sub)
         assert got == ["plugin.discovered", "plugin.mounted"]
 
-    def test_agent_uses_scoped_plugin_tool(self):
-        from runtime.models import MockProvider
-        from runtime.types import AgentConfig
-        from services.agent_store import DBAgentStore
-        rt = self._runtime()
-        scope = rt.create_scope("skill.weather")
-        scope.mount_tool(WeatherTool())
-        rt.create_agent(AgentConfig(name="wbot", model="mock", tools=["plugin.weather"]))
-        rt.provider_factory = lambda m: MockProvider(script=[
-            MockProvider.tool_call("plugin.weather", {}),
-            MockProvider.final("got weather"),
-        ])
-        run = rt.create_run(agent_id="wbot", input_text="weather?", user_id=1, execute=False)
     @pytest.mark.asyncio
     async def test_agent_uses_scoped_plugin_tool(self):
         from runtime.models import MockProvider
