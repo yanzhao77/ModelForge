@@ -1,4 +1,4 @@
-﻿"""Agent tools: file_read, code_search, command_execute."""
+"""Agent tools: file_read, code_search, command_execute, web_search, knowledge_search."""
 import os
 import subprocess
 from typing import List
@@ -67,8 +67,32 @@ def tool_command_execute(command: str, timeout: int = 30) -> str:
         return f"Error executing command: {e}"
 
 
+def tool_web_search(query: str) -> str:
+    """Search the web (DuckDuckGo) and return formatted results."""
+    from services.searcher import cached_search, format_search_context
+    results = cached_search(query)
+    if not results:
+        return "No web results found."
+    return format_search_context(results)
+
+
+def tool_knowledge_search(query: str, top_k: int = 3) -> str:
+    """Query the knowledge base and return matching chunks."""
+    from services.knowledge_base import get_global_kb
+    kb = get_global_kb()
+    result = kb.query(query, top_k=top_k)
+    if not result.get("results"):
+        return "No knowledge base results."
+    lines = []
+    for r in result["results"]:
+        lines.append(f"- [{r.get('source', '?')}] {r.get('text', '')}")
+    return "\n".join(lines)
+
+
 AGENT_TOOLS = {
     "file_read": tool_file_read,
     "code_search": tool_code_search,
     "command_execute": tool_command_execute,
+    "web_search": tool_web_search,
+    "knowledge_search": tool_knowledge_search,
 }

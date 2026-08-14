@@ -1,4 +1,4 @@
-﻿"""Model Manager - manages AI model lifecycle (scan, list, info, install, remove)."""
+"""Model Manager - manages AI model lifecycle (scan, list, info, install, remove)."""
 import os
 import datetime
 from pathlib import Path
@@ -11,14 +11,18 @@ from models.records import ModelRecord
 
 
 class ModelManager:
-    """Manages local AI models: scan, list, install, remove, info."""
+    """Manages local AI models: scan, list, install, remove, info.
+
+    user_id is optional for backward compatibility: when None, operations
+    apply to global models; when set, results are scoped to that user.
+    """
 
     def __init__(self, db: Session):
         self.db = db
         self.config = load_config()
         self.model_path = Path(self.config.model_path).resolve()
 
-    def scan(self, path: Optional[str] = None) -> List[ModelRecord]:
+    def scan(self, path: Optional[str] = None, user_id: Optional[int] = None) -> List[ModelRecord]:
         """Scan a directory for model files and register them in the database.
 
         Recognizes common model file extensions: .gguf, .bin, .safetensors, .pt, .pth
@@ -34,31 +38,48 @@ class ModelManager:
 
         for entry in scan_path.iterdir():
             if entry.is_file() and entry.suffix.lower() in model_extensions:
-                record = self._register_file_model(entry)
+                record = self._register_file_model(entry, user_id)
                 discovered.append(record)
             elif entry.is_dir() and self._is_model_dir(entry):
-                record = self._register_dir_model(entry)
+                record = self._register_dir_model(entry, user_id)
                 discovered.append(record)
 
         self.db.commit()
         return discovered
 
-    def list(self) -> List[ModelRecord]:
+    def list(self, user_id: Optional[int] = None) -> List[ModelRecord]:
         """List all registered models."""
-        return self.db.query(ModelRecord).order_by(ModelRecord.created_time.desc()).all()
+        query = self.db.query(ModelRecord)
+        if user_id is not None:
+            query = query.filter(
+                (ModelRecord.user_id == user_id) | (ModelRecord.user_id.is_(None))
+            )
+        return query.order_by(ModelRecord.created_time.desc()).all()
 
     def info(self, model_id: int) -> Optional[ModelRecord]:
         """Get detailed info about a specific model."""
         return self.db.query(ModelRecord).filter_by(id=model_id).first()
 
-    def install(self, name: str, provider: str, path: str, size: str = "") -> ModelRecord:
+    def install(
+        self, name: str, provider: str, path: str, size: str = "",
+        user_id: Optional[int] = None, model_format: Optional[str] = None, quant: Optional[str] = None,
+    ) -> ModelRecord:
         """Register an installed model."""
-        existing = self.db.query(ModelRecord).filter_by(name=name).first()
+        query = self.db.query(ModelRecord).filter_by(name=name)
+        if user_id is not None:
+            query = query.filter(
+                (ModelRecord.user_id == user_id) | (ModelRecord.user_id.is_(None))
+            )
+        existing = query.first()
         if existing:
             existing.path = path
             existing.provider = provider
             existing.size = size
             existing.status = "available"
+            if model_format:
+                existing.format = model_format
+            if quant:
+                existing.quant = quant
         else:
             existing = ModelRecord(
                 name=name,
@@ -66,24 +87,39 @@ class ModelManager:
                 path=path,
                 size=size,
                 status="available",
+                user_id=user_id,
+                format=model_format,
+                quant=quant,
             )
             self.db.add(existing)
         self.db.commit()
         return existing
 
-    def remove(self, model_id: int) -> bool:
+    def remove(self, model_id: int, user_id: Optional[int] = None) -> bool:
         """Remove a model from the database (does not delete files)."""
-        model = self.db.query(ModelRecord).filter_by(id=model_id).first()
+        query = self.db.query(ModelRecord).filter_by(id=model_id)
+        if user_id is not None:
+            query = query.filter(
+                (ModelRecord.user_id == user_id) | (ModelRecord.user_id.is_(None))
+            )
+        model = query.first()
         if not model:
             return False
         self.db.delete(model)
         self.db.commit()
         return True
 
-    def _register_file_model(self, filepath: Path) -> ModelRecord:
+    def _register_file_model(
+        self, filepath: Path, user_id: Optional[int] = None
+    ) -> ModelRecord:
         """Register a single model file."""
         name = filepath.stem
-        existing = self.db.query(ModelRecord).filter_by(name=name).first()
+        query = self.db.query(ModelRecord).filter_by(name=name)
+        if user_id is not None:
+            query = query.filter(
+                (ModelRecord.user_id == user_id) | (ModelRecord.user_id.is_(None))
+            )
+        existing = query.first()
         if existing:
             existing.path = str(filepath)
             existing.size = self._format_size(filepath.stat().st_size)
@@ -96,17 +132,26 @@ class ModelManager:
             path=str(filepath),
             size=self._format_size(filepath.stat().st_size),
             status="available",
+            user_id=user_id,
+            format="gguf" if filepath.suffix.lower() == ".gguf" else None,
         )
         self.db.add(record)
         return record
 
-    def _register_dir_model(self, dirpath: Path) -> ModelRecord:
+    def _register_dir_model(
+        self, dirpath: Path, user_id: Optional[int] = None
+    ) -> ModelRecord:
         """Register a model directory (contains config.json or similar)."""
         name = dirpath.name
         total_size = sum(
             f.stat().st_size for f in dirpath.rglob("*") if f.is_file()
         )
-        existing = self.db.query(ModelRecord).filter_by(name=name).first()
+        query = self.db.query(ModelRecord).filter_by(name=name)
+        if user_id is not None:
+            query = query.filter(
+                (ModelRecord.user_id == user_id) | (ModelRecord.user_id.is_(None))
+            )
+        existing = query.first()
         if existing:
             existing.path = str(dirpath)
             existing.size = self._format_size(total_size)
@@ -119,6 +164,8 @@ class ModelManager:
             path=str(dirpath),
             size=self._format_size(total_size),
             status="available",
+            user_id=user_id,
+            format="safetensors",
         )
         self.db.add(record)
         return record

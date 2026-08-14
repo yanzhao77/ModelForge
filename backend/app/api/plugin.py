@@ -31,7 +31,7 @@ async def install_plugin(name: str):
         raise HTTPException(status_code=503, detail="Plugin manager not initialized")
     plugin = _plugin_manager.get(name)
     if plugin is None:
-        raise HTTPException(status_code=404, detail=f"Plugin {chr(39)}{name}{chr(39)} not found")
+        raise HTTPException(status_code=404, detail=f"Plugin '{name}' not found")
     try:
         success = plugin.install()
         return {"name": name, "installed": success}

@@ -1,4 +1,4 @@
-﻿"""Phase 4: Model Provider tests."""
+"""Phase 4: Model Provider tests."""
 import os
 import sys
 from unittest.mock import patch, MagicMock
@@ -43,9 +43,9 @@ class TestHFProvider:
         assert provider.cache_dir == "/custom/cache"
 
     @patch("services.hf_provider.snapshot_download")
-    def test_download(self, mock_snapshot):
+    def test_download(self, mock_snapshot, tmp_path):
         mock_snapshot.return_value = "/cached/model-path"
-        provider = HFProvider(cache_dir="/test/cache")
+        provider = HFProvider(cache_dir=str(tmp_path))
         path = provider.download("meta-llama/Llama-2-7b")
         assert path == "/cached/model-path"
         mock_snapshot.assert_called_once()

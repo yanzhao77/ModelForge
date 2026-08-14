@@ -1,8 +1,16 @@
-﻿"""Knowledge Base API routes."""
-from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel
-import tempfile
+"""Knowledge Base API routes."""
 import os
+import tempfile
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
+from sqlalchemy.orm import Session as DBSession
+
+from core.database import get_db
+from core.security import get_current_user_optional
+from models.records import User
+from services.runtime_registry import get_runtime
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -10,6 +18,12 @@ router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 class QueryRequest(BaseModel):
     question: str
     top_k: int = 5
+
+
+class AnswerRequest(BaseModel):
+    question: str
+    top_k: int = 5
+    model: str = "default-model"
 
 
 _knowledge_base = None
@@ -20,21 +34,26 @@ def set_knowledge_base(kb):
     _knowledge_base = kb
 
 
-@router.post("/upload")
-async def knowledge_upload(file: UploadFile = File(...)):
-    """Upload and ingest a document."""
+def _get_kb():
     if _knowledge_base is None:
         raise HTTPException(status_code=503, detail="Knowledge base not initialized")
+    return _knowledge_base
 
-    # Save uploaded file to temp location
+
+@router.post("/upload")
+async def knowledge_upload(
+    file: UploadFile = File(...),
+    db: DBSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    kb = _get_kb()
     suffix = os.path.splitext(file.filename or "upload.txt")[1]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
-
     try:
-        result = _knowledge_base.upload(tmp_path)
+        result = kb.upload(tmp_path, db=db, user_id=user.id if user else None, filename=file.filename)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -45,17 +64,53 @@ async def knowledge_upload(file: UploadFile = File(...)):
             os.unlink(tmp_path)
 
 
+@router.get("/documents")
+def knowledge_documents(
+    db: DBSession = Depends(get_db), user: Optional[User] = Depends(get_current_user_optional),
+):
+    return _get_kb().documents(db=db)
+
+
+@router.get("/documents/{filename}/chunks")
+def knowledge_chunks(
+    filename: str, db: DBSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    return _get_kb().chunks(filename, db=db)
+
+
+@router.delete("/documents/{filename}")
+def knowledge_delete_document(
+    filename: str, db: DBSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    ok = _get_kb().delete_document(filename, db=db, user_id=user.id if user else None)
+    if not ok:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return {"ok": True}
+
+
 @router.post("/query")
-async def knowledge_query(req: QueryRequest):
-    """Query the knowledge base."""
-    if _knowledge_base is None:
-        raise HTTPException(status_code=503, detail="Knowledge base not initialized")
-    return _knowledge_base.query(req.question, top_k=req.top_k)
+def knowledge_query(
+    req: QueryRequest, db: DBSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    return _get_kb().query(req.question, top_k=req.top_k, db=db)
+
+
+@router.post("/answer")
+async def knowledge_answer(
+    req: AnswerRequest, db: DBSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    kb = _get_kb()
+    return await kb.answer(
+        req.question, top_k=req.top_k, db=db, runtime=get_runtime(), model=req.model
+    )
 
 
 @router.get("/stats")
-async def knowledge_stats():
-    """Get knowledge base statistics."""
-    if _knowledge_base is None:
-        raise HTTPException(status_code=503, detail="Knowledge base not initialized")
-    return _knowledge_base.stats()
+def knowledge_stats(
+    db: DBSession = Depends(get_db), user: Optional[User] = Depends(get_current_user_optional),
+):
+    return _get_kb().stats(db=db)

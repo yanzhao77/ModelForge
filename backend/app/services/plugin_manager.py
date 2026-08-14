@@ -1,4 +1,4 @@
-﻿"""Plugin Manager - discovers, loads, and manages plugins."""
+"""Plugin Manager - discovers, loads, and manages plugins."""
 import importlib
 import pkgutil
 from typing import Dict, List, Type, Optional
@@ -48,7 +48,7 @@ class PluginManager:
         for name, plugin in self._plugins.items():
             try:
                 results[name] = plugin.install()
-            except Exception as e:
+            except Exception:
                 results[name] = False
         return results
 
@@ -56,7 +56,7 @@ class PluginManager:
         """Execute a plugin by name."""
         plugin = self._plugins.get(name)
         if plugin is None:
-            return {"error": f"Plugin {chr(39)}{name}{chr(39)} not found"}
+            return {"error": f"Plugin '{name}' not found"}
         try:
             result = plugin.execute(**kwargs)
             return {"status": "ok", "result": result}
@@ -66,3 +66,12 @@ class PluginManager:
     def count(self) -> int:
         """Return number of registered plugins."""
         return len(self._plugins)
+
+
+_manager = None
+
+def get_manager() -> PluginManager:
+    global _manager
+    if _manager is None:
+        _manager = PluginManager()
+    return _manager

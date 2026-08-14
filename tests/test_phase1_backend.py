@@ -1,4 +1,4 @@
-﻿"""Phase 1: FastAPI backend and config system tests."""
+"""Phase 1: FastAPI backend and config system tests."""
 import os
 import sys
 import tempfile
@@ -20,7 +20,8 @@ def test_root_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "ModelForge"
-    assert data["version"] == "2.0"
+    assert data["version"] == "2.1"
+    assert data["status"] == "ok"
 
 
 def test_config_defaults():

@@ -1,4 +1,4 @@
-﻿"""Phase 7: Agent Engine tests."""
+"""Phase 7: Agent Engine tests."""
 import os
 import sys
 import tempfile
@@ -121,8 +121,14 @@ class TestAgentEngine:
         engine.chat("bot", "msg1", llm_callback=fake_llm)
         engine.chat("bot", "msg2", llm_callback=fake_llm)
 
+        from langchain_core.messages import AIMessage, HumanMessage
+
         agent = engine.get_agent("bot")
         messages = agent["messages"]
         assert len(messages) == 4
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "msg1"
+        assert isinstance(messages[0], HumanMessage)
+        assert messages[0].content == "msg1"
+        assert isinstance(messages[1], AIMessage)
+        assert messages[1].content == "response"
+        assert messages[2].content == "msg2"
+        assert messages[3].content == "response"

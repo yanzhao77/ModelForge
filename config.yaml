@@ -1,4 +1,17 @@
-﻿# ModelForge 2.0 Configuration
+# ModelForge 2.0 Configuration
 model_path: ./models
 database_path: ./data/modelforge.db
 log_level: INFO
+jwt_secret: "modelforge-dev-secret-change-me-0123456789abcdef"
+jwt_expire_minutes: 10080
+ollama_base_url: "http://localhost:11434"
+enable_streaming: true
+hf_endpoint: "https://hf-mirror.com"
+model_dir: ./models
+data_dir: ./data
+max_upload_size: 104857600
+max_dataset_size: 209715200
+dataset_dir: ./data/datasets
+train_output_dir: ./outputs
+train_max_workers: 1
+kb_persist: true

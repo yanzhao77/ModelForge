@@ -1,5 +1,6 @@
-﻿"""Ollama Runtime Engine implementation."""
-from typing import Dict, Optional
+"""Ollama Runtime Engine implementation."""
+import json
+from typing import AsyncIterator, Dict, Optional
 
 import httpx
 
@@ -48,6 +49,28 @@ class OllamaRuntime(RuntimeEngine):
                 "content": result.get("message", {}).get("content", ""),
                 "raw": result,
             }
+
+    async def stream_chat(self, model_name: str, messages: list, **kwargs) -> AsyncIterator[str]:
+        """Stream chat deltas from Ollama (NDJSON lines)."""
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            payload = {"model": model_name, "messages": messages, "stream": True}
+            payload.update(kwargs)
+            async with client.stream(
+                "POST", f"{self.base_url}/api/chat", json=payload
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    chunk = data.get("message", {}).get("content", "")
+                    if chunk:
+                        yield chunk
+                    if data.get("done"):
+                        break
 
     async def stop(self, model_name: str) -> Dict:
         """Unload a model from memory (Ollama handles this implicitly)."""
