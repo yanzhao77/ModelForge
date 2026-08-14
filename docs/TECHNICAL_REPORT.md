@@ -1,9 +1,11 @@
-# ModelForge 2.1 架构与技术报告
+# ModelForge 3.0 架构与技术报告
 
 > **文档与代码同步声明**：本报告与 `master` 分支当前代码逐项核对（核对时点：本次更新），所有指标均为实测：
-> **152 个测试全绿 · 58 条 API 路由 · 11 张数据表 · 真 LangGraph Agent · 4 个客户端标签页**。
+> **287 个测试全绿 · 84 条 API 路由 · 14 张数据表 · 真 LangGraph Agent（2.1） + Agent Runtime 3.0 · 5 个客户端标签页**。
 >
 > 旧版 v2.0 桌面端代码已整体迁移至 `gui_old` 分支（`master` 上已移除）。
+>
+> 3.0 增量：Agent Run / Event System / Tool Registry / Context Engine / Policy / MCP / Scheduler / Multi-Agent，详见 [AGENT_RUNTIME.md](AGENT_RUNTIME.md) 与 [API_REFERENCE.md](API_REFERENCE.md)。
 
 ---
 
@@ -15,19 +17,20 @@
 4. [数据库设计](#4-数据库设计)
 5. [API 全量清单（58 条，已全部接线）](#5-api-全量清单58-条已全部接线)
 6. [后端模块详解](#6-后端模块详解)
-7. [Agent 引擎：真 LangGraph tool loop](#7-agent-引擎真-langgraph-tool-loop)
-8. [聊天与 SSE 流式](#8-聊天与-sse-流式)
-9. [数据集与微调训练](#9-数据集与微调训练)
-10. [知识库与 RAG](#10-知识库与-rag)
-11. [客户端（PySide6 瘦客户端）](#11-客户端pyside6-瘦客户端)
-12. [测试](#12-测试)
-13. [依赖分层](#13-依赖分层)
-14. [配置](#14-配置)
-15. [部署](#15-部署)
-16. [分支与版本](#16-分支与版本)
-17. [已知边界与后续待办](#17-已知边界与后续待办)
-18. [附录 A：开发历程（从空壳到完整实现）](#18-附录-a开发历程从空壳到完整实现)
-19. [附录 B：旧版功能迁移映射（历史参考）](#19-附录-b旧版功能迁移映射历史参考)
+7. [Agent Runtime 3.0（新增）](#7-agent-runtime-30新增)
+8. [Agent 引擎：真 LangGraph tool loop（2.1，保持兼容）](#8-agent-引擎真-langgraph-tool-loop21保持兼容)
+9. [聊天与 SSE 流式](#9-聊天与-sse-流式)
+10. [数据集与微调训练](#10-数据集与微调训练)
+11. [知识库与 RAG](#11-知识库与-rag)
+12. [客户端（PySide6 瘦客户端）](#12-客户端pyside6-瘦客户端)
+13. [测试](#13-测试)
+14. [依赖分层](#14-依赖分层)
+15. [配置](#15-配置)
+16. [部署](#16-部署)
+17. [分支与版本](#17-分支与版本)
+18. [已知边界与后续待办](#18-已知边界与后续待办)
+19. [附录 A：开发历程（从空壳到完整实现）](#19-附录-a开发历程从空壳到完整实现)
+20. [附录 B：旧版功能迁移映射（历史参考）](#20-附录-b旧版功能迁移映射历史参考)
 
 ---
 
@@ -35,12 +38,12 @@
 
 | 指标 | 数值 | 验证方式 |
 |---|---|---|
-| 测试 | **152 通过 / 0 失败** | `pytest tests/` 实测 |
-| API 路由 | **58 条** | FastAPI 路由表实测（含 /docs、/healthz、/v1/*） |
-| 数据库表 | **11 张** | SQLAlchemy metadata 实测 |
-| 后端代码 | ~4400 行（api 13 模块 + services 20 模块） | 统计 |
-| 客户端代码 | ~1700 行（api_client + 5 页面） | 统计 |
-| 测试代码 | ~2100 行（13 个测试文件） | 统计 |
+| 测试 | **287 通过 / 0 失败** | `pytest tests/` 实测 |
+| API 路由 | **84 条**（其中 agent 相关 20 条） | FastAPI 路由表实测（含 /docs、/healthz、/v1/*） |
+| 数据库表 | **14 张**（新增 agent_runs / agent_events / tools） | SQLAlchemy metadata 实测 |
+| 后端代码 | ~7800 行（api 13 模块 + services 21 模块 + runtime 包 + repositories） | 统计 |
+| 客户端代码 | ~2300 行（api_client + 7 页面/组件） | 统计 |
+| 测试代码 | ~3500 行（23 个测试文件） | 统计 |
 | 分支 | master（新版）/ gui_old（旧版存档） | git |
 
 ### 已实现功能全景
@@ -140,7 +143,7 @@
 
 ---
 
-## 5. API 全量清单（58 条，已全部接线）
+## 5. API 全量清单（84 条，已全部接线）
 
 所有业务路由统一前缀 `/api/v1`，除 register/login 外均需 Bearer Token（chat 与 knowledge 支持匿名/可选认证）。
 
@@ -204,7 +207,37 @@
 
 ---
 
-## 7. Agent 引擎：真 LangGraph tool loop
+## 7. Agent Runtime 3.0（新增）
+
+> 从 2.1 的"功能集合"演进为 Local-first Agent Runtime Platform（spec 见 AGENT_RUNTIME_DEVELOPMENT.md）。
+> 架构文档：[AGENT_RUNTIME.md](AGENT_RUNTIME.md)；API：[API_REFERENCE.md](API_REFERENCE.md)。
+
+### 7.1 新增对象与存储
+
+| 对象 | 表 | 说明 |
+|---|---|---|
+| Agent | agents（扩展列） | 新增 policy / runtime_config / knowledge_config / description / status |
+| Run | agent_runs | PENDING/RUNNING/WAITING_TOOL/WAITING_HUMAN/COMPLETED/FAILED/CANCELLED/TIMEOUT，全量持久化 |
+| Event | agent_events | 23 类事件，(run_id, sequence) 联合索引，SSE 可断线恢复 |
+| Tool | tools | 统一 Tool 协议；builtin/MCP/plugin 统一注册 |
+
+### 7.2 已实现模块（backend/app/runtime/）
+
+- **ExecutionEngine**：Create Run -> Load Agent -> Context -> LLM -> Tool Loop；max_iterations(20)/max_tool_calls(50)/timeout(600s)；CancellationToken 取消；并发 run 无全局状态。
+- **EventBus + EventStore**：进程内 pub/sub + 异步持久化 + SSE（`/agent/runs/{id}/stream?after_sequence=N` 先回放再实时）。
+- **ToolRegistry + ToolExecutor**：schema/权限/超时/重试；legacy 名称别名保留（spec 67）。
+- **ContextBuilder**：System + Session History + Memory + Knowledge + 预算裁剪。
+- **PolicyEngine**：默认拒绝网络/shell/写文件系统；`human_approval_required` 人工门（approve/reject 端点）。
+- **MCP**：MCPRegistry/MCPClient/MCPToolAdapter，工具自动进 ToolRegistry。
+- **Scheduler**：schedule_once/interval/cancel，触发创建 Run。
+- **Multi-Agent**：`agent.delegate` 工具（嵌套 Run + 同步等待，禁止自委托）。
+- **Metrics / 结构化日志**：`/agent/metrics`；run 日志带 run_id/agent_id/session_id。
+
+### 7.3 API 一览（3.0 增量，全部 /api/v1/agent/*）
+
+`POST/GET /agent/runs`、`GET /agent/runs/{id}`、`POST /agent/runs/{id}/cancel|approve|reject`、`GET /agent/runs/{id}/events|stream`、`GET /agent/tools`、`POST/GET/DELETE /agent/mcp/servers`、`POST/GET/DELETE /agent/schedules`、`GET /agent/metrics`。
+
+## 8. Agent 引擎：真 LangGraph tool loop（2.1，保持兼容）
 
 `services/agent_engine.py` 使用 `langgraph.graph.StateGraph` 构建真实工具循环（已核对代码）：
 
@@ -241,7 +274,7 @@
 
 ---
 
-## 8. 聊天与 SSE 流式
+## 9. 聊天与 SSE 流式
 
 - **统一入口** `services/chat_service.py`：
   1. 有 session 时：加载历史（≤50 条）→ 记忆注入（`[系统记忆]\n问题`）→ 追加用户消息 → 调 runtime；
@@ -252,7 +285,7 @@
 
 ---
 
-## 9. 数据集与微调训练
+## 10. 数据集与微调训练
 
 ### 数据集（`services/dataset_service.py` + `api/datasets.py`）
 
@@ -273,7 +306,7 @@
 
 ---
 
-## 10. 知识库与 RAG
+## 11. 知识库与 RAG
 
 - **持久化**：上传时写 `knowledge_documents` + `knowledge_chunks`（content + meta JSON）；进程启动/首次访问时懒加载重建内存 TF-IDF 索引。
 - **检索**：`/knowledge/query` → 余弦相似度 top_k，返回 `{source, score, text, chunk_index}`。
@@ -283,7 +316,7 @@
 
 ---
 
-## 11. 客户端（PySide6 瘦客户端）
+## 12. 客户端（PySide6 瘦客户端）
 
 - **api_client/client.py**：REST + SSE 客户端，Bearer token 管理，覆盖全部端点（auth/models/runtime/chat/sessions/memories/datasets/train/knowledge/agent/system），`stream_chat`/`train_stream` 返回 SSE 事件迭代器。
 - **页面（pages/，5 个文件）**：
@@ -294,7 +327,7 @@
 
 ---
 
-## 12. 测试
+## 13. 测试
 
 **152 个用例 · 13 个文件**，四层覆盖：
 
@@ -309,7 +342,7 @@
 
 ---
 
-## 13. 依赖分层
+## 14. 依赖分层
 
 | 文件 | 内容 | 用途 |
 |---|---|---|
@@ -322,13 +355,13 @@
 
 ---
 
-## 14. 配置
+## 15. 配置
 
 `config.yaml` 默认值 + 环境变量覆盖（`MODEL_PATH`、`DATABASE_PATH`、`JWT_SECRET`、`OLLAMA_BASE_URL`、`HF_ENDPOINT`、`DATASET_DIR`、`TRAIN_OUTPUT_DIR`、`MAX_DATASET_SIZE` 等）。完整 Settings 见 `core/config.py`。
 
 ---
 
-## 15. 部署
+## 16. 部署
 
 - **Docker**：`Dockerfile` 基于 python:3.10-slim，装 base 依赖（不含 torch），`CMD uvicorn backend.app.main:app`。
 - **本地**：`uvicorn backend.app.main:app --reload --port 8000`（详见 README）。
@@ -336,7 +369,7 @@
 
 ---
 
-## 16. 分支与版本
+## 17. 分支与版本
 
 | 分支 | 内容 | 状态 |
 |---|---|---|
@@ -347,7 +380,7 @@
 
 ---
 
-## 17. 已知边界与后续待办
+## 18. 已知边界与后续待办
 
 | # | 项 | 状态说明 |
 |---|---|---|
@@ -358,10 +391,15 @@
 | 5 | 插件示例 | plugins/ 目录为空（SPI 已接线，无示例插件） |
 | 6 | Agent 生产接入 | Agent 的 LLM 需外部注入（测试用 _CallbackLLM shim），生产需接 LangChain ChatOpenAI/自定义运行时 |
 | 7 | api_keys 使用 | OpenAI 兼容接口目前未强制鉴权，api_keys 表预留 |
+| 8 | 3.0 Agent Runtime 真机验证 | ExecutionEngine 全套测试用 MockProvider；接真实 Ollama 的 tool-calling 已验证 Provider 适配层但未跑真机模型 |
+| 9 | Agent 定义持久化 | agents 表已扩展并写入（policy/runtime_config 等），DB 与 AgentEngine 内存注册表以 DB 优先合并 |
+| 10 | 事件保留 | agent_events 支持 delete_older_than 接口，尚未接入自动清理任务 |
+| 11 | MCP 传输 | 仅 HTTP JSON-RPC；stdio/SSE 传输留接口未实现 |
+| 12 | 分布式调度 | Scheduler 为进程内 asyncio；跨进程/持久化调度未实现 |
 
 ---
 
-## 18. 附录 A：开发历程（从空壳到完整实现）
+## 19. 附录 A：开发历程（从空壳到完整实现）
 
 > 以下为历史记录（对应旧文档中"待修复"清单的最终结果），当前代码已全部落实。
 
@@ -380,7 +418,7 @@
 
 ---
 
-## 19. 附录 B：旧版功能迁移映射（历史参考）
+## 20. 附录 B：旧版功能迁移映射（历史参考）
 
 旧版（gui_old 分支）桌面端功能已全部迁移到新版架构：
 

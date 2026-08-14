@@ -5,6 +5,10 @@
 > 依据：本文是**开发计划**，按模块给出接口定义、实现方案、UI 设计、联动关系与分阶段排期。
 >
 > ✅ **计划已按 Phase 1→2→3 全部执行完毕**（数据集/训练/知识库已实现，详见文末附录与 [TECHNICAL_REPORT.md](TECHNICAL_REPORT.md) 的当前状态）；本文保留作为设计依据与排期参考。
+>
+> 🚀 **ModelForge 3.0 已另行执行完毕**：Agent Run / Event System / Tool Registry / Context Engine / Policy / MCP / Client / Scheduler / Multi-Agent 十个 Phase 全部落地（287 测试全绿）。
+> 实施规范见 [AGENT_RUNTIME_DEVELOPMENT.md](AGENT_RUNTIME_DEVELOPMENT.md)，架构见 [AGENT_RUNTIME.md](AGENT_RUNTIME.md)，API 见 [API_REFERENCE.md](API_REFERENCE.md)。
+> 本文（2.0 功能开发计划）继续作为设计依据保留。
 
 ---
 
