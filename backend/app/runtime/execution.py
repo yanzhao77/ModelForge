@@ -75,7 +75,7 @@ class ExecutionEngine:
                 tool_schemas = self._tool_schemas(ctx)
                 await self._emit(ctx, "model.request.started", {"iteration": state.iteration})
                 try:
-                    llm_timeout = max(10.0, min(ctx.timeout_seconds or 600, 120.0))
+                    llm_timeout = max(1.0, min(ctx.timeout_seconds or 600, 120.0))
                     result = await asyncio.wait_for(
                         provider.chat(prompt_messages, tools=tool_schemas),
                         timeout=llm_timeout,
