@@ -63,6 +63,16 @@ async def discover_plugins(directory: Optional[str] = None):
     return {"plugins": _runtime_pm().discover(directory)}
 
 
+@router.get("/capabilities")
+async def capabilities(scope: Optional[str] = None):
+    """Capability index of loaded tools/skills/agent extensions (3.x-P6)."""
+    from services.agent_runtime_service import get_agent_runtime
+    rt = get_agent_runtime()
+    if rt is None:
+        raise HTTPException(status_code=503, detail="Agent runtime not initialized")
+    return rt.discover_capabilities(scope_id=scope)
+
+
 @router.post("/load")
 async def load_plugin(req: dict):
     """Load a plugin from a manifest dict or a manifest path (audit §16.5)."""

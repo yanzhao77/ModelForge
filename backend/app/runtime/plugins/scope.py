@@ -33,6 +33,8 @@ class PluginScope:
     def mount_tool(self, tool: Any, aliases: Optional[List[str]] = None) -> Any:
         if self._tool_registry is None:
             raise RuntimeError("scope has no tool registry")
+        # annotate ownership for capability discovery (3.x-P6)
+        tool.metadata = {**(getattr(tool, "metadata", None) or {}), "scope": self.scope_id}
         self._tool_registry.register(tool, aliases=aliases)
         names = [tool.name] + list(aliases or []) + list(getattr(tool, "aliases", []) or [])
         for n in names:

@@ -470,6 +470,11 @@ class AgentRuntime:
         return self.agent_store.delete(name)
 
     # ---- plugin manager (3.x, audit §16.5) ----
+    def discover_capabilities(self, scope_id: Optional[str] = None) -> Dict[str, Any]:
+        """Read-only capability index (3.x-P6, audit §16.9)."""
+        from .plugins.discovery import CapabilityDiscovery
+        return CapabilityDiscovery(self).discover(scope_id=scope_id)
+
     def get_plugin_manager(self) -> Any:
         """Lazily create the PluginManager bound to this runtime."""
         if self.plugin_manager is None:
