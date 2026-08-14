@@ -15,3 +15,17 @@ dataset_dir: ./data/datasets
 train_output_dir: ./outputs
 train_max_workers: 1
 kb_persist: true
+
+# ===== ModelForge 3.0 Agent Runtime =====
+runtime:
+  max_iterations: 20
+  max_tool_calls: 50
+  timeout_seconds: 600
+  event_persistence: true
+  event_retention_days: 30
+tools:
+  default_timeout_seconds: 60
+policy:
+  default_network_access: false
+  default_shell_access: false
+  default_filesystem_access: true

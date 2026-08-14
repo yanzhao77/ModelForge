@@ -6,7 +6,7 @@ a user_id column for data isolation.
 """
 import datetime
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, ForeignKey, Index
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -299,4 +299,111 @@ class KnowledgeChunk(Base):
             "chunk_index": self.chunk_index,
             "content": self.content[:300],
             "metadata": _json.loads(self.meta) if self.meta else {},
+        }
+
+
+class AgentRun(Base):
+    """ModelForge 3.0: a persisted execution of an agent (Run)."""
+    __tablename__ = "agent_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(64), unique=True, nullable=False, index=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    session_id = Column(Integer, nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="PENDING", index=True)
+    input = Column(Text, nullable=True)
+    output = Column(Text, nullable=True)
+    model = Column(String(255), nullable=True)
+    error = Column(Text, nullable=True)
+    token_usage = Column(Text, nullable=True)  # JSON {prompt, completion, total}
+    tool_call_count = Column(Integer, default=0)
+    iteration_count = Column(Integer, default=0)
+    meta = Column(Text, nullable=True)  # JSON metadata
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+    __table_args__ = (Index("ix_agent_runs_user_created", "user_id", "created_at"),)
+
+    def to_dict(self) -> dict:
+        import json as _json
+        return {
+            "run_id": self.run_id,
+            "agent_id": self.agent_id,
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "status": self.status,
+            "input": self.input,
+            "output": self.output,
+            "model": self.model,
+            "error": self.error,
+            "token_usage": _json.loads(self.token_usage) if self.token_usage else {},
+            "tool_call_count": self.tool_call_count or 0,
+            "iteration_count": self.iteration_count or 0,
+            "metadata": _json.loads(self.meta) if self.meta else {},
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AgentEventRecord(Base):
+    """ModelForge 3.0: a persisted agent run event (Event is the fact)."""
+    __tablename__ = "agent_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(64), nullable=False, index=True)
+    event_type = Column(String(64), nullable=False)
+    sequence = Column(Integer, nullable=False, default=0)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    payload = Column(Text, nullable=True)  # JSON
+    correlation_id = Column(String(64), nullable=True)
+
+    __table_args__ = (Index("ix_agent_events_run_seq", "run_id", "sequence"),)
+
+    def to_dict(self) -> dict:
+        import json as _json
+        return {
+            "id": self.id,
+            "run_id": self.run_id,
+            "event_type": self.event_type,
+            "sequence": self.sequence,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "payload": _json.loads(self.payload) if self.payload else {},
+            "correlation_id": self.correlation_id,
+        }
+
+
+class ToolRecord(Base):
+    """ModelForge 3.0: a registered tool (builtin / plugin / MCP)."""
+    __tablename__ = "tools"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    version = Column(String(50), default="1.0.0")
+    input_schema = Column(Text, nullable=True)  # JSON
+    permissions = Column(Text, nullable=True)  # JSON list of permission levels
+    timeout = Column(Integer, default=60)
+    retry_policy = Column(Text, nullable=True)  # JSON
+    source = Column(String(50), default="builtin")  # builtin / plugin / mcp
+    enabled = Column(Boolean, default=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        import json as _json
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "version": self.version,
+            "input_schema": _json.loads(self.input_schema) if self.input_schema else {},
+            "permissions": _json.loads(self.permissions) if self.permissions else [],
+            "timeout": self.timeout,
+            "retry_policy": _json.loads(self.retry_policy) if self.retry_policy else {},
+            "source": self.source,
+            "enabled": self.enabled,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }

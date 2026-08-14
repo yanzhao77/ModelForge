@@ -11,6 +11,27 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 
+class RuntimeSettings(BaseModel):
+    """3.0 Agent Runtime limits (config.yaml -> runtime:)."""
+    max_iterations: int = 20
+    max_tool_calls: int = 50
+    timeout_seconds: int = 600
+    event_persistence: bool = True
+    event_retention_days: int = 30
+
+
+class ToolsSettings(BaseModel):
+    """Tool execution defaults (config.yaml -> tools:)."""
+    default_timeout_seconds: int = 60
+
+
+class PolicySettings(BaseModel):
+    """Default run policy (config.yaml -> policy:)."""
+    default_network_access: bool = False
+    default_shell_access: bool = False
+    default_filesystem_access: bool = True
+
+
 class Settings(BaseModel):
     # 基础
     model_path: str = "./models"
@@ -33,6 +54,10 @@ class Settings(BaseModel):
     train_output_dir: str = "./outputs"
     train_max_workers: int = 1
     kb_persist: bool = True
+    # 3.0 Agent Runtime
+    runtime: RuntimeSettings = RuntimeSettings()
+    tools: ToolsSettings = ToolsSettings()
+    policy: PolicySettings = PolicySettings()
 
 
 def load_config(config_path: Optional[str] = None) -> Settings:
@@ -71,7 +96,25 @@ def load_config(config_path: Optional[str] = None) -> Settings:
         if env_val is not None:
             data[field_name] = env_val
 
-    return Settings(**{k: v for k, v in data.items() if k in Settings.model_fields})
+    # Nested section env overrides (RUNTIME_MAX_ITERATIONS -> runtime.max_iterations)
+    nested_env = {
+        "RUNTIME_MAX_ITERATIONS": ("runtime", "max_iterations"),
+        "RUNTIME_MAX_TOOL_CALLS": ("runtime", "max_tool_calls"),
+        "RUNTIME_TIMEOUT_SECONDS": ("runtime", "timeout_seconds"),
+        "RUNTIME_EVENT_PERSISTENCE": ("runtime", "event_persistence"),
+        "RUNTIME_EVENT_RETENTION_DAYS": ("runtime", "event_retention_days"),
+        "TOOL_DEFAULT_TIMEOUT_SECONDS": ("tools", "default_timeout_seconds"),
+        "POLICY_DEFAULT_NETWORK_ACCESS": ("policy", "default_network_access"),
+        "POLICY_DEFAULT_SHELL_ACCESS": ("policy", "default_shell_access"),
+        "POLICY_DEFAULT_FILESYSTEM_ACCESS": ("policy", "default_filesystem_access"),
+    }
+    for env_key, (section, field) in nested_env.items():
+        env_val = os.getenv(env_key)
+        if env_val is not None:
+            data.setdefault(section, {})[field] = env_val
+
+    known = {k: v for k, v in data.items() if k in Settings.model_fields}
+    return Settings(**known)
 
 
 # 进程级共享配置（启动时加载一次）
