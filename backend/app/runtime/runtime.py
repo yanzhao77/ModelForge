@@ -112,6 +112,7 @@ class AgentRuntime:
         self._created_events: set = set()
         self._mcp_registry: Any = None
         self._scopes: Dict[str, Any] = {}
+        self.plugin_manager: Any = None
         self._started = False
 
     # ---- lifecycle (spec 64) ----
@@ -454,6 +455,17 @@ class AgentRuntime:
 
     def delete_agent(self, name: str) -> bool:
         return self.agent_store.delete(name)
+
+    # ---- plugin manager (3.x, audit §16.5) ----
+    def get_plugin_manager(self) -> Any:
+        """Lazily create the PluginManager bound to this runtime."""
+        if self.plugin_manager is None:
+            from .plugins.manager import PluginManager
+            self.plugin_manager = PluginManager(
+                self, plugins_dir=getattr(self.settings, "plugins_dir", None),
+                event_bus=self.event_bus, logger=self.logger,
+            )
+        return self.plugin_manager
 
     # ---- plugin scopes (3.x, audit §16.4) ----
     def create_scope(self, scope_id: str, name: Optional[str] = None) -> Any:

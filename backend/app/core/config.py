@@ -58,6 +58,8 @@ class Settings(BaseModel):
     runtime: RuntimeSettings = RuntimeSettings()
     tools: ToolsSettings = ToolsSettings()
     policy: PolicySettings = PolicySettings()
+    # 3.x Plugins
+    plugins_dir: str = "./plugins"
 
 
 def load_config(config_path: Optional[str] = None) -> Settings:

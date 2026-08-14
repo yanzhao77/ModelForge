@@ -31,6 +31,7 @@ def build_agent_runtime(
     knowledge_provider: Any = None,
     history_provider: Any = None,
     scheduler: Any = None,
+    plugin_manager: Any = None,
 ) -> AgentRuntime:
     """Build the runtime with default adapters (spec 80).
 
@@ -74,4 +75,6 @@ def build_agent_runtime(
     )
     if scheduler is not None and runtime.scheduler is not None:
         runtime.scheduler.trigger = runtime._scheduler_trigger
+    if plugin_manager is not None:
+        runtime.plugin_manager = plugin_manager
     return runtime
