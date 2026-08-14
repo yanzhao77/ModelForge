@@ -59,6 +59,7 @@ class AgentRuntime:
         self.run_store = run_store
         self.agent_store = agent_store
         self.event_bus = event_bus
+        self.event_store = getattr(event_bus, "store", None) if event_bus is not None else None
         self.tool_runner = tool_runner
         self.provider_factory = provider_factory or default_provider_factory
         self.context_builder = context_builder
@@ -83,6 +84,7 @@ class AgentRuntime:
         self._cancellations: Dict[str, CancellationToken] = {}
         self._running: set = set()
         self._approvals: Dict[str, asyncio.Event] = {}
+        self._created_events: set = set()
         self._started = False
 
     # ---- lifecycle (spec 64) ----
@@ -133,9 +135,7 @@ class AgentRuntime:
             metadata=metadata or {},
         )
         self.run_store.create(run)
-        self._spawn(self._publish(run.run_id, "run.created", {
-            "agent_id": agent_id, "input": input_text[:200], "user_id": user_id,
-        }))
+        self._spawn(self._emit_created(run))
         if execute:
             self._spawn(self.execute_run(run.run_id))
         log_run(self.logger, 20, "run created", run_id=run.run_id, agent_id=agent_id)
@@ -156,6 +156,7 @@ class AgentRuntime:
         token = CancellationToken()
         self._cancellations[run_id] = token
         self._running.add(run_id)
+        await self._emit_created(run)
         now = datetime.datetime.utcnow()
         self.run_store.update(run_id, status="RUNNING", started_at=now)
         await self._publish(run_id, "run.started", {"agent_id": run.agent_id, "model": run.model})
@@ -202,6 +203,11 @@ class AgentRuntime:
             payload["code"] = self._error_code(outcome.get("error"))
             await self._publish(run_id, "run.failed", payload)
 
+        if self.event_bus is not None:
+            try:
+                await self.event_bus.flush()
+            except Exception:
+                pass
         log_run(self.logger, 20, "run executed", run_id=run_id,
                 status=status, duration_ms=round(duration * 1000))
         return outcome
@@ -250,6 +256,54 @@ class AgentRuntime:
 
     def is_running(self, run_id: str) -> bool:
         return run_id in self._running
+
+    # ---- events (spec 6 / 30 / 31) ----
+    def list_events(self, run_id: str, after_sequence: int = 0, limit: int = 1000, user_id: Optional[int] = None) -> List[Any]:
+        run = self.get_run(run_id, user_id=user_id)
+        if self.event_store is None:
+            return []
+        events = self.event_store.list(run.run_id, after_sequence=after_sequence, limit=limit)
+        return events
+
+    async def stream_events(self, run_id: str, after_sequence: int = 0, user_id: Optional[int] = None):
+        """Async generator: replay persisted events, then live events (SSE, spec 26 / 31).
+
+        Subscribe first (no gap), then replay persisted events, then drain live
+        events, skipping any already replayed (dedupe by sequence).
+        """
+        self.get_run(run_id, user_id=user_id)
+        bus = self.event_bus
+        last = after_sequence
+        queue: "asyncio.Queue[Any]" = asyncio.Queue()
+
+        def _sub(event: Any) -> None:
+            if event.run_id == run_id and event.sequence > after_sequence:
+                queue.put_nowait(event)
+
+        if bus is not None:
+            bus.subscribe(_sub)
+        try:
+            if self.event_store is not None:
+                for ev in self.event_store.list(run_id, after_sequence=after_sequence):
+                    last = max(last, ev.sequence)
+                    yield ev
+            if bus is None:
+                return
+            while True:
+                terminal = self.run_store.get(run_id)
+                if terminal is not None and terminal.status in RunStatus.terminal() and queue.empty():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    yield None  # heartbeat
+                    continue
+                if event.sequence > last:
+                    last = event.sequence
+                    yield event
+        finally:
+            if bus is not None:
+                bus.unsubscribe(_sub)
 
     # ---- agent definitions ----
     def create_agent(self, config: AgentConfig) -> AgentConfig:
@@ -309,6 +363,15 @@ class AgentRuntime:
         await self._publish(run_id, "run.failed", {"code": code, "error": message})
         self._cancellations.pop(run_id, None)
         self._running.discard(run_id)
+
+    async def _emit_created(self, run: RunRecord) -> None:
+        """Idempotent run.created emission (first caller wins, spec 6)."""
+        if run.run_id in self._created_events:
+            return
+        self._created_events.add(run.run_id)
+        await self._publish(run.run_id, "run.created", {
+            "agent_id": run.agent_id, "input": (run.input or "")[:200], "user_id": run.user_id,
+        })
 
     async def _publish(self, run_id: str, event_type: str, payload: Dict[str, Any]) -> None:
         if self.event_bus is not None:

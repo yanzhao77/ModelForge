@@ -26,11 +26,9 @@ class EventBus:
 
     # ---- lifecycle ----
     def start(self) -> None:
-        if self._started:
-            return
+        """Mark the bus started; the persistence writer task is created lazily
+        on the first publish (so start() works outside a running loop)."""
         self._started = True
-        if self._store is not None:
-            self._writer_task = asyncio.get_running_loop().create_task(self._writer())
 
     async def shutdown(self) -> None:
         if not self._started:
@@ -76,6 +74,8 @@ class EventBus:
             correlation_id=correlation_id,
         )
         if self._store is not None:
+            if self._writer_task is None:
+                self._writer_task = asyncio.get_running_loop().create_task(self._writer())
             self._queue.put_nowait(event)
         for sub in list(self._subscribers):
             try:
@@ -91,6 +91,11 @@ class EventBus:
     def unsubscribe(self, subscriber: Subscriber) -> None:
         if subscriber in self._subscribers:
             self._subscribers.remove(subscriber)
+
+    @property
+    def store(self) -> Any:
+        """Persistence adapter (None = in-memory only)."""
+        return self._store
 
     def sequence_of(self, run_id: str) -> int:
         return self._sequences.get(run_id, 0)

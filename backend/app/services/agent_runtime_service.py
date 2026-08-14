@@ -36,11 +36,13 @@ def build_agent_runtime(
     """Build the runtime with default adapters (spec 80).
 
     Provider factory defaults to Ollama; tests / deployments override it.
+    Events persist to the DB (spec 30) via the event store unless one is injected.
     """
+    from repositories.event_repository import SQLAlchemyEventStore
     from services.agent_engine import get_engine
     run_store = SQLAlchemyRunStore()
     agent_store = DBAgentStore(agent_engine or get_engine())
-    bus = EventBus(store=event_store)
+    bus = EventBus(store=event_store or SQLAlchemyEventStore())
     runtime = AgentRuntime(
         run_store=run_store,
         agent_store=agent_store,

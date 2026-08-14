@@ -173,6 +173,55 @@ async def cancel_run(
     return run.to_dict()
 
 
+@router.get("/runs/{run_id}/events")
+async def run_events(
+    run_id: str,
+    after_sequence: int = Query(0, ge=0),
+    limit: int = Query(1000, ge=1, le=5000),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Persisted event list with SSE resume support (spec 30 / 31)."""
+    try:
+        events = _get_runtime().list_events(
+            run_id, after_sequence=after_sequence, limit=limit,
+            user_id=user.id if user else None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"run_id": run_id, "events": [e.to_dict() for e in events]}
+
+
+@router.get("/runs/{run_id}/stream")
+async def run_stream(
+    run_id: str,
+    after_sequence: int = Query(0, ge=0),
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    """SSE run stream: replay persisted events then live events (spec 26 / 31)."""
+    import json
+    from fastapi.responses import StreamingResponse
+    rt = _get_runtime()
+    try:
+        rt.get_run(run_id, user_id=user.id if user else None)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    async def event_generator():
+        async for ev in rt.stream_events(
+            run_id, after_sequence=after_sequence, user_id=user.id if user else None,
+        ):
+            if ev is None:
+                yield ": keepalive\n\n"
+            else:
+                yield f"event: {ev.event_type}\ndata: {json.dumps(ev.to_dict(), ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/metrics")
 async def runtime_metrics():
     """Runtime metrics snapshot (spec 49)."""
