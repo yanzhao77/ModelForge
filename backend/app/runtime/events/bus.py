@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import asyncio
+import uuid
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+
+from .types import AgentEvent
+
+Subscriber = Callable[[AgentEvent], Awaitable[None]]
+
+
+class EventBus:
+    """In-process pub/sub with per-run strict sequence (spec 6 / 7).
+
+    Events are dispatched to subscribers AND queued for the persistence
+    writer (store) so clients can reconnect and resume (spec 30 / 31).
+    """
+
+    def __init__(self, store: Optional[Any] = None):
+        self._store = store
+        self._subscribers: List[Subscriber] = []
+        self._sequences: Dict[str, int] = {}
+        self._queue = asyncio.Queue()
+        self._writer_task: Optional[asyncio.Task] = None
+        self._started = False
+
+    # ---- lifecycle ----
+    def start(self) -> None:
+        if self._started:
+            return
+        self._started = True
+        if self._store is not None:
+            self._writer_task = asyncio.get_running_loop().create_task(self._writer())
+
+    async def shutdown(self) -> None:
+        if not self._started:
+            return
+        self._started = False
+        if self._writer_task is not None:
+            await self._queue.put(None)
+            try:
+                await asyncio.wait_for(self._writer_task, timeout=2.0)
+            except Exception:
+                pass
+            self._writer_task = None
+
+    async def _writer(self) -> None:
+        while True:
+            event = await self._queue.get()
+            if event is None:
+                break
+            try:
+                await self._store.append(event)
+            except Exception:
+                pass
+
+    # ---- publish / subscribe ----
+    async def publish(
+        self,
+        run_id: str,
+        event_type: str,
+        *,
+        payload: Optional[Dict[str, Any]] = None,
+        session_id: Optional[int] = None,
+        correlation_id: Optional[str] = None,
+    ) -> AgentEvent:
+        seq = self._sequences.get(run_id, 0) + 1
+        self._sequences[run_id] = seq
+        event = AgentEvent(
+            id=uuid.uuid4().hex,
+            run_id=run_id,
+            event_type=event_type,
+            sequence=seq,
+            payload=payload or {},
+            session_id=session_id,
+            correlation_id=correlation_id,
+        )
+        if self._store is not None:
+            self._queue.put_nowait(event)
+        for sub in list(self._subscribers):
+            try:
+                await sub(event)
+            except Exception:
+                pass
+        return event
+
+    def subscribe(self, subscriber: Subscriber) -> None:
+        if subscriber not in self._subscribers:
+            self._subscribers.append(subscriber)
+
+    def unsubscribe(self, subscriber: Subscriber) -> None:
+        if subscriber in self._subscribers:
+            self._subscribers.remove(subscriber)
+
+    def sequence_of(self, run_id: str) -> int:
+        return self._sequences.get(run_id, 0)
+
+    async def flush(self) -> None:
+        """Drain pending persistence writes (used by tests / shutdown)."""
+        if self._store is None:
+            return
+        while not self._queue.empty():
+            event = self._queue.get_nowait()
+            try:
+                await self._store.append(event)
+            except Exception:
+                pass

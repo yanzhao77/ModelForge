@@ -1,0 +1,97 @@
+"""AgentStore adapter: AgentEngine (in-memory, 2.1 compat) + agents table (3.0 persistence)."""
+from __future__ import annotations
+
+import json
+from typing import Any, List, Optional
+
+from core.database import SessionLocal
+from models.records import AgentRecord
+from runtime.types import AgentConfig
+
+
+class DBAgentStore:
+    """Resolves agent definitions from the 2.1 engine first, DB second."""
+
+    def __init__(self, engine: Any = None):
+        self._engine = engine
+
+    @staticmethod
+    def _from_engine(a: dict) -> AgentConfig:
+        return AgentConfig(
+            name=a["name"],
+            model=a.get("model", ""),
+            tools=list(a.get("tools") or []),
+            system_prompt=a.get("system_prompt"),
+            memory_config=a.get("memory") or {"type": "conversation"},
+        )
+
+    @staticmethod
+    def _from_row(row: AgentRecord) -> AgentConfig:
+        return AgentConfig(
+            name=row.name,
+            model=row.model,
+            user_id=row.user_id,
+            tools=json.loads(row.tools) if row.tools else [],
+            system_prompt=row.system_prompt,
+            description=row.description,
+            memory_config=json.loads(row.memory) if row.memory else None,
+            knowledge_config=json.loads(row.knowledge_config) if row.knowledge_config else None,
+            policy=json.loads(row.policy) if row.policy else None,
+            runtime_config=json.loads(row.runtime_config) if row.runtime_config else None,
+            status=row.status or "active",
+        )
+
+    def get(self, name: str) -> Optional[AgentConfig]:
+        if self._engine is not None:
+            a = self._engine.get_agent(name)
+            if a is not None:
+                return self._from_engine(a)
+        with SessionLocal() as db:
+            row = db.query(AgentRecord).filter(AgentRecord.name == name).first()
+            return self._from_row(row) if row else None
+
+    def create(self, config: AgentConfig) -> AgentConfig:
+        with SessionLocal() as db:
+            row = db.query(AgentRecord).filter(AgentRecord.name == config.name).first()
+            if row is None:
+                row = AgentRecord(name=config.name)
+                db.add(row)
+            row.model = config.model
+            row.user_id = config.user_id
+            row.tools = json.dumps(config.tools, ensure_ascii=False) if config.tools else None
+            row.system_prompt = config.system_prompt
+            row.description = config.description
+            row.memory = json.dumps(config.memory_config or {}, ensure_ascii=False) if config.memory_config else None
+            row.knowledge_config = json.dumps(config.knowledge_config or {}, ensure_ascii=False) if config.knowledge_config else None
+            row.policy = json.dumps(config.policy or {}, ensure_ascii=False) if config.policy else None
+            row.runtime_config = json.dumps(config.runtime_config or {}, ensure_ascii=False) if config.runtime_config else None
+            row.status = config.status or "active"
+            db.commit()
+        return config
+
+    def list(self) -> List[AgentConfig]:
+        out: List[AgentConfig] = []
+        seen = set()
+        if self._engine is not None:
+            for a in self._engine.list_agents():
+                cfg = self._from_engine(a)
+                out.append(cfg)
+                seen.add(cfg.name)
+        with SessionLocal() as db:
+            for row in db.query(AgentRecord).order_by(AgentRecord.created_at.desc()).all():
+                if row.name in seen:
+                    continue
+                out.append(self._from_row(row))
+        return out
+
+    def delete(self, name: str) -> bool:
+        deleted = False
+        if self._engine is not None and hasattr(self._engine, "delete_agent"):
+            deleted = self._engine.delete_agent(name) or deleted
+        with SessionLocal() as db:
+            row = db.query(AgentRecord).filter(AgentRecord.name == name).first()
+            if row is not None:
+                db.delete(row)
+                db.commit()
+                deleted = True
+        return deleted

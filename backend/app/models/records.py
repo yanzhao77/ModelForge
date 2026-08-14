@@ -147,9 +147,15 @@ class AgentRecord(Base):
     tools = Column(Text, nullable=True)
     memory = Column(Text, nullable=True)
     system_prompt = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    status = Column(String(20), default="active")
+    policy = Column(Text, nullable=True)  # JSON
+    runtime_config = Column(Text, nullable=True)  # JSON
+    knowledge_config = Column(Text, nullable=True)  # JSON
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     def to_dict(self) -> dict:
+        import json as _json
         return {
             "id": self.id,
             "name": self.name,
@@ -157,6 +163,11 @@ class AgentRecord(Base):
             "tools": self.tools,
             "memory": self.memory,
             "system_prompt": self.system_prompt,
+            "description": self.description,
+            "status": self.status,
+            "policy": _json.loads(self.policy) if self.policy else {},
+            "runtime_config": _json.loads(self.runtime_config) if self.runtime_config else {},
+            "knowledge_config": _json.loads(self.knowledge_config) if self.knowledge_config else {},
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

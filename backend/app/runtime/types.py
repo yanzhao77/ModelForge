@@ -66,7 +66,6 @@ class RunRecord:
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
-
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RunRecord":
         def _dt(v):
@@ -95,4 +94,52 @@ class RunRecord:
             started_at=_dt(data.get("started_at")),
             finished_at=_dt(data.get("finished_at")),
             created_at=_dt(data.get("created_at")),
+        )
+
+
+@dataclass
+class AgentConfig:
+    """Persistable agent definition (spec 3.1). Resolved from the agent store."""
+
+    name: str
+    model: str
+    user_id: Optional[int] = None
+    tools: List[str] = field(default_factory=list)
+    system_prompt: Optional[str] = None
+    description: Optional[str] = None
+    memory_config: Optional[Dict[str, Any]] = None
+    knowledge_config: Optional[Dict[str, Any]] = None
+    policy: Optional[Dict[str, Any]] = None
+    runtime_config: Optional[Dict[str, Any]] = None
+    status: str = "active"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "model": self.model,
+            "user_id": self.user_id,
+            "tools": self.tools,
+            "system_prompt": self.system_prompt,
+            "description": self.description,
+            "memory_config": self.memory_config or {},
+            "knowledge_config": self.knowledge_config or {},
+            "policy": self.policy or {},
+            "runtime_config": self.runtime_config or {},
+            "status": self.status,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AgentConfig":
+        return cls(
+            name=data["name"],
+            model=data.get("model", ""),
+            user_id=data.get("user_id"),
+            tools=data.get("tools") or [],
+            system_prompt=data.get("system_prompt"),
+            description=data.get("description"),
+            memory_config=data.get("memory_config"),
+            knowledge_config=data.get("knowledge_config"),
+            policy=data.get("policy"),
+            runtime_config=data.get("runtime_config"),
+            status=data.get("status", "active"),
         )

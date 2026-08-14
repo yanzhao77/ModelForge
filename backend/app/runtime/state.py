@@ -16,6 +16,7 @@ class AgentState:
     messages: List[Dict[str, Any]] = field(default_factory=list)
     context: Dict[str, Any] = field(default_factory=dict)
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    tool_call_count: int = 0
     variables: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
     iteration: int = 0
@@ -27,6 +28,7 @@ class AgentState:
             "messages": self.messages,
             "context": self.context,
             "tool_calls": self.tool_calls,
+            "tool_call_count": self.tool_call_count,
             "variables": self.variables,
             "metadata": self.metadata,
             "iteration": self.iteration,
@@ -40,6 +42,7 @@ class AgentState:
             messages=data.get("messages", []),
             context=data.get("context", {}),
             tool_calls=data.get("tool_calls", []),
+            tool_call_count=data.get("tool_call_count", 0),
             variables=data.get("variables", {}),
             metadata=data.get("metadata", {}),
             iteration=data.get("iteration", 0),
