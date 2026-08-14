@@ -94,6 +94,16 @@ class PluginManager:
                 if hasattr(module, "get_tools"):
                     for tool in module.get_tools(ctx) or []:
                         ctx.register_tool(tool)
+                # agent plugins: behavior extension merged into the agent profile (3.x-P3)
+                if manifest.type == "agent" and hasattr(module, "extend_agent"):
+                    ext = module.extend_agent(ctx) or {}
+                    if isinstance(ext, dict):
+                        mounted_names = []
+                        for tool in ext.get("tools") or []:
+                            ctx.register_tool(tool)
+                            mounted_names.append(getattr(tool, "name", ""))
+                        ext["tool_names"] = mounted_names
+                        state["extension"] = ext
             except Exception as e:
                 state["status"] = "failed"
                 state["error"] = str(e)

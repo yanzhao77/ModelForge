@@ -105,6 +105,7 @@ class AgentConfig:
     model: str
     user_id: Optional[int] = None
     tools: List[str] = field(default_factory=list)
+    plugins: List[str] = field(default_factory=list)
     system_prompt: Optional[str] = None
     description: Optional[str] = None
     memory_config: Optional[Dict[str, Any]] = None
@@ -119,6 +120,7 @@ class AgentConfig:
             "model": self.model,
             "user_id": self.user_id,
             "tools": self.tools,
+            "plugins": self.plugins,
             "system_prompt": self.system_prompt,
             "description": self.description,
             "memory_config": self.memory_config or {},
@@ -135,6 +137,7 @@ class AgentConfig:
             model=data.get("model", ""),
             user_id=data.get("user_id"),
             tools=data.get("tools") or [],
+            plugins=data.get("plugins") or [],
             system_prompt=data.get("system_prompt"),
             description=data.get("description"),
             memory_config=data.get("memory_config"),

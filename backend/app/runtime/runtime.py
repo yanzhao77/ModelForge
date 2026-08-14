@@ -540,9 +540,17 @@ class AgentRuntime:
     ) -> RunContext:
         rs: RuntimeSettings = self.settings.runtime
         rt_cfg = agent.runtime_config or {}
+        profile = self._resolve_agent_profile(agent)
+        tools = profile["tools"]
+        system_prompt = profile["system_prompt"]
         policy = None
         if self.policy_engine is not None:
-            policy = self.policy_engine.for_agent(agent) if hasattr(self.policy_engine, "for_agent") else self.policy_engine
+            merged_agent = agent
+            if profile["policy"]:
+                merged = dict(agent.policy or {})
+                merged.update(profile["policy"])
+                merged_agent = AgentConfig(**{**agent.to_dict(), "policy": merged})
+            policy = self.policy_engine.for_agent(merged_agent) if hasattr(self.policy_engine, "for_agent") else self.policy_engine
         return RunContext(
             approval_waiter=self._wait_for_approval,
             run_id=run.run_id,
@@ -551,8 +559,8 @@ class AgentRuntime:
             session_id=run.session_id,
             input_text=run.input or "",
             model=run.model or agent.model,
-            system_prompt=agent.system_prompt,
-            tools=list(agent.tools or []),
+            system_prompt=system_prompt,
+            tools=tools,
             policy=policy,
             cancellation=token,
             max_iterations=int(rt_cfg.get("max_iterations", rs.max_iterations)),
@@ -561,11 +569,59 @@ class AgentRuntime:
             max_context_tokens=int(rt_cfg.get("max_context_tokens", 8192)),
             max_output_tokens=int(rt_cfg.get("max_output_tokens", 2048)),
             tool_timeout=float(self.settings.tools.default_timeout_seconds),
-            memory_config=agent.memory_config,
-            knowledge_sources=list((agent.knowledge_config or {}).get("sources") or []),
+            memory_config=profile["memory_config"],
+            knowledge_sources=profile["knowledge_sources"],
             metadata=run.metadata or {},
             started_at=time.monotonic(),
         )
+
+    def _plugin_extensions(self, agent: AgentConfig) -> List[Dict[str, Any]]:
+        """Collect behavior extensions from the loaded plugins of the agent (3.x-P3).
+
+        Agent composition: AgentProfile = base agent + plugin contributions.
+        """
+        if not agent.plugins or self.plugin_manager is None:
+            return []
+        exts = []
+        for name in agent.plugins:
+            state = self.plugin_manager.get(name)
+            if state is not None and state.get("extension"):
+                exts.append(state["extension"])
+        return exts
+
+    def _resolve_agent_profile(self, agent: AgentConfig) -> Dict[str, Any]:
+        """Merge plugin extensions into the agent profile (additive, no core change)."""
+        tools = list(agent.tools or [])
+        sys_prompt = agent.system_prompt
+        knowledge = dict(agent.knowledge_config or {})
+        memory = dict(agent.memory_config or {}) if agent.memory_config else None
+        policy = dict(agent.policy or {}) if agent.policy else {}
+        for ext in self._plugin_extensions(agent):
+            for n in ext.get("tool_names") or []:
+                if n and n not in tools:
+                    tools.append(n)
+            sp = ext.get("system_prompt")
+            if sp:
+                sys_prompt = (sys_prompt or "") + str(sp)
+            ks = ext.get("knowledge_sources")
+            if ks:
+                knowledge["sources"] = list(set(knowledge.get("sources") or []) | set(ks))
+            mem = ext.get("memory")
+            if mem and isinstance(mem, dict):
+                if memory is None:
+                    memory = {}
+                memory.update(mem)
+            ext_pol = ext.get("policy")
+            if ext_pol and isinstance(ext_pol, dict):
+                policy.update(ext_pol)
+        return {
+            "tools": tools,
+            "system_prompt": sys_prompt,
+            "knowledge_config": knowledge,
+            "knowledge_sources": list(knowledge.get("sources") or []),
+            "memory_config": memory,
+            "policy": policy,
+        }
 
     async def _fail(self, run_id: str, code: str, message: str, status: str) -> None:
         self.run_store.update(

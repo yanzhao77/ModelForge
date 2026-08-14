@@ -52,6 +52,7 @@ async def create_agent(
         name=req.name,
         model_name=req.model,
         tools=req.tools,
+        plugins=req.plugins,
         memory_config=req.memory,
         system_prompt=req.system_prompt,
     )
@@ -63,6 +64,7 @@ async def create_agent(
             model=req.model,
             user_id=user.id if user else None,
             tools=req.tools,
+            plugins=req.plugins,
             system_prompt=req.system_prompt,
             description=req.description,
             memory_config=req.memory,

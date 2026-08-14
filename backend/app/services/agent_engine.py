@@ -74,6 +74,7 @@ class AgentEngine:
 
     def create_agent(
         self, name: str, model_name: str, tools: Optional[List[str]] = None,
+        plugins: Optional[List[str]] = None,
         memory_config: Optional[Dict] = None, system_prompt: Optional[str] = None,
     ) -> Dict:
         """Create and register a new agent."""
@@ -81,6 +82,7 @@ class AgentEngine:
             "name": name,
             "model": model_name,
             "tools": tools or [],
+            "plugins": plugins or [],
             "memory": memory_config or {"type": "conversation"},
             "system_prompt": system_prompt,
             "messages": [],
@@ -164,7 +166,7 @@ class AgentEngine:
 
     def list_agents(self) -> List[Dict]:
         return [
-            {"name": a["name"], "model": a["model"], "tools": a["tools"]}
+            {"name": a["name"], "model": a["model"], "tools": a["tools"], "plugins": a.get("plugins") or []}
             for a in self.agents.values()
         ]
 

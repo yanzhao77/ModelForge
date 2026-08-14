@@ -10,6 +10,7 @@ class AgentCreateRequest(BaseModel):
     name: str
     model: str
     tools: List[str] = []
+    plugins: List[str] = []
     memory: Optional[Dict[str, Any]] = None
     system_prompt: Optional[str] = None
     description: Optional[str] = None
@@ -22,6 +23,7 @@ class AgentConfigResponse(BaseModel):
     name: str
     model: str
     tools: List[str] = []
+    plugins: List[str] = []
     system_prompt: Optional[str] = None
     description: Optional[str] = None
     status: str = "active"

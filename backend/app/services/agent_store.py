@@ -21,6 +21,7 @@ class DBAgentStore:
             name=a["name"],
             model=a.get("model", ""),
             tools=list(a.get("tools") or []),
+            plugins=list(a.get("plugins") or []),
             system_prompt=a.get("system_prompt"),
             memory_config=a.get("memory") or {"type": "conversation"},
         )
@@ -38,6 +39,7 @@ class DBAgentStore:
             knowledge_config=json.loads(row.knowledge_config) if row.knowledge_config else None,
             policy=json.loads(row.policy) if row.policy else None,
             runtime_config=json.loads(row.runtime_config) if row.runtime_config else None,
+            plugins=(json.loads(row.runtime_config) if row.runtime_config else {}).get("plugins", []),
             status=row.status or "active",
         )
 
@@ -68,7 +70,10 @@ class DBAgentStore:
             row.memory = json.dumps(config.memory_config or {}, ensure_ascii=False) if config.memory_config else None
             row.knowledge_config = json.dumps(config.knowledge_config or {}, ensure_ascii=False) if config.knowledge_config else None
             row.policy = json.dumps(config.policy or {}, ensure_ascii=False) if config.policy else None
-            row.runtime_config = json.dumps(config.runtime_config or {}, ensure_ascii=False) if config.runtime_config else None
+            rc = dict(config.runtime_config or {})
+            if config.plugins:
+                rc["plugins"] = list(config.plugins)
+            row.runtime_config = json.dumps(rc, ensure_ascii=False) if rc else None
             row.status = config.status or "active"
             db.commit()
         return config
