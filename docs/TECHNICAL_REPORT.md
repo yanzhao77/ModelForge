@@ -1,7 +1,7 @@
 # ModelForge 3.0 架构与技术报告
 
 > **文档与代码同步声明**：本报告与 `master` 分支当前代码逐项核对（核对时点：本次更新），所有指标均为实测：
-> **287 个测试全绿 · 84 条 API 路由 · 14 张数据表 · 真 LangGraph Agent（2.1） + Agent Runtime 3.0 · 5 个客户端标签页**。
+> **339 个测试全绿 · 92 条 API 路由 · 14 张数据表 · 真 LangGraph Agent（2.1） + Agent Runtime 3.0 + 3.x Composable Plugin · 5 个客户端标签页**。
 >
 > 旧版 v2.0 桌面端代码已整体迁移至 `gui_old` 分支（`master` 上已移除）。
 >
@@ -38,8 +38,8 @@
 
 | 指标 | 数值 | 验证方式 |
 |---|---|---|
-| 测试 | **287 通过 / 0 失败** | `pytest tests/` 实测 |
-| API 路由 | **84 条**（其中 agent 相关 20 条） | FastAPI 路由表实测（含 /docs、/healthz、/v1/*） |
+| 测试 | **339 通过 / 0 失败** | `pytest tests/` 实测 |
+| API 路由 | **92 条**（其中 agent 相关 20 条 + plugins 3.x 9 条） | FastAPI 路由表实测（含 /docs、/healthz、/v1/*） |
 | 数据库表 | **14 张**（新增 agent_runs / agent_events / tools） | SQLAlchemy metadata 实测 |
 | 后端代码 | ~7800 行（api 13 模块 + services 21 模块 + runtime 包 + repositories） | 统计 |
 | 客户端代码 | ~2300 行（api_client + 7 页面/组件） | 统计 |
@@ -377,6 +377,22 @@
 | gui_old | 旧版 v2.0 桌面端存档（gui/pytorch/api/database/...） | 只读参考，不再维护 |
 
 版本：v2.1（后端 root 返回 `{"name":"ModelForge","version":"2.1","status":"ok"}`）。
+
+## 17.5 3.x Composable Agent & Tool Plugin（新增）
+
+> 详细架构见 [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md)。
+
+| Phase | 内容 |
+|---|---|
+| P0 加固 | Policy 下沉 ToolExecutor（权威兜底）/ 2.1 路径策略门 / 内存清理 / 事件失败可见 / 终态 try-finally |
+| P1 Scope | PluginScope + PluginContext（作用域挂载/卸载 + per-plugin 句柄，单一注册表） |
+| P2 Manager | PluginManager：manifest / 发现 / 依赖 / 生命周期 / 挂载卸载 + plugin.* 事件（复用 EventBus）+ API |
+| P3 组合 | AgentConfig.plugins + AgentPlugin（extend_agent 行为扩展）+ 策略合并 |
+| P4 贡献 | ContextContributor 协议 + SkillPlugin（技能/知识注入，优先级排序） |
+| P5 护栏 | parent_run_id / 深度 / 循环 / 子数限制 / 取消级联 / 预算传播 |
+| P6 发现 | Capability Discovery（工具/技能/Agent 扩展索引 + scope 过滤 + API） |
+
+新增 API：`/api/v1/plugins/{discover,load,capabilities}`、`/api/v1/plugins/{name}/{start,stop,mount,unmount}`、`DELETE /api/v1/plugins/{name}`。
 
 ---
 

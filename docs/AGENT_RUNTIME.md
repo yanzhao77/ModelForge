@@ -112,4 +112,13 @@ backend/app/runtime/
 ├── context/            # builder.py（ContextBuilder）
 ├── memory/             # providers.py（DBMemoryProvider/ConversationMemory）
 └── mcp/                # client/registry/adapter
+└── plugins/            # 3.x: manifest/scope/context/manager/discovery
 ```
+
+## 13. 3.x 插件化增量（见 [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md)）
+
+- P0 加固：Policy 下沉 ToolExecutor（权威兜底）+ 2.1 LangGraph 路径策略门 + 内存清理 + 事件失败可见 + 终态 try-finally。
+- P1-P6：PluginScope/PluginContext、PluginManager（manifest/生命周期/依赖/挂载卸载）、AgentProfile+AgentPlugin、ContextContributor+SkillPlugin、Multi-Agent 护栏（parent_run_id/深度/循环/子数/取消级联/预算）、Capability Discovery。
+- 全部 additive：单一 ToolRegistry / 单一 EventBus（plugin.* 事件）/ 单一 Runtime，不建第二套。
+
+当前基线：339 测试全绿 · 92 路由 · 14 表。

@@ -102,6 +102,19 @@
 | GET | /api/v1/plugins | 插件列表 |
 | GET | /api/v1/system/status / logs | 系统状态 / 日志 |
 
+## 插件（3.x，additive）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /api/v1/plugins/discover?directory= | 文件系统 manifest 发现 |
+| POST | /api/v1/plugins/load | 加载插件（manifest dict 或 manifest_path） |
+| POST | /api/v1/plugins/{name}/start | 启动 |
+| POST | /api/v1/plugins/{name}/stop | 停止 |
+| POST | /api/v1/plugins/{name}/mount | 挂载（确认工具生效） |
+| POST | /api/v1/plugins/{name}/unmount | 卸载（移除本插件工具） |
+| DELETE | /api/v1/plugins/{name} | 卸载插件 |
+| GET | /api/v1/plugins/capabilities?scope= | 能力索引（工具/技能/Agent 扩展） |
+
 ## OpenAI 兼容
 
 | 方法 | 路径 | 说明 |
