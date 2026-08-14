@@ -111,6 +111,7 @@ class AgentRuntime:
         self._approval_grants: Dict[str, bool] = {}
         self._created_events: set = set()
         self._mcp_registry: Any = None
+        self._scopes: Dict[str, Any] = {}
         self._started = False
 
     # ---- lifecycle (spec 64) ----
@@ -453,6 +454,36 @@ class AgentRuntime:
 
     def delete_agent(self, name: str) -> bool:
         return self.agent_store.delete(name)
+
+    # ---- plugin scopes (3.x, audit §16.4) ----
+    def create_scope(self, scope_id: str, name: Optional[str] = None) -> Any:
+        """Create (or reuse) a plugin scope; mounts tools into the shared registry."""
+        if scope_id in self._scopes:
+            return self._scopes[scope_id]
+        from .plugins.scope import PluginScope
+        scope = PluginScope(
+            scope_id, name=name, tool_registry=self.tool_registry,
+            event_bus=self.event_bus, logger=self.logger,
+        )
+        self._scopes[scope_id] = scope
+        return scope
+
+    def get_scope(self, scope_id: str) -> Optional[Any]:
+        return self._scopes.get(scope_id)
+
+    def list_scopes(self) -> List[Dict[str, Any]]:
+        return [s.to_dict() for s in self._scopes.values()]
+
+    def remove_scope(self, scope_id: str) -> bool:
+        scope = self._scopes.pop(scope_id, None)
+        if scope is None:
+            return False
+        scope.unmount()
+        return True
+
+    def plugin_context(self, scope_id: str, plugin_name: str, config: Optional[Dict[str, Any]] = None) -> Any:
+        scope = self.create_scope(scope_id)
+        return scope.context(plugin_name, config=config)
 
     # ---- scheduler (spec 38 / 72) ----
     async def _scheduler_trigger(self, run_spec: Dict[str, Any]) -> None:
