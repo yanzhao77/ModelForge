@@ -77,6 +77,10 @@ class AgentRuntime:
                 tool_registry,
                 default_timeout=float(self.settings.tools.default_timeout_seconds),
             )
+        if self.tool_registry is not None:
+            # multi-agent capability (spec 40 / 73)
+            from .tools.delegate import DelegateTool
+            self.tool_registry.register(DelegateTool(self))
         self.tool_runner = tool_runner
 
         self.provider_factory = provider_factory or default_provider_factory
