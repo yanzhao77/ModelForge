@@ -571,6 +571,7 @@ class AgentRuntime:
             tool_timeout=float(self.settings.tools.default_timeout_seconds),
             memory_config=profile["memory_config"],
             knowledge_sources=profile["knowledge_sources"],
+            contributions=profile.get("contributions") or [],
             metadata=run.metadata or {},
             started_at=time.monotonic(),
         )
@@ -596,6 +597,15 @@ class AgentRuntime:
         knowledge = dict(agent.knowledge_config or {})
         memory = dict(agent.memory_config or {}) if agent.memory_config else None
         policy = dict(agent.policy or {}) if agent.policy else {}
+        contributions: List[Dict[str, Any]] = []
+        contributions: List[Dict[str, Any]] = []
+        if agent.plugins and self.plugin_manager is not None:
+            for name in agent.plugins:
+                state = self.plugin_manager.get(name)
+                if state is not None:
+                    contributions.extend(state.get("contributions") or [])
+                    ext = state.get("extension") or {}
+                    contributions.extend(ext.get("contributions") or [])
         for ext in self._plugin_extensions(agent):
             for n in ext.get("tool_names") or []:
                 if n and n not in tools:
@@ -621,6 +631,7 @@ class AgentRuntime:
             "knowledge_sources": list(knowledge.get("sources") or []),
             "memory_config": memory,
             "policy": policy,
+            "contributions": contributions,
         }
 
     async def _fail(self, run_id: str, code: str, message: str, status: str) -> None:

@@ -94,6 +94,12 @@ class PluginManager:
                 if hasattr(module, "get_tools"):
                     for tool in module.get_tools(ctx) or []:
                         ctx.register_tool(tool)
+                # skill plugins: context contributions injected by the ContextBuilder (3.x-P4)
+                if manifest.type == "skill" and hasattr(module, "contribute"):
+                    contribs = module.contribute(ctx) or []
+                    state["contributions"] = [
+                        c.to_dict() if hasattr(c, "to_dict") else c for c in contribs
+                    ]
                 # agent plugins: behavior extension merged into the agent profile (3.x-P3)
                 if manifest.type == "agent" and hasattr(module, "extend_agent"):
                     ext = module.extend_agent(ctx) or {}

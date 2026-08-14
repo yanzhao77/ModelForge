@@ -18,10 +18,12 @@ class ContextBuilder:
         memory_provider: Any = None,
         knowledge_provider: Any = None,
         history_provider: Any = None,
+        contributors: Optional[list] = None,
     ):
         self.memory_provider = memory_provider
         self.knowledge_provider = knowledge_provider
         self.history_provider = history_provider
+        self.contributors = list(contributors or [])
 
     async def build(
         self,
@@ -45,6 +47,13 @@ class ContextBuilder:
             extras.append("[知识库资料]")
             extras.extend(f"- [{k.get('source', '?')}] {k.get('text', '')}" for k in knowledge)
 
+        # skill / instruction contributions (3.x-P4: plugins inject without
+        # touching builder core - audit §9.3)
+        segments = self._collect_contributions(ctx)
+        if segments:
+            extras.append("[技能]")
+            extras.extend(f"- {seg.get('content', '')}" for seg in segments)
+
         if extras:
             system = system + "\n\n" + "\n".join(extras)
 
@@ -60,6 +69,18 @@ class ContextBuilder:
 
         prompt.extend(working_messages)
         return self._trim(prompt, ctx.max_context_tokens)
+
+    def _collect_contributions(self, ctx: RunContext) -> List[Dict[str, Any]]:
+        """Merge run-level contributions (from skill plugins / agent plugins) with
+        builder-registered contributors, sorted by priority."""
+        items = list(getattr(ctx, "contributions", None) or [])
+        for contributor in self.contributors:
+            try:
+                segments = contributor.contribute(ctx) or []
+                items.extend(getattr(s, "to_dict", lambda: s)() if hasattr(s, "to_dict") else s for s in segments)
+            except Exception:
+                continue
+        return sorted(items, key=lambda x: int(x.get("priority", 50)))
 
     async def _retrieve_memories(self, ctx: RunContext) -> List[str]:
         if self.memory_provider is None or ctx.user_id is None:

@@ -33,6 +33,7 @@ class RunContext:
     tool_timeout: float = 60.0
     memory_config: Optional[Dict[str, Any]] = None
     knowledge_sources: List[str] = field(default_factory=list)
+    contributions: List[Dict[str, Any]] = field(default_factory=list)
     variables: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
     started_at: float = 0.0
