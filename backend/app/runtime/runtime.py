@@ -84,6 +84,9 @@ class AgentRuntime:
         self.memory_provider = memory_provider
         self.knowledge_provider = knowledge_provider
         self.history_provider = history_provider
+        if policy_engine is None:
+            from .policy import PolicyEngine
+            policy_engine = PolicyEngine(settings=self.settings)
         self.policy_engine = policy_engine
         self.scheduler = scheduler
 
@@ -99,6 +102,7 @@ class AgentRuntime:
         self._cancellations: Dict[str, CancellationToken] = {}
         self._running: set = set()
         self._approvals: Dict[str, asyncio.Event] = {}
+        self._approval_grants: Dict[str, bool] = {}
         self._created_events: set = set()
         self._started = False
 
@@ -161,6 +165,9 @@ class AgentRuntime:
         if run is None:
             raise RunNotFoundError(run_id)
         if run.status in RunStatus.terminal():
+            return {"status": run.status, "output": run.output, "error": run.error}
+        # idempotency: another task may already be executing this run (spec 58)
+        if run.status == "RUNNING" or run_id in self._running:
             return {"status": run.status, "output": run.output, "error": run.error}
 
         agent = self.agent_store.get(run.agent_id)
@@ -272,6 +279,47 @@ class AgentRuntime:
     def is_running(self, run_id: str) -> bool:
         return run_id in self._running
 
+    # ---- human gate (spec 32) ----
+    async def _wait_for_approval(self, ctx: Any, tool_name: str) -> bool:
+        """Pause the run at WAITING_HUMAN until approve/reject or timeout."""
+        run_id = ctx.run_id
+        if run_id in self._approval_grants:
+            return bool(self._approval_grants.pop(run_id, False))
+        await self._publish(run_id, "human.approval.required", {"tool": tool_name})
+        self.run_store.update(run_id, status="WAITING_HUMAN")
+        event = asyncio.Event()
+        self._approvals[run_id] = event
+        self._approval_grants[run_id] = False
+        try:
+            timeout = getattr(ctx, "timeout_seconds", None) or 600
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            granted = False
+        else:
+            granted = bool(self._approval_grants.pop(run_id, False))
+        self._approvals.pop(run_id, None)
+        self._approval_grants.pop(run_id, None)
+        self.run_store.update(run_id, status="RUNNING")
+        return granted
+
+    async def approve_run(self, run_id: str, user_id: Optional[int] = None) -> RunRecord:
+        run = self.get_run(run_id, user_id=user_id)
+        self._approval_grants[run_id] = True
+        event = self._approvals.get(run_id)
+        if event is not None:
+            event.set()
+        await self._publish(run_id, "human.approval.granted", {"tool": None})
+        return run
+
+    async def reject_run(self, run_id: str, user_id: Optional[int] = None) -> RunRecord:
+        run = self.get_run(run_id, user_id=user_id)
+        self._approval_grants[run_id] = False
+        event = self._approvals.get(run_id)
+        if event is not None:
+            event.set()
+        await self._publish(run_id, "human.approval.denied", {"tool": None})
+        return run
+
     # ---- tool registry (spec 8 / 36) ----
     def register_tool(self, tool: Any, aliases: Optional[List[str]] = None) -> Any:
         if self.tool_registry is None:
@@ -371,6 +419,7 @@ class AgentRuntime:
         if self.policy_engine is not None:
             policy = self.policy_engine.for_agent(agent) if hasattr(self.policy_engine, "for_agent") else self.policy_engine
         return RunContext(
+            approval_waiter=self._wait_for_approval,
             run_id=run.run_id,
             agent_id=run.agent_id,
             user_id=run.user_id,

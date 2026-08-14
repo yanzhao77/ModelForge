@@ -42,13 +42,17 @@ class DBAgentStore:
         )
 
     def get(self, name: str) -> Optional[AgentConfig]:
+        # DB row first: it carries the full 3.0 config (policy, runtime_config,
+        # knowledge_config). The in-memory engine entry is the fallback.
+        with SessionLocal() as db:
+            row = db.query(AgentRecord).filter(AgentRecord.name == name).first()
+            if row is not None:
+                return self._from_row(row)
         if self._engine is not None:
             a = self._engine.get_agent(name)
             if a is not None:
                 return self._from_engine(a)
-        with SessionLocal() as db:
-            row = db.query(AgentRecord).filter(AgentRecord.name == name).first()
-            return self._from_row(row) if row else None
+        return None
 
     def create(self, config: AgentConfig) -> AgentConfig:
         with SessionLocal() as db:

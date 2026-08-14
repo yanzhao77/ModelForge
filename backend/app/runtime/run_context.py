@@ -23,6 +23,7 @@ class RunContext:
     system_prompt: Optional[str] = None
     tools: List[str] = field(default_factory=list)
     policy: Optional[Any] = None
+    approval_waiter: Optional[Any] = None
     cancellation: Optional[CancellationToken] = None
     max_iterations: int = 20
     max_tool_calls: int = 50

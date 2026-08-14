@@ -173,6 +173,32 @@ async def cancel_run(
     return run.to_dict()
 
 
+@router.post("/runs/{run_id}/approve")
+async def approve_run(
+    run_id: str,
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Approve a pending human-approval request (spec 32)."""
+    try:
+        run = await _get_runtime().approve_run(run_id, user_id=user.id if user else None)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return run.to_dict()
+
+
+@router.post("/runs/{run_id}/reject")
+async def reject_run(
+    run_id: str,
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Reject a pending human-approval request (spec 32)."""
+    try:
+        run = await _get_runtime().reject_run(run_id, user_id=user.id if user else None)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return run.to_dict()
+
+
 @router.get("/runs/{run_id}/events")
 async def run_events(
     run_id: str,

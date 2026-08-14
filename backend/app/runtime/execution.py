@@ -8,7 +8,8 @@ from .cancellation import CancellationToken
 from .run_context import RunContext, ToolExecutionContext
 from .errors import (
     AgentLoopLimitError, AgentToolCallLimitError, RunCancelledError,
-    RunTimeoutError, RuntimeError, ToolNotFoundError, ToolTimeoutError,
+    RunTimeoutError, RuntimeError, ToolDeniedError, ToolNotFoundError,
+    ToolTimeoutError,
 )
 from .logging import get_logger, log_run
 from .models.base import ModelProvider
@@ -113,7 +114,19 @@ class ExecutionEngine:
                     if state.tool_call_count + 1 > ctx.max_tool_calls:
                         raise AgentToolCallLimitError()
                     state.tool_call_count += 1
-                    await self._policy_gate(ctx, tc.name)
+                    try:
+                        await self._policy_gate(ctx, tc.name)
+                    except ToolDeniedError as e:
+                        await self._emit(ctx, "tool.call.failed", {
+                            "tool": tc.name, "code": "TOOL_DENIED", "error": e.message,
+                        })
+                        state.messages.append({
+                            "role": "tool",
+                            "content": f"Error: {e.message} (denied by policy)",
+                            "tool_call_id": tc.id,
+                            "name": tc.name,
+                        })
+                        continue
 
                     tctx = ToolExecutionContext(
                         user_id=ctx.user_id,
@@ -206,10 +219,28 @@ class ExecutionEngine:
         return schemas or None
 
     async def _policy_gate(self, ctx: RunContext, tool_name: str) -> None:
-        """Phase 6 hook: policy check before tool execution."""
+        """Policy check + optional human gate before tool execution (spec 69 / 32)."""
         policy = getattr(ctx, "policy", None)
-        if policy is not None and hasattr(policy, "check_tool"):
-            await policy.check_tool(ctx, tool_name)
+        if policy is None or not hasattr(policy, "check_tool"):
+            return
+        tool = None
+        runner = self.tool_runner
+        if runner is not None and hasattr(runner, "registry"):
+            tool = runner.registry.get(tool_name)
+        decision = policy.check_tool(ctx, tool_name, tool)
+        if not decision.allowed:
+            raise ToolDeniedError(decision.reason)
+        if decision.require_approval:
+            granted = await self._wait_for_approval(ctx, tool_name)
+            if not granted:
+                raise ToolDeniedError("human approval denied")
+
+    async def _wait_for_approval(self, ctx: RunContext, tool_name: str) -> bool:
+        """Wait for a human approve/reject decision (spec 32). No waiter -> deny."""
+        waiter = getattr(ctx, "approval_waiter", None)
+        if waiter is None:
+            return False
+        return await waiter(ctx, tool_name)
 
     async def _emit(self, ctx: RunContext, event_type: str, payload: Dict[str, Any]) -> None:
         if self.event_bus is not None:
