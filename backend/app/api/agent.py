@@ -248,6 +248,32 @@ async def run_stream(
     )
 
 
+@router.post("/mcp/servers")
+async def register_mcp(req: dict):
+    """Register an MCP server; its tools land in the Tool Registry (spec 70)."""
+    name = (req or {}).get("name")
+    endpoint = (req or {}).get("endpoint")
+    if not name or not endpoint:
+        raise HTTPException(status_code=400, detail="name and endpoint required")
+    try:
+        return await _get_runtime().register_mcp_server(name, endpoint)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"MCP register failed: {e}")
+
+
+@router.get("/mcp/servers")
+async def list_mcp_servers():
+    return {"servers": _get_runtime().list_mcp_servers()}
+
+
+@router.delete("/mcp/servers/{name}")
+async def unregister_mcp(name: str):
+    ok = await _get_runtime().unregister_mcp_server(name)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"MCP server {name} not found")
+    return {"ok": True}
+
+
 @router.get("/tools")
 async def list_tools():
     """Registered tools with permissions (spec 8)."""

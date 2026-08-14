@@ -104,6 +104,7 @@ class AgentRuntime:
         self._approvals: Dict[str, asyncio.Event] = {}
         self._approval_grants: Dict[str, bool] = {}
         self._created_events: set = set()
+        self._mcp_registry: Any = None
         self._started = False
 
     # ---- lifecycle (spec 64) ----
@@ -341,6 +342,39 @@ class AgentRuntime:
         if self.tool_registry is None:
             return None
         return self.tool_registry.get(name)
+
+    # ---- MCP servers (spec 36 / 70) ----
+    async def register_mcp_server(
+        self, name: str, endpoint: str, headers: Optional[Dict[str, str]] = None,
+        transport: Any = None,
+    ) -> Dict[str, Any]:
+        from .mcp import MCPClient, MCPRegistry
+        if self._mcp_registry is None:
+            self._mcp_registry = MCPRegistry()
+        client = MCPClient(name, endpoint, headers=headers)
+        if transport is not None:
+            client.with_transport(transport)
+        self._mcp_registry.register(client)
+        await client.initialize()
+        await client.list_tools()
+        self._mcp_registry.sync_tools(self.tool_registry)
+        log_run(self.logger, 20, "mcp server registered", name=name, tools=len(client.tools))
+        return {"name": name, "endpoint": endpoint, "tools": len(client.tools), "server_info": client.server_info}
+
+    def list_mcp_servers(self) -> List[Dict[str, Any]]:
+        if self._mcp_registry is None:
+            return []
+        return self._mcp_registry.list()
+
+    async def unregister_mcp_server(self, name: str) -> bool:
+        if self._mcp_registry is None:
+            return False
+        client = self._mcp_registry.get(name)
+        if client is None:
+            return False
+        for tool_def in getattr(client, "tools", []) or []:
+            self.unregister_tool(tool_def.get("name"))
+        return self._mcp_registry.unregister(name)
 
     # ---- events (spec 6 / 30 / 31) ----
     def list_events(self, run_id: str, after_sequence: int = 0, limit: int = 1000, user_id: Optional[int] = None) -> List[Any]:
