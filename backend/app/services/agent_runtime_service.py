@@ -38,9 +38,12 @@ def build_agent_runtime(
     Events persist to the DB (spec 30) via the event store unless one is injected.
     """
     from repositories.event_repository import SQLAlchemyEventStore
+    from runtime.scheduler import Scheduler
     from runtime.tools import ToolExecutor, ToolRegistry
     from runtime.tools.builtin import register_builtin_tools
     from services.agent_engine import get_engine
+    if scheduler is None:
+        scheduler = Scheduler()
     run_store = SQLAlchemyRunStore()
     agent_store = DBAgentStore(agent_engine or get_engine())
     bus = EventBus(store=event_store or SQLAlchemyEventStore())
@@ -69,4 +72,6 @@ def build_agent_runtime(
         metrics=MetricsRegistry(),
         scheduler=scheduler,
     )
+    if scheduler is not None and runtime.scheduler is not None:
+        runtime.scheduler.trigger = runtime._scheduler_trigger
     return runtime

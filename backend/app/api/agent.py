@@ -280,6 +280,46 @@ async def list_tools():
     return {"tools": _get_runtime().list_tools()}
 
 
+@router.post("/schedules")
+async def create_schedule(req: dict):
+    """Schedule an agent run once or on an interval (spec 38 / 72)."""
+    agent_id = (req or {}).get("agent_id")
+    input_text = (req or {}).get("input", "")
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="agent_id required")
+    run_spec = {"agent_id": agent_id, "input": input_text, "session_id": (req or {}).get("session_id")}
+    delay = (req or {}).get("delay_seconds")
+    interval = (req or {}).get("interval_seconds")
+    rt = _get_runtime()
+    try:
+        if delay is not None:
+            job_id = rt.schedule_once(float(delay), run_spec)
+            kind = "once"
+        elif interval is not None:
+            job_id = rt.schedule_interval(float(interval), run_spec)
+            kind = "interval"
+        else:
+            raise HTTPException(status_code=400, detail="delay_seconds or interval_seconds required")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"job_id": job_id, "type": kind, "agent_id": agent_id}
+
+
+@router.get("/schedules")
+async def list_schedules():
+    return {"schedules": _get_runtime().list_schedules()}
+
+
+@router.delete("/schedules/{job_id}")
+async def cancel_schedule(job_id: str):
+    ok = _get_runtime().cancel_schedule(job_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Schedule {job_id} not found")
+    return {"ok": True}
+
+
 @router.get("/metrics")
 async def runtime_metrics():
     """Runtime metrics snapshot (spec 49)."""

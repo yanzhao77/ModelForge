@@ -88,6 +88,8 @@ class AgentRuntime:
             from .policy import PolicyEngine
             policy_engine = PolicyEngine(settings=self.settings)
         self.policy_engine = policy_engine
+        if scheduler is not None and getattr(scheduler, "trigger", None) is None:
+            scheduler.trigger = self._scheduler_trigger
         self.scheduler = scheduler
 
         self.engine = ExecutionEngine(
@@ -436,6 +438,37 @@ class AgentRuntime:
 
     def delete_agent(self, name: str) -> bool:
         return self.agent_store.delete(name)
+
+    # ---- scheduler (spec 38 / 72) ----
+    async def _scheduler_trigger(self, run_spec: Dict[str, Any]) -> None:
+        """Scheduler fires -> runtime creates the AgentRun (spec 72)."""
+        self.create_run(
+            agent_id=run_spec.get("agent_id", ""),
+            input_text=run_spec.get("input", ""),
+            session_id=run_spec.get("session_id"),
+            metadata=run_spec.get("metadata"),
+            execute=True,
+        )
+
+    def schedule_once(self, delay: float, run_spec: Dict[str, Any]) -> str:
+        if self.scheduler is None:
+            raise RuntimeError("scheduler not configured")
+        return self.scheduler.schedule_once(delay, run_spec)
+
+    def schedule_interval(self, interval: float, run_spec: Dict[str, Any]) -> str:
+        if self.scheduler is None:
+            raise RuntimeError("scheduler not configured")
+        return self.scheduler.schedule_interval(interval, run_spec)
+
+    def cancel_schedule(self, job_id: str) -> bool:
+        if self.scheduler is None:
+            return False
+        return self.scheduler.cancel(job_id)
+
+    def list_schedules(self) -> List[Dict[str, Any]]:
+        if self.scheduler is None:
+            return []
+        return self.scheduler.jobs()
 
     # ---- internals ----
     def _make_provider(self, run: RunRecord, agent: AgentConfig) -> ModelProvider:

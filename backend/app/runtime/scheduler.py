@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+import asyncio
+import datetime
+from typing import Any, Callable, Dict, List, Optional
+
+
+class Scheduler:
+    """In-process asyncio scheduler (spec 38 / 72).
+
+    schedule_once / schedule_interval / cancel. On trigger it CREATES an
+    AgentRun through the runtime trigger; the scheduler never executes the
+    agent itself (spec 72).
+    """
+
+    def __init__(self, trigger: Optional[Callable] = None):
+        self._trigger = trigger
+        self._jobs: Dict[str, Dict[str, Any]] = {}
+        self._tasks: Dict[str, asyncio.Task] = {}
+        self._seq = 0
+        self._started = False
+
+    @property
+    def trigger(self) -> Optional[Callable]:
+        return self._trigger
+
+    @trigger.setter
+    def trigger(self, fn: Callable) -> None:
+        self._trigger = fn
+
+    def start(self) -> None:
+        self._started = True
+
+    async def stop(self) -> None:
+        self._started = False
+        for task in list(self._tasks.values()):
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*list(self._tasks.values()), return_exceptions=True)
+        self._tasks.clear()
+
+    def _new_id(self, kind: str) -> str:
+        self._seq += 1
+        return f"{kind}_{self._seq}"
+
+    def schedule_once(self, delay: float, run_spec: Dict[str, Any]) -> str:
+        """Run once after `delay` seconds (spec 38)."""
+        job_id = self._new_id("once")
+        self._jobs[job_id] = {"type": "once", "delay": delay, "run_spec": run_spec, "status": "scheduled", "triggered_at": None}
+        loop = asyncio.get_running_loop()
+        self._tasks[job_id] = loop.create_task(self._run_once(job_id, delay, run_spec))
+        return job_id
+
+    def schedule_interval(self, interval: float, run_spec: Dict[str, Any]) -> str:
+        """Run every `interval` seconds while started (spec 38 / 39)."""
+        job_id = self._new_id("interval")
+        self._jobs[job_id] = {"type": "interval", "interval": interval, "run_spec": run_spec, "status": "scheduled", "triggered_at": None}
+        loop = asyncio.get_running_loop()
+        self._tasks[job_id] = loop.create_task(self._run_interval(job_id, interval, run_spec))
+        return job_id
+
+    def cancel(self, job_id: str) -> bool:
+        task = self._tasks.pop(job_id, None)
+        if task is None:
+            return False
+        task.cancel()
+        if job_id in self._jobs:
+            self._jobs[job_id]["status"] = "cancelled"
+        return True
+
+    def jobs(self) -> List[Dict[str, Any]]:
+        return [{"id": k, **dict(v)} for k, v in self._jobs.items()]
+
+    # ---- internals ----
+    async def _run_once(self, job_id: str, delay: float, run_spec: Dict[str, Any]) -> None:
+        try:
+            await asyncio.sleep(delay)
+            await self._fire(job_id, run_spec)
+        except asyncio.CancelledError:
+            if job_id in self._jobs:
+                self._jobs[job_id]["status"] = "cancelled"
+        finally:
+            self._tasks.pop(job_id, None)
+
+    async def _run_interval(self, job_id: str, interval: float, run_spec: Dict[str, Any]) -> None:
+        try:
+            while self._started:
+                await asyncio.sleep(interval)
+                if not self._started:
+                    break
+                await self._fire(job_id, run_spec)
+        except asyncio.CancelledError:
+            if job_id in self._jobs:
+                self._jobs[job_id]["status"] = "cancelled"
+        finally:
+            self._tasks.pop(job_id, None)
+
+    async def _fire(self, job_id: str, run_spec: Dict[str, Any]) -> None:
+        if self._trigger is None:
+            return
+        if job_id in self._jobs:
+            self._jobs[job_id]["triggered_at"] = datetime.datetime.utcnow().isoformat()
+        try:
+            await self._trigger(run_spec)
+        except Exception:
+            pass
