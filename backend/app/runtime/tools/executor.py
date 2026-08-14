@@ -29,10 +29,16 @@ class ToolExecutor:
         arguments: Dict[str, Any],
         ctx: Any = None,
     ) -> str:
-        """Run one tool call; returns a text result for the LLM loop."""
+        """Run one tool call; returns a text result for the LLM loop.
+
+        Authoritative policy gate: ANY invocation path (engine loop or direct
+        calls) passes policy here before execution (audit R1). The engine's
+        early gate remains for fast-fail + human approval; this is the backstop.
+        """
         tool = self.registry.get(name)
         if tool is None:
             raise ToolNotFoundError(name)
+        self._enforce_policy(name, tool, ctx)
         timeout = tool.timeout or getattr(ctx, "timeout", None) or self.default_timeout
         attempts = tool.retry_count + 1
         last_exc: Optional[Exception] = None
@@ -59,6 +65,16 @@ class ToolExecutor:
                     continue
                 return f"Error: {e}"
         return f"Error: {last_exc}" if last_exc else f"Error: tool {name} failed"
+
+    def _enforce_policy(self, name: str, tool: Tool, ctx: Any) -> None:
+        """Raise ToolDeniedError when the run policy forbids this tool."""
+        policy = getattr(ctx, "policy", None) if ctx is not None else None
+        if policy is None or not hasattr(policy, "check_tool"):
+            return
+        decision = policy.check_tool(ctx, name, tool)
+        if not decision.allowed:
+            from ..errors import ToolDeniedError
+            raise ToolDeniedError(decision.reason)
 
     @staticmethod
     def _retryable(tool: Tool, exc: Exception) -> bool:

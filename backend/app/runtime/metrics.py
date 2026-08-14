@@ -18,8 +18,14 @@ class MetricsRegistry:
     def inc(self, name: str, amount: int = 1) -> None:
         self._counters[name] += amount
 
+    MAX_DURATION_SAMPLES = 1000
+
     def record(self, name: str, value: float) -> None:
-        self._durations[name].append(value)
+        samples = self._durations[name]
+        samples.append(value)
+        if len(samples) > self.MAX_DURATION_SAMPLES:
+            # audit P0-3: bound memory growth in long-running processes
+            del samples[: len(samples) - self.MAX_DURATION_SAMPLES]
 
     def count(self, name: str) -> int:
         return self._counters.get(name, 0)

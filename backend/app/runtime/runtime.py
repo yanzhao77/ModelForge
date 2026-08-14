@@ -198,23 +198,32 @@ class AgentRuntime:
 
         ctx = self._build_context(run, agent, token)
         started = time.monotonic()
-        outcome = await self.engine.execute(ctx, provider)
-        duration = time.monotonic() - started
+        outcome = None
+        duration = 0.0
+        try:
+            outcome = await self.engine.execute(ctx, provider)
+            duration = time.monotonic() - started
+            status = outcome["status"]
+            self.run_store.update(
+                run_id,
+                status=status,
+                output=outcome.get("output") or None,
+                error=outcome.get("error"),
+                token_usage=outcome.get("token_usage") or {},
+                tool_call_count=outcome.get("tool_call_count", 0),
+                iteration_count=outcome.get("iteration", 0),
+                finished_at=datetime.datetime.utcnow(),
+            )
+            self.metrics.on_run_finished(status, duration)
+        finally:
+            # audit P0-5: run bookkeeping is always released even if finalize throws
+            self._cancellations.pop(run_id, None)
+            self._running.discard(run_id)
+            self._created_events.discard(run_id)
 
-        status = outcome["status"]
-        self.run_store.update(
-            run_id,
-            status=status,
-            output=outcome.get("output") or None,
-            error=outcome.get("error"),
-            token_usage=outcome.get("token_usage") or {},
-            tool_call_count=outcome.get("tool_call_count", 0),
-            iteration_count=outcome.get("iteration", 0),
-            finished_at=datetime.datetime.utcnow(),
-        )
-        self.metrics.on_run_finished(status, duration)
-        self._cancellations.pop(run_id, None)
-        self._running.discard(run_id)
+        if outcome is None:
+            await self._fail(run_id, "RUNTIME_ERROR", "engine returned no outcome", "FAILED")
+            return {"status": "FAILED", "error": "engine returned no outcome"}
 
         payload = {
             "output": (outcome.get("output") or "")[:500],
@@ -235,6 +244,8 @@ class AgentRuntime:
         if self.event_bus is not None:
             try:
                 await self.event_bus.flush()
+                # audit P0-3: drop per-run sequence state only after terminal events are persisted
+                self.event_bus.prune(run_id)
             except Exception:
                 pass
         log_run(self.logger, 20, "run executed", run_id=run_id,

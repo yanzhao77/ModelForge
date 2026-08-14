@@ -79,10 +79,22 @@ async def create_agent(
 
 @router.post("/{name}/chat")
 async def agent_chat(name: str, req: dict):
-    """Send a message to an agent (2.1 LangGraph chat)."""
+    """Send a message to an agent (2.1 LangGraph chat, policy-enforced in 3.x)."""
     message = (req or {}).get("message", "")
     engine = _get_engine()
-    result = engine.chat(name, message, llm_callback=None)
+    policy = None
+    tool_registry = None
+    try:
+        rt = _get_runtime()
+        agent = rt.get_agent(name)
+        if agent is not None and rt.policy_engine is not None:
+            policy = rt.policy_engine.for_agent(agent)
+            tool_registry = rt.tool_registry
+    except HTTPException:
+        pass
+    except Exception:
+        pass
+    result = engine.chat(name, message, llm_callback=None, policy=policy, tool_registry=tool_registry)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result

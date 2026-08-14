@@ -34,14 +34,36 @@ class _CallbackLLM:
         return AIMessage(content=text)
 
 
-def _make_langchain_tools(tool_names: List[str]) -> List:
-    """Convert named tools to LangChain tool objects."""
+def _make_langchain_tools(tool_names: List[str], policy=None, tool_registry=None) -> List:
+    """Convert named tools to LangChain tool objects.
+
+    When a runtime Policy is supplied (3.x hardening, audit R2), each tool is
+    wrapped with a policy guard so the 2.1 LangGraph path cannot bypass the
+    security boundary. Without a policy the legacy behavior is unchanged.
+    """
     tools = []
     for name in tool_names or []:
         func = AGENT_TOOLS.get(name)
         if func is not None:
+            if policy is not None:
+                func = _policy_guard(name, func, policy, tool_registry)
             tools.append(langchain_tool(func))
     return tools
+
+
+def _policy_guard(name: str, func: Callable, policy, tool_registry) -> Callable:
+    """Sync wrapper enforcing Policy.check_tool before the legacy function runs."""
+    def wrapped(*args, **kwargs):
+        tool = None
+        if tool_registry is not None:
+            tool = tool_registry.get(name)
+        decision = policy.check_tool(None, name, tool)
+        if not decision.allowed:
+            return f"Error: {decision.reason} (denied by policy)"
+        return func(*args, **kwargs)
+    wrapped.__name__ = getattr(func, "__name__", name)
+    wrapped.__doc__ = getattr(func, "__doc__", None)
+    return wrapped
 
 
 class AgentEngine:
@@ -69,12 +91,16 @@ class AgentEngine:
     def chat(
         self, name: str, user_message: str,
         llm_callback: Optional[Callable] = None, llm: Any = None,
+        policy: Any = None, tool_registry: Any = None,
     ) -> Dict:
         """Run a chat turn with the agent.
 
         Pass either a LangChain-compatible `llm` (real deployment) or the
         legacy `llm_callback` shim (tests / simple setups). With neither, a
         static response listing available tools is returned.
+
+        `policy` + `tool_registry` (3.x hardening): when supplied, the legacy
+        LangGraph tool path is policy-enforced (audit R2).
         """
         agent = self.agents.get(name)
         if agent is None:
@@ -88,7 +114,7 @@ class AgentEngine:
             return {"response": response, "tool_calls": []}
 
         try:
-            graph = self._build_graph(agent, model)
+            graph = self._build_graph(agent, model, policy=policy, tool_registry=tool_registry)
         except Exception as e:
             return {"response": f"Agent graph build failed: {e}", "tool_calls": []}
 
@@ -104,9 +130,9 @@ class AgentEngine:
             "model": agent["model"],
         }
 
-    def _build_graph(self, agent: Dict, llm: Any):
+    def _build_graph(self, agent: Dict, llm: Any, policy: Any = None, tool_registry: Any = None):
         """Build the LangGraph StateGraph with agent + tool nodes."""
-        tools = _make_langchain_tools(agent["tools"])
+        tools = _make_langchain_tools(agent["tools"], policy=policy, tool_registry=tool_registry)
         llm_with_tools = llm.bind_tools(tools) if tools else llm
         tool_node = ToolNode(tools) if tools else None
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -23,6 +24,7 @@ class EventBus:
         self._queue = asyncio.Queue()
         self._writer_task: Optional[asyncio.Task] = None
         self._started = False
+        self._write_failures = 0
 
     # ---- lifecycle ----
     def start(self) -> None:
@@ -49,8 +51,12 @@ class EventBus:
                 break
             try:
                 await self._store.append(event)
-            except Exception:
-                pass
+            except Exception as e:
+                # audit P0-4: persistence failures must be visible, not silent
+                self._write_failures += 1
+                logging.getLogger("modelforge.runtime.events").warning(
+                    "event persistence failed", extra={"event": event.event_type, "run_id": event.run_id, "error": str(e)},
+                )
 
     # ---- publish / subscribe ----
     async def publish(
@@ -97,6 +103,15 @@ class EventBus:
         """Persistence adapter (None = in-memory only)."""
         return self._store
 
+    @property
+    def write_failures(self) -> int:
+        """Count of persistence write failures (audit P0-4 observability)."""
+        return self._write_failures
+
+    def prune(self, run_id: str) -> None:
+        """Drop per-run bookkeeping once the run is terminal (audit P0-3)."""
+        self._sequences.pop(run_id, None)
+
     def sequence_of(self, run_id: str) -> int:
         return self._sequences.get(run_id, 0)
 
@@ -109,4 +124,4 @@ class EventBus:
             try:
                 await self._store.append(event)
             except Exception:
-                pass
+                self._write_failures += 1

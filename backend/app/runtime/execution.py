@@ -133,8 +133,8 @@ class ExecutionEngine:
                         agent_id=ctx.agent_id,
                         run_id=ctx.run_id,
                         session_id=ctx.session_id,
-                        permissions=getattr(ctx.policy, "permissions", []) if ctx.policy else [],
                         timeout=ctx.tool_timeout,
+                        policy=ctx.policy,
                         cancellation_token=ctx.cancellation,
                         metadata={"tool": tc.name},
                     )

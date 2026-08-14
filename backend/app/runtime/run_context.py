@@ -74,6 +74,7 @@ class ToolExecutionContext:
     session_id: Optional[int] = None
     permissions: List[str] = field(default_factory=list)
     timeout: float = 60.0
+    policy: Optional[Any] = None
     cancellation_token: Optional[CancellationToken] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
