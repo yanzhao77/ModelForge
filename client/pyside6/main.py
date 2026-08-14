@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from api_client.client import ModelForgeClient
+from pages.agent_page import AgentPage
 from pages.dataset_page import DatasetPage
 from pages.knowledge_page import KnowledgePage
 from pages.login_dialog import LoginDialog
@@ -562,6 +563,10 @@ class MainWindow(QMainWindow):
 
         self.knowledge_page = KnowledgePage(self.api)
         self.tabs.addTab(self.knowledge_page, "知识库")
+
+        # --- 标签 4: Agent 3.0 ---
+        self.agent_page = AgentPage(self.api)
+        self.tabs.addTab(self.agent_page, "Agent")
 
         menubar = self.menuBar()
         model_menu = menubar.addMenu("模型")

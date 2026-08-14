@@ -196,6 +196,82 @@ class ModelForgeClient:
         return self._post("/api/v1/knowledge/query", json={"question": question, "top_k": top_k})
 
 
+    # ---- agent runs (3.0) ----
+
+    def create_agent_run(self, agent_id: str, input_text: str, session_id: Optional[int] = None, metadata: Optional[dict] = None, execute: bool = True) -> Dict:
+        return self._post("/api/v1/agent/runs", json={
+            "agent_id": agent_id, "input": input_text,
+            "session_id": session_id, "metadata": metadata, "execute": execute,
+        })
+
+    def list_agent_runs(self, agent_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50) -> List[Dict]:
+        params = {"limit": limit}
+        if agent_id:
+            params["agent_id"] = agent_id
+        if status:
+            params["status"] = status
+        return self._get("/api/v1/agent/runs", params=params)
+
+    def get_agent_run(self, run_id: str) -> Dict:
+        return self._get(f"/api/v1/agent/runs/{run_id}")
+
+    def cancel_agent_run(self, run_id: str) -> Dict:
+        return self._post(f"/api/v1/agent/runs/{run_id}/cancel")
+
+    def approve_agent_run(self, run_id: str) -> Dict:
+        return self._post(f"/api/v1/agent/runs/{run_id}/approve")
+
+    def reject_agent_run(self, run_id: str) -> Dict:
+        return self._post(f"/api/v1/agent/runs/{run_id}/reject")
+
+    def get_agent_run_events(self, run_id: str, after_sequence: int = 0) -> List[Dict]:
+        data = self._get(f"/api/v1/agent/runs/{run_id}/events", params={"after_sequence": after_sequence})
+        return data.get("events", [])
+
+    def stream_agent_run(self, run_id: str, after_sequence: int = 0) -> Iterator[Dict]:
+        """Yield SSE events: {event_type, sequence, timestamp, payload} (spec 26)."""
+        with httpx.Client(timeout=None) as client:
+            with client.stream(
+                "GET",
+                f"{self.base_url}/api/v1/agent/runs/{run_id}/stream",
+                params={"after_sequence": after_sequence},
+                headers=self._headers(),
+            ) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith(":") or line.startswith("event:"):
+                        continue
+                    if not line.startswith("data: "):
+                        continue
+                    try:
+                        event = json.loads(line[6:])
+                    except json.JSONDecodeError:
+                        continue
+                    yield event
+
+    def list_agent_tools(self) -> List[Dict]:
+        data = self._get("/api/v1/agent/tools")
+        return data.get("tools", [])
+
+    def agent_metrics(self) -> Dict:
+        return self._get("/api/v1/agent/metrics")
+
+    def register_mcp_server(self, name: str, endpoint: str) -> Dict:
+        return self._post("/api/v1/agent/mcp/servers", json={"name": name, "endpoint": endpoint})
+
+    def list_mcp_servers(self) -> List[Dict]:
+        data = self._get("/api/v1/agent/mcp/servers")
+        return data.get("servers", [])
+
+    def create_agent_config(self, name: str, model: str, tools: List[str], system_prompt: Optional[str] = None, policy: Optional[dict] = None, runtime_config: Optional[dict] = None) -> Dict:
+        return self._post("/api/v1/agent/create", json={
+            "name": name, "model": model, "tools": tools,
+            "system_prompt": system_prompt, "policy": policy, "runtime_config": runtime_config,
+        })
+
     # ---- datasets ----
 
     def upload_dataset(self, filepath: str, name: Optional[str] = None) -> Dict:
