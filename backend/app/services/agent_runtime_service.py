@@ -7,7 +7,6 @@ from repositories.run_repository import SQLAlchemyRunStore
 from runtime.events import EventBus
 from runtime.metrics import MetricsRegistry
 from runtime.runtime import AgentRuntime, default_provider_factory
-from runtime.tools import LegacyToolRunner
 from services.agent_store import DBAgentStore
 
 _runtime: Optional[AgentRuntime] = None
@@ -39,15 +38,19 @@ def build_agent_runtime(
     Events persist to the DB (spec 30) via the event store unless one is injected.
     """
     from repositories.event_repository import SQLAlchemyEventStore
+    from runtime.tools import ToolExecutor, ToolRegistry
+    from runtime.tools.builtin import register_builtin_tools
     from services.agent_engine import get_engine
     run_store = SQLAlchemyRunStore()
     agent_store = DBAgentStore(agent_engine or get_engine())
     bus = EventBus(store=event_store or SQLAlchemyEventStore())
+    registry = register_builtin_tools(ToolRegistry())
     runtime = AgentRuntime(
         run_store=run_store,
         agent_store=agent_store,
         event_bus=bus,
-        tool_runner=LegacyToolRunner(),
+        tool_registry=registry,
+        tool_runner=ToolExecutor(registry),
         provider_factory=provider_factory or default_provider_factory,
         context_builder=context_builder,
         memory_provider=memory_provider,

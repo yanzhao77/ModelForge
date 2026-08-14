@@ -45,6 +45,7 @@ class AgentRuntime:
         agent_store: Any,
         event_bus: Optional[EventBus] = None,
         tool_runner: Any = None,
+        tool_registry: Any = None,
         provider_factory: Optional[ProviderFactory] = None,
         context_builder: Any = None,
         memory_provider: Any = None,
@@ -60,16 +61,30 @@ class AgentRuntime:
         self.agent_store = agent_store
         self.event_bus = event_bus
         self.event_store = getattr(event_bus, "store", None) if event_bus is not None else None
+        self.settings = settings or global_settings
+        self.logger = logger or get_logger()
+        self.metrics = metrics or MetricsRegistry()
+
+        # Tool Registry (spec 8): default = builtin tools
+        if tool_registry is None and tool_runner is None:
+            from .tools import ToolRegistry
+            from .tools.builtin import register_builtin_tools
+            tool_registry = register_builtin_tools(ToolRegistry())
+        self.tool_registry = tool_registry
+        if tool_runner is None and tool_registry is not None:
+            from .tools import ToolExecutor
+            tool_runner = ToolExecutor(
+                tool_registry,
+                default_timeout=float(self.settings.tools.default_timeout_seconds),
+            )
         self.tool_runner = tool_runner
+
         self.provider_factory = provider_factory or default_provider_factory
         self.context_builder = context_builder
         self.memory_provider = memory_provider
         self.knowledge_provider = knowledge_provider
         self.history_provider = history_provider
         self.policy_engine = policy_engine
-        self.metrics = metrics or MetricsRegistry()
-        self.settings = settings or global_settings
-        self.logger = logger or get_logger()
         self.scheduler = scheduler
 
         self.engine = ExecutionEngine(
@@ -256,6 +271,28 @@ class AgentRuntime:
 
     def is_running(self, run_id: str) -> bool:
         return run_id in self._running
+
+    # ---- tool registry (spec 8 / 36) ----
+    def register_tool(self, tool: Any, aliases: Optional[List[str]] = None) -> Any:
+        if self.tool_registry is None:
+            raise RuntimeError("tool registry not configured")
+        self.tool_registry.register(tool, aliases=aliases)
+        return tool
+
+    def unregister_tool(self, name: str) -> bool:
+        if self.tool_registry is None:
+            return False
+        return self.tool_registry.unregister(name)
+
+    def list_tools(self) -> List[Dict[str, Any]]:
+        if self.tool_registry is None:
+            return []
+        return [t.to_dict() for t in self.tool_registry.list()]
+
+    def get_tool(self, name: str) -> Optional[Any]:
+        if self.tool_registry is None:
+            return None
+        return self.tool_registry.get(name)
 
     # ---- events (spec 6 / 30 / 31) ----
     def list_events(self, run_id: str, after_sequence: int = 0, limit: int = 1000, user_id: Optional[int] = None) -> List[Any]:

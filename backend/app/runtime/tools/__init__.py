@@ -1,5 +1,7 @@
-"""Tool Registry (spec 8). Phase 2 ships the legacy bridge; Phase 4 adds the full registry."""
+"""Tool Registry (spec 8). Builtin + Plugin + MCP tools behind one protocol."""
 
-from .legacy import LegacyToolRunner, LEGACY_TOOL_SCHEMAS
+from .base import PermissionLevel, Tool, ToolResult
+from .registry import ToolRegistry
+from .executor import ToolExecutor
 
-__all__ = ["LegacyToolRunner", "LEGACY_TOOL_SCHEMAS"]
+__all__ = ["PermissionLevel", "Tool", "ToolResult", "ToolRegistry", "ToolExecutor"]

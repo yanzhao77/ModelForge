@@ -222,6 +222,12 @@ async def run_stream(
     )
 
 
+@router.get("/tools")
+async def list_tools():
+    """Registered tools with permissions (spec 8)."""
+    return {"tools": _get_runtime().list_tools()}
+
+
 @router.get("/metrics")
 async def runtime_metrics():
     """Runtime metrics snapshot (spec 49)."""
