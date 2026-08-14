@@ -322,6 +322,7 @@ class AgentRun(Base):
     agent_id = Column(String(255), nullable=False, index=True)
     user_id = Column(Integer, nullable=True, index=True)
     session_id = Column(Integer, nullable=True, index=True)
+    parent_run_id = Column(String(64), nullable=True, index=True)
     status = Column(String(20), nullable=False, default="PENDING", index=True)
     input = Column(Text, nullable=True)
     output = Column(Text, nullable=True)
@@ -344,6 +345,7 @@ class AgentRun(Base):
             "agent_id": self.agent_id,
             "user_id": self.user_id,
             "session_id": self.session_id,
+            "parent_run_id": self.parent_run_id,
             "status": self.status,
             "input": self.input,
             "output": self.output,

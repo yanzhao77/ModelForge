@@ -1,8 +1,8 @@
-﻿"""Database engine and session configuration."""
+"""Database engine and session configuration."""
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 # Resolve database path from env or default
@@ -36,5 +36,23 @@ def get_db():
 
 
 def init_db():
-    """Create all tables."""
+    """Create all tables + lightweight additive migrations (no Alembic yet)."""
     Base.metadata.create_all(bind=engine)
+    _additive_migrations()
+
+
+def _additive_migrations():
+    """Additive ALTERs for columns added after a DB was first created.
+
+    SQLite supports ADD COLUMN; failures are ignored so fresh DBs (already
+    complete) and read-only engines pass through safely.
+    """
+    statements = [
+        "ALTER TABLE agent_runs ADD COLUMN parent_run_id VARCHAR(64)",
+    ]
+    with engine.connect() as conn:
+        for stmt in statements:
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass

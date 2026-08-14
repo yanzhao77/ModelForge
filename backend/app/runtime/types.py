@@ -34,6 +34,7 @@ class RunRecord:
     agent_id: str
     user_id: Optional[int] = None
     session_id: Optional[int] = None
+    parent_run_id: Optional[str] = None
     status: str = RunStatus.PENDING.value
     input: Optional[str] = None
     output: Optional[str] = None
@@ -53,6 +54,7 @@ class RunRecord:
             "agent_id": self.agent_id,
             "user_id": self.user_id,
             "session_id": self.session_id,
+            "parent_run_id": self.parent_run_id,
             "status": self.status,
             "input": self.input,
             "output": self.output,
@@ -82,6 +84,7 @@ class RunRecord:
             agent_id=data["agent_id"],
             user_id=data.get("user_id"),
             session_id=data.get("session_id"),
+            parent_run_id=data.get("parent_run_id"),
             status=data.get("status", RunStatus.PENDING.value),
             input=data.get("input"),
             output=data.get("output"),

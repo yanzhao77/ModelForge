@@ -136,7 +136,7 @@ class ExecutionEngine:
                         timeout=ctx.tool_timeout,
                         policy=ctx.policy,
                         cancellation_token=ctx.cancellation,
-                        metadata={"tool": tc.name},
+                        metadata={**(getattr(ctx, "metadata", {}) or {}), "tool": tc.name},
                     )
                     await self._emit(ctx, "tool.call.started", {
                         "tool": tc.name,

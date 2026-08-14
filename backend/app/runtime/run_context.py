@@ -31,6 +31,8 @@ class RunContext:
     max_context_tokens: int = 8192
     max_output_tokens: int = 2048
     tool_timeout: float = 60.0
+    delegation_max_depth: int = 3
+    delegation_max_children: int = 5
     memory_config: Optional[Dict[str, Any]] = None
     knowledge_sources: List[str] = field(default_factory=list)
     contributions: List[Dict[str, Any]] = field(default_factory=list)

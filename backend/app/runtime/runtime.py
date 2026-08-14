@@ -110,6 +110,7 @@ class AgentRuntime:
         self._approvals: Dict[str, asyncio.Event] = {}
         self._approval_grants: Dict[str, bool] = {}
         self._created_events: set = set()
+        self._delegation_counts: Dict[str, int] = {}
         self._mcp_registry: Any = None
         self._scopes: Dict[str, Any] = {}
         self.plugin_manager: Any = None
@@ -146,6 +147,7 @@ class AgentRuntime:
         input_text: str,
         user_id: Optional[int] = None,
         session_id: Optional[int] = None,
+        parent_run_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         execute: bool = True,
     ) -> RunRecord:
@@ -157,6 +159,7 @@ class AgentRuntime:
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
+            parent_run_id=parent_run_id,
             status=RunStatus.PENDING.value,
             input=input_text,
             model=agent.model,
@@ -222,6 +225,7 @@ class AgentRuntime:
             self._cancellations.pop(run_id, None)
             self._running.discard(run_id)
             self._created_events.discard(run_id)
+            self._delegation_counts.pop(run_id, None)
 
         if outcome is None:
             await self._fail(run_id, "RUNTIME_ERROR", "engine returned no outcome", "FAILED")
@@ -269,8 +273,17 @@ class AgentRuntime:
         self.run_store.update(run_id, status="CANCELLED", finished_at=finished)
         self._cancellations.pop(run_id, None)
         self._running.discard(run_id)
+        self._delegation_counts.pop(run_id, None)
         await self._publish(run_id, "run.cancelled", {"reason": "user requested", "output": run.output})
         self.metrics.on_run_finished("CANCELLED", 0.0)
+        # 3.x-P5: cancellation propagates to children (recursively)
+        children = self.run_store.list(parent_run_id=run_id)
+        for child in children:
+            if child.status not in RunStatus.terminal():
+                try:
+                    await self.cancel_run(child.run_id, user_id=user_id)
+                except Exception:
+                    continue
         return self.run_store.get(run_id)
 
     def get_run(self, run_id: str, user_id: Optional[int] = None) -> RunRecord:
@@ -540,6 +553,13 @@ class AgentRuntime:
     ) -> RunContext:
         rs: RuntimeSettings = self.settings.runtime
         rt_cfg = agent.runtime_config or {}
+        meta = dict(run.metadata or {})
+        meta.setdefault("ancestors", [])
+        meta.setdefault("depth", 0)
+        meta.setdefault("delegation_max_depth", int(rt_cfg.get("delegation_max_depth", 3)))
+        meta.setdefault("delegation_max_children", int(rt_cfg.get("delegation_max_children", 5)))
+        base_timeout = int(rt_cfg.get("timeout_seconds", rs.timeout_seconds))
+        meta.setdefault("remaining_seconds", float(base_timeout))
         profile = self._resolve_agent_profile(agent)
         tools = profile["tools"]
         system_prompt = profile["system_prompt"]
@@ -565,16 +585,35 @@ class AgentRuntime:
             cancellation=token,
             max_iterations=int(rt_cfg.get("max_iterations", rs.max_iterations)),
             max_tool_calls=int(rt_cfg.get("max_tool_calls", rs.max_tool_calls)),
-            timeout_seconds=int(rt_cfg.get("timeout_seconds", rs.timeout_seconds)),
+            timeout_seconds=max(1, min(base_timeout, int(float(meta["remaining_seconds"])))),
             max_context_tokens=int(rt_cfg.get("max_context_tokens", 8192)),
             max_output_tokens=int(rt_cfg.get("max_output_tokens", 2048)),
+            delegation_max_depth=meta["delegation_max_depth"],
+            delegation_max_children=meta["delegation_max_children"],
             tool_timeout=float(self.settings.tools.default_timeout_seconds),
             memory_config=profile["memory_config"],
             knowledge_sources=profile["knowledge_sources"],
             contributions=profile.get("contributions") or [],
-            metadata=run.metadata or {},
+            metadata=meta,
             started_at=time.monotonic(),
         )
+
+    @staticmethod
+    def _budgeted_timeout(rt_cfg: Dict[str, Any], meta: Dict[str, Any], rs: RuntimeSettings) -> int:
+        """Cap the child run timeout by the parent remaining budget (3.x-P5)."""
+        timeout = int(rt_cfg.get("timeout_seconds", rs.timeout_seconds))
+        remaining = meta.get("remaining_seconds")
+        if remaining is not None:
+            timeout = min(timeout, int(float(remaining)))
+        return max(1, timeout)
+
+    def _register_child(self, parent_run_id: str, max_children: int) -> bool:
+        """Track child runs per parent; enforce the child count limit (3.x-P5)."""
+        n = self._delegation_counts.get(parent_run_id, 0)
+        if n >= max_children:
+            return False
+        self._delegation_counts[parent_run_id] = n + 1
+        return True
 
     def _plugin_extensions(self, agent: AgentConfig) -> List[Dict[str, Any]]:
         """Collect behavior extensions from the loaded plugins of the agent (3.x-P3).

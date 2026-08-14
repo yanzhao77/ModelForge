@@ -23,6 +23,7 @@ class SQLAlchemyRunStore:
             agent_id=row.agent_id,
             user_id=row.user_id,
             session_id=row.session_id,
+            parent_run_id=row.parent_run_id,
             status=row.status or RunStatus.PENDING.value,
             input=row.input,
             output=row.output,
@@ -44,6 +45,7 @@ class SQLAlchemyRunStore:
                 agent_id=run.agent_id,
                 user_id=run.user_id,
                 session_id=run.session_id,
+                parent_run_id=run.parent_run_id,
                 status=run.status,
                 input=run.input,
                 output=run.output,
@@ -67,7 +69,8 @@ class SQLAlchemyRunStore:
 
     def list(
         self, user_id: Optional[int] = None, agent_id: Optional[str] = None,
-        status: Optional[str] = None, limit: int = 50, offset: int = 0,
+        status: Optional[str] = None, parent_run_id: Optional[str] = None,
+        limit: int = 50, offset: int = 0,
     ) -> List[RunRecord]:
         with SessionLocal() as db:
             q = db.query(AgentRun)
@@ -77,6 +80,8 @@ class SQLAlchemyRunStore:
                 q = q.filter(AgentRun.agent_id == agent_id)
             if status:
                 q = q.filter(AgentRun.status == status)
+            if parent_run_id:
+                q = q.filter(AgentRun.parent_run_id == parent_run_id)
             rows = q.order_by(AgentRun.created_at.desc()).offset(offset).limit(limit).all()
             return [self._to_record(r) for r in rows]
 
