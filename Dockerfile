@@ -4,8 +4,11 @@ FROM python:3.10-slim
 WORKDIR /app
 ENV MODELFORGE_ENV=production
 
-# Install system dependencies (build-essential only; no torch/GPU by default)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies (build-essential only; no torch/GPU by default).
+# Use HTTPS for Debian mirrors because some enterprise/proxy networks reject
+# unsigned HTTP repository metadata during image builds.
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 

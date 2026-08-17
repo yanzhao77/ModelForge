@@ -216,4 +216,4 @@ def get_log_tail(log_path: str, max_lines: int = 200) -> List[str]:
         return []
     with open(log_path, "r", encoding="utf-8", errors="replace") as f:
         lines = f.readlines()
-    return [l.rstrip("\n") for l in lines[-max_lines:]]
+    return [line_value.rstrip("\n") for line_value in lines[-max_lines:]]

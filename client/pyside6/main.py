@@ -67,19 +67,19 @@ class SessionSidebar(QWidget):
     def _init_ui(self):
         lay = QVBoxLayout()
         lay.setContentsMargins(5, 5, 5, 5)
-        title = QLabel("对话列表");
-        title.setStyleSheet("font-size: 14px; font-weight: bold; padding: 5px;");
+        title = QLabel("对话列表")
+        title.setStyleSheet("font-size: 14px; font-weight: bold; padding: 5px;")
         lay.addWidget(title)
 
-        new_btn = QPushButton("+ 新建对话");
-        new_btn.clicked.connect(self.create_new_session);
+        new_btn = QPushButton("+ 新建对话")
+        new_btn.clicked.connect(self.create_new_session)
         lay.addWidget(new_btn)
 
-        self.session_list = QListWidget();
-        self.session_list.setContextMenuPolicy(Qt.CustomContextMenu);
-        self.session_list.customContextMenuRequested.connect(self._show_menu);
-        self.session_list.itemClicked.connect(self._on_clicked);
-        lay.addWidget(self.session_list);
+        self.session_list = QListWidget()
+        self.session_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.session_list.customContextMenuRequested.connect(self._show_menu)
+        self.session_list.itemClicked.connect(self._on_clicked)
+        lay.addWidget(self.session_list)
         self.setLayout(lay)
 
     def refresh(self):
@@ -90,37 +90,37 @@ class SessionSidebar(QWidget):
             sessions = []
         for s in sessions:
             item = QListWidgetItem(f"{s['title']}\n{s.get('message_count', 0)} 条消息")
-            item.setData(Qt.UserRole, s["id"]);
+            item.setData(Qt.UserRole, s["id"])
             if s["id"] == self.current_session_id:
-                item.setSelected(True);
+                item.setSelected(True)
             self.session_list.addItem(item)
 
     def create_new_session(self):
         try:
-            data = self.api.create_session("新对话");
-            self.current_session_id = data["id"];
-            self.refresh();
-            self.session_created.emit(data["id"]);
+            data = self.api.create_session("新对话")
+            self.current_session_id = data["id"]
+            self.refresh()
+            self.session_created.emit(data["id"])
         except Exception as e:
             QMessageBox.warning(self, "错误", str(e))
 
     def _on_clicked(self, item):
-        sid = item.data(Qt.UserRole);
+        sid = item.data(Qt.UserRole)
         if sid != self.current_session_id:
-            self.current_session_id = sid;
+            self.current_session_id = sid
             self.session_selected.emit(sid)
 
     def _show_menu(self, pos):
-        item = self.session_list.itemAt(pos);
+        item = self.session_list.itemAt(pos)
         if not item:
             return
-        sid = item.data(Qt.UserRole);
-        menu = QMenu(self);
-        rename = menu.addAction("重命名");
-        clear = menu.addAction("清空消息");
-        menu.addSeparator();
-        delete = menu.addAction("删除");
-        action = menu.exec_(self.session_list.mapToGlobal(pos));
+        sid = item.data(Qt.UserRole)
+        menu = QMenu(self)
+        rename = menu.addAction("重命名")
+        clear = menu.addAction("清空消息")
+        menu.addSeparator()
+        delete = menu.addAction("删除")
+        action = menu.exec_(self.session_list.mapToGlobal(pos))
         if action == rename:
             self._rename(sid)
         elif action == clear:
@@ -129,23 +129,23 @@ class SessionSidebar(QWidget):
             self._delete(sid)
 
     def _rename(self, sid):
-        title, ok = QInputDialog.getText(self, "重命名", "新的标题:");
+        title, ok = QInputDialog.getText(self, "重命名", "新的标题:")
         if ok and title.strip():
-            self.api.rename_session(sid, title.strip());
+            self.api.rename_session(sid, title.strip())
             self.refresh()
 
     def _clear(self, sid):
         if QMessageBox.question(self, "确认", "确定清空此对话的所有消息？") == QMessageBox.Yes:
-            self.api.clear_messages(sid);
+            self.api.clear_messages(sid)
             self.refresh()
             self.session_selected.emit(sid)
 
     def _delete(self, sid):
         if QMessageBox.question(self, "确认", "确定删除此对话？") == QMessageBox.Yes:
-            self.api.delete_session(sid);
+            self.api.delete_session(sid)
             if sid == self.current_session_id:
-                self.current_session_id = None;
-                self.create_new_session();
+                self.current_session_id = None
+                self.create_new_session()
             else:
                 self.refresh()
 
@@ -165,54 +165,54 @@ class ChatPage(QWidget):
     def _init_ui(self):
         lay = QVBoxLayout()
 
-        top = QHBoxLayout();
-        top.addWidget(QLabel("模型:"));
-        self.model_input = QLineEdit();
-        self.model_input.setPlaceholderText("模型名（Ollama 模型 或 已注册模型名）");
-        top.addWidget(self.model_input);
-        load_btn = QPushButton("加载");
-        load_btn.clicked.connect(self.load_model);
-        top.addWidget(load_btn);
-        self.kb_check = QCheckBox("知识库(RAG)");
-        top.addWidget(self.kb_check);
-        top.addStretch();
+        top = QHBoxLayout()
+        top.addWidget(QLabel("模型:"))
+        self.model_input = QLineEdit()
+        self.model_input.setPlaceholderText("模型名（Ollama 模型 或 已注册模型名）")
+        top.addWidget(self.model_input)
+        load_btn = QPushButton("加载")
+        load_btn.clicked.connect(self.load_model)
+        top.addWidget(load_btn)
+        self.kb_check = QCheckBox("知识库(RAG)")
+        top.addWidget(self.kb_check)
+        top.addStretch()
         lay.addLayout(top)
 
-        self.display = QTextEdit();
-        self.display.setReadOnly(True);
-        self.display.setStyleSheet("background-color: #fafafa; border: 1px solid #ddd; padding: 8px;");
+        self.display = QTextEdit()
+        self.display.setReadOnly(True)
+        self.display.setStyleSheet("background-color: #fafafa; border: 1px solid #ddd; padding: 8px;")
         lay.addWidget(self.display, 1)
 
-        bottom = QHBoxLayout();
-        self.msg_input = QLineEdit();
-        self.msg_input.setPlaceholderText("输入消息，Enter 发送...");
-        self.msg_input.returnPressed.connect(self.send_message);
-        bottom.addWidget(self.msg_input);
-        self.send_btn = QPushButton("发送");
-        self.send_btn.clicked.connect(self.send_message);
-        bottom.addWidget(self.send_btn);
+        bottom = QHBoxLayout()
+        self.msg_input = QLineEdit()
+        self.msg_input.setPlaceholderText("输入消息，Enter 发送...")
+        self.msg_input.returnPressed.connect(self.send_message)
+        bottom.addWidget(self.msg_input)
+        self.send_btn = QPushButton("发送")
+        self.send_btn.clicked.connect(self.send_message)
+        bottom.addWidget(self.send_btn)
         lay.addLayout(bottom)
         self.setLayout(lay)
 
     def set_session(self, session_id):
-        self.session_id = session_id;
-        self.display.clear();
+        self.session_id = session_id
+        self.display.clear()
         self.messages = []
         try:
             for msg in self.api.list_messages(session_id):
-                self._append_msg(msg["role"], msg["content"]);
-                self.messages.append({"role": msg["role"], "content": msg["content"]});
+                self._append_msg(msg["role"], msg["content"])
+                self.messages.append({"role": msg["role"], "content": msg["content"]})
         except Exception as e:
             self.display.append(f"[加载消息失败] {e}")
 
     def load_model(self):
-        model = self.model_input.text().strip();
+        model = self.model_input.text().strip()
         if not model:
-            QMessageBox.warning(self, "提示", "请输入模型名");
+            QMessageBox.warning(self, "提示", "请输入模型名")
             return
         try:
-            self.api.runtime_start(model);
-            self.display.append(f"<b style='color:#4CAF50'>[系统]</b> 模型已加载: {model}<br>");
+            self.api.runtime_start(model)
+            self.display.append(f"<b style='color:#4CAF50'>[系统]</b> 模型已加载: {model}<br>")
         except Exception as e:
             QMessageBox.warning(self, "加载失败", str(e))
 
@@ -222,31 +222,31 @@ class ChatPage(QWidget):
         self.display.append(f"<div style='margin:6px 0'><b style='color:{color}'>{name}:</b> {content}</div>")
 
     def send_message(self):
-        text = self.msg_input.text().strip();
-        model = self.model_input.text().strip();
+        text = self.msg_input.text().strip()
+        model = self.model_input.text().strip()
         if not text:
             return
         if not model:
-            QMessageBox.warning(self, "提示", "请先填写模型名");
+            QMessageBox.warning(self, "提示", "请先填写模型名")
             return
         if self.worker and self.worker.isRunning():
             return
-        self._append_msg("user", text);
-        self.messages.append({"role": "user", "content": text});
-        self.msg_input.clear();
-        self.send_btn.setEnabled(False);
+        self._append_msg("user", text)
+        self.messages.append({"role": "user", "content": text})
+        self.msg_input.clear()
+        self.send_btn.setEnabled(False)
 
         if self.kb_check.isChecked():
             self._answer_with_kb(model, text)
             return
 
-        self.display.append("<b style='color:#4CAF50'>助手:</b> ");
+        self.display.append("<b style='color:#4CAF50'>助手:</b> ")
         self.display.moveCursor(self.display.textCursor().End)
 
-        self.worker = StreamWorker(self.api, model, self.messages, self.session_id);
-        self.worker.delta.connect(self._on_delta);
-        self.worker.done.connect(self._on_done);
-        self.worker.failed.connect(self._on_failed);
+        self.worker = StreamWorker(self.api, model, self.messages, self.session_id)
+        self.worker.delta.connect(self._on_delta)
+        self.worker.done.connect(self._on_done)
+        self.worker.failed.connect(self._on_failed)
         self.worker.start()
 
     def _answer_with_kb(self, model: str, question: str):
@@ -264,27 +264,27 @@ class ChatPage(QWidget):
         self.send_btn.setEnabled(True)
 
     def _on_delta(self, chunk: str):
-        cur = self.display.textCursor();
-        cur.movePosition(cur.End);
-        self.display.setTextCursor(cur);
-        self.display.insertPlainText(chunk);
-        sb = self.display.verticalScrollBar();
-        sb.setValue(sb.maximum());
+        cur = self.display.textCursor()
+        cur.movePosition(cur.End)
+        self.display.setTextCursor(cur)
+        self.display.insertPlainText(chunk)
+        sb = self.display.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
     def _on_done(self, full: str):
-        self.display.append("<br>");
-        self.messages.append({"role": "assistant", "content": full});
-        self.send_btn.setEnabled(True);
+        self.display.append("<br>")
+        self.messages.append({"role": "assistant", "content": full})
+        self.send_btn.setEnabled(True)
         if self.session_id:
             try:
-                self.api.auto_title(self.session_id);
+                self.api.auto_title(self.session_id)
             except Exception:
                 pass
             if getattr(self, "session_refresher", None):
                 self.session_refresher()
 
     def _on_failed(self, err: str):
-        self.display.append(f"<b style='color:#FF5722'>[错误]</b> {err}<br>");
+        self.display.append(f"<b style='color:#FF5722'>[错误]</b> {err}<br>")
         self.send_btn.setEnabled(True)
 
 class ModelCenterDialog(QDialog):

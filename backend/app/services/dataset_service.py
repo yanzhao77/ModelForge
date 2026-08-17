@@ -85,7 +85,7 @@ class DatasetParser:
                 line = line.strip()
                 if line:
                     lines.append(line)
-        return len(lines), ["text"], [{"text": l} for l in lines[:5]]
+        return len(lines), ["text"], [{"text": line_value} for line_value in lines[:5]]
 
 
 class DatasetService:

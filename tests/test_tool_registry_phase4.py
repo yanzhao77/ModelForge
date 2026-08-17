@@ -239,7 +239,11 @@ class TestRuntimeTools:
         from fastapi.testclient import TestClient
         from main import app
         with TestClient(app) as c:
-            r = c.get("/api/v1/agent/tools")
+            assert c.get("/api/v1/agent/tools").status_code == 401
+            c.post("/api/v1/auth/register", json={"username": "toolapiuser", "password": "secret123", "email": "toolapiuser@example.com"})
+            login = c.post("/api/v1/auth/login", json={"username": "toolapiuser", "password": "secret123"})
+            headers = {"Authorization": "Bearer " + login.json()["token"]}
+            r = c.get("/api/v1/agent/tools", headers=headers)
             assert r.status_code == 200
             names = [t["name"] for t in r.json()["tools"]]
             assert "filesystem.read" in names

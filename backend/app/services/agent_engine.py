@@ -110,9 +110,9 @@ class AgentEngine:
 
         model = llm or (_CallbackLLM(llm_callback) if llm_callback else None)
         if model is None:
-            response = "No LLM provider configured. Tools available: " + ", ".join(agent["tools"] or []);
-            agent["messages"].append(HumanMessage(content=user_message));
-            agent["messages"].append(AIMessage(content=response));
+            response = "No LLM provider configured. Tools available: " + ", ".join(agent["tools"] or [])
+            agent["messages"].append(HumanMessage(content=user_message))
+            agent["messages"].append(AIMessage(content=response))
             return {"response": response, "tool_calls": []}
 
         try:

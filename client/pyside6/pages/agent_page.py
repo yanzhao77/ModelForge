@@ -159,7 +159,7 @@ class AgentPage(QWidget):
     def refresh_runs(self):
         try:
             runs = self.api.list_agent_runs(limit=30)
-        except Exception as e:
+        except Exception:
             return
         self.runs_table.setRowCount(len(runs))
         for row, r in enumerate(runs):

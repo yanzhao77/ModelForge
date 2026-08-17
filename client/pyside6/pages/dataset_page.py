@@ -1,143 +1,130 @@
-"""数据集管理页面：上传 / 列表 / 预览 / 校验 / 删除。"""
+"""Dataset page with non-blocking API operations."""
 import json
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QTableWidget, QTableWidgetItem, QFileDialog, QMessageBox, QDialog, QTextEdit,
-    QHeaderView, QAbstractItemView,
-)
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QAbstractItemView, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
+    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit,
+    QVBoxLayout, QWidget,
+)
 
 from api_client.client import ModelForgeClient
+from components.api_worker import AsyncApiMixin
 
 
-class DatasetPage(QWidget):
-    """数据集管理（与训练页面联动：训练表单从此页数据中选择）。"""
+class DatasetPage(QWidget, AsyncApiMixin):
+    """Dataset management without blocking the Qt event loop on HTTP I/O."""
 
     def __init__(self, api: ModelForgeClient, parent=None):
         super().__init__(parent)
         self.api = api
+        self._init_async_api()
         self._init_ui()
         self.refresh()
 
     def _init_ui(self):
         lay = QVBoxLayout(self)
-
         top = QHBoxLayout()
-        top.addWidget(QLabel("数据集名称:"));
-        self.name_input = QLineEdit();
-        self.name_input.setPlaceholderText("可选，默认取文件名");
-        top.addWidget(self.name_input, 1);
-        upload_btn = QPushButton("上传数据集...");
-        upload_btn.clicked.connect(self.upload);
-        top.addWidget(upload_btn);
-        refresh_btn = QPushButton("刷新");
-        refresh_btn.clicked.connect(self.refresh);
-        top.addWidget(refresh_btn);
+        self.name_input = QTextEdit()
+        self.name_input.setFixedHeight(30)
+        self.name_input.setPlaceholderText("数据集名称（可选）")
+        top.addWidget(self.name_input, 1)
+        upload_btn = QPushButton("上传数据集...")
+        upload_btn.clicked.connect(self.upload)
+        top.addWidget(upload_btn)
+        refresh_btn = QPushButton("刷新")
+        refresh_btn.clicked.connect(self.refresh)
+        top.addWidget(refresh_btn)
         lay.addLayout(top)
 
-        self.table = QTableWidget();
-        self.table.setColumnCount(6);
-        self.table.setHorizontalHeaderLabels(["ID", "名称", "格式", "行数", "大小", "状态"]);
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows);
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers);
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch);
+        self.table = QTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["ID", "名称", "格式", "行数", "大小", "状态"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         lay.addWidget(self.table, 1)
 
         ops = QHBoxLayout()
-        preview_btn = QPushButton("预览");
-        preview_btn.clicked.connect(self.preview);
-        ops.addWidget(preview_btn);
-        validate_btn = QPushButton("训练预检");
-        validate_btn.clicked.connect(self.validate);
-        ops.addWidget(validate_btn);
-        delete_btn = QPushButton("删除选中");
-        delete_btn.clicked.connect(self.delete_selected);
-        ops.addWidget(delete_btn);
-        ops.addStretch();
+        for label, handler in (("预览", self.preview), ("训练预检", self.validate), ("删除选中", self.delete_selected)):
+            button = QPushButton(label)
+            button.clicked.connect(handler)
+            ops.addWidget(button)
+        ops.addStretch()
         lay.addLayout(ops)
 
-        self.hint = QLabel("支持格式: jsonl / csv / json / txt（训练前建议先做“训练预检”）");
+        self.hint = QLabel("支持格式: jsonl / csv / json / txt（训练前建议先做“训练预检”）")
         lay.addWidget(self.hint)
 
     def refresh(self):
-        try:
-            datasets = self.api.list_datasets();
-        except Exception as e:
-            self.hint.setText(f"加载失败: {e}");
-            return;
-        self.table.setRowCount(len(datasets));
-        for row, d in enumerate(datasets):
+        self.hint.setText("正在加载数据集...")
+        self._run_api(self.api.list_datasets, self._render_datasets, self._show_load_error)
+
+    def _render_datasets(self, datasets):
+        self.table.setRowCount(len(datasets))
+        for row, dataset in enumerate(datasets):
             for col, key in enumerate(["id", "name", "format", "row_count", "file_size", "status"]):
-                text = str(d.get(key, ""));
-                if key == "file_size" and d.get("file_size"):
-                    text = f"{d['file_size'] / 1024:.1f} KB";
-                self.table.setItem(row, col, QTableWidgetItem(text));
-            self.table.item(row, 0).setData(Qt.UserRole, d.get("id"))
+                text = str(dataset.get(key, ""))
+                if key == "file_size" and dataset.get("file_size"):
+                    text = f"{dataset['file_size'] / 1024:.1f} KB"
+                self.table.setItem(row, col, QTableWidgetItem(text))
+            self.table.item(row, 0).setData(Qt.UserRole, dataset.get("id"))
+        self.hint.setText(f"已加载 {len(datasets)} 个数据集")
+
+    def _show_load_error(self, error):
+        self.hint.setText(f"加载失败: {error}")
 
     def upload(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择数据集", "", "数据集 (*.jsonl *.csv *.json *.txt)");
-        if not path: return;
-        name = self.name_input.text().strip() or None;
-        self.hint.setText("上传中...");
-        try:
-            result = self.api.upload_dataset(path, name);
-            if result.get("status") == "error":
-                QMessageBox.warning(self, "解析失败", result.get("error", ""));
-            else:
-                self.hint.setText(
-                    f"上传成功: {result.get('name')} ({result.get('row_count', 0)} 行)");
-            self.refresh();
-        except Exception as e:
-            QMessageBox.warning(self, "上传失败", str(e))
+        path, _ = QFileDialog.getOpenFileName(self, "选择数据集", "", "数据集 (*.jsonl *.csv *.json *.txt)")
+        if not path:
+            return
+        name = self.name_input.toPlainText().strip() or None
+        self.hint.setText("上传中...")
+        self._run_api(lambda: self.api.upload_dataset(path, name), self._on_uploaded, lambda error: QMessageBox.warning(self, "上传失败", error))
+
+    def _on_uploaded(self, result):
+        if result.get("status") == "error":
+            QMessageBox.warning(self, "解析失败", result.get("error", ""))
+            return
+        self.hint.setText(f"上传成功: {result.get('name')} ({result.get('row_count', 0)} 行)")
+        self.refresh()
 
     def _selected_id(self):
-        rows = self.table.selectionModel().selectedRows();
-        if not rows: return None;
-        return self.table.item(rows[0].row(), 0).data(Qt.UserRole)
+        rows = self.table.selectionModel().selectedRows()
+        return self.table.item(rows[0].row(), 0).data(Qt.UserRole) if rows else None
 
     def preview(self):
-        ds_id = self._selected_id();
-        if ds_id is None: return;
-        try:
-            d = self.api.get_dataset(ds_id);
-        except Exception as e:
-            QMessageBox.warning(self, "失败", str(e));
-            return;
-        text = json.dumps(d.get("sample", []), ensure_ascii=False, indent=2);
-        dlg = QDialog(self);
-        dlg.setWindowTitle(f"预览: {d.get('name')}");
-        dlg.resize(520, 360);
-        lay = QVBoxLayout(dlg);
-        edit = QTextEdit();
-        edit.setReadOnly(True);
-        edit.setPlainText(text);
-        lay.addWidget(edit);
-        dlg.exec_()
+        dataset_id = self._selected_id()
+        if dataset_id is not None:
+            self._run_api(lambda: self.api.get_dataset(dataset_id), self._show_preview, lambda error: QMessageBox.warning(self, "失败", error))
+
+    def _show_preview(self, dataset):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"预览: {dataset.get('name')}")
+        dialog.resize(520, 360)
+        layout = QVBoxLayout(dialog)
+        edit = QTextEdit()
+        edit.setReadOnly(True)
+        edit.setPlainText(json.dumps(dataset.get("sample", []), ensure_ascii=False, indent=2))
+        layout.addWidget(edit)
+        dialog.exec_()
 
     def validate(self):
-        ds_id = self._selected_id();
-        if ds_id is None:
-            QMessageBox.warning(self, "提示", "请先选择一个数据集");
-            return;
-        try:
-            result = self.api.validate_dataset(ds_id);
-        except Exception as e:
-            QMessageBox.warning(self, "预检失败", str(e));
-            return;
+        dataset_id = self._selected_id()
+        if dataset_id is None:
+            QMessageBox.warning(self, "提示", "请先选择一个数据集")
+            return
+        self._run_api(lambda: self.api.validate_dataset(dataset_id), self._show_validation, lambda error: QMessageBox.warning(self, "预检失败", error))
+
+    def _show_validation(self, result):
         if result.get("ok"):
-            QMessageBox.information(
-                self, "预检通过", f"可用于训练: {result.get('row_count')} 行\n列: {result.get('columns')}");
+            QMessageBox.information(self, "预检通过", f"可用于训练: {result.get('row_count')} 行\n列: {result.get('columns')}")
         else:
             QMessageBox.warning(self, "预检未通过", result.get("reason", "未知原因"))
 
     def delete_selected(self):
-        ds_id = self._selected_id();
-        if ds_id is None: return;
+        dataset_id = self._selected_id()
+        if dataset_id is None:
+            return
         if QMessageBox.question(self, "确认", "确定删除该数据集？") == QMessageBox.Yes:
-            try:
-                self.api.delete_dataset(ds_id);
-                self.refresh();
-            except Exception as e:
-                QMessageBox.warning(self, "失败", str(e))
+            self._run_api(lambda: self.api.delete_dataset(dataset_id), lambda _: self.refresh(), lambda error: QMessageBox.warning(self, "失败", error))

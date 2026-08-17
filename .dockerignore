@@ -1,4 +1,4 @@
-﻿__pycache__
+__pycache__
 *.pyc
 .git
 .gitignore
@@ -11,3 +11,11 @@ models/*
 data/*
 logs/*
 .env
+# Local environments, QA artefacts, caches and private configuration do not belong in images.
+.venv/
+.pytest_cache/
+.ruff_cache/
+outputs/
+uploads/
+*.db
+config.yaml

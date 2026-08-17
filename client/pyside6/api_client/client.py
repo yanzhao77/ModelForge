@@ -42,8 +42,8 @@ class ModelForgeClient:
 
     def login(self, username: str, password: str) -> Dict:
         data = self._post("/api/v1/auth/login", json={"username": username, "password": password})
-        self.set_token(data.get("token"));
-        self.username = (data.get("user") or {}).get("username", username);
+        self.set_token(data.get("token"))
+        self.username = (data.get("user") or {}).get("username", username)
         return data
 
     def me(self) -> Dict:

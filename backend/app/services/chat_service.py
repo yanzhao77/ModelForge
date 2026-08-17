@@ -50,8 +50,8 @@ async def run_chat(
     response = result.get("content", "")
 
     if session_id is not None:
-        SessionService.add_message(db, session_id, "user", messages[-1]["content"]);
-        SessionService.add_message(db, session_id, "assistant", response);
+        SessionService.add_message(db, session_id, "user", messages[-1]["content"])
+        SessionService.add_message(db, session_id, "assistant", response)
         count = SessionService.get_session_message_count(db, session_id)
         if count == 2:
             SessionService.auto_generate_title(db, session_id)
@@ -91,7 +91,7 @@ async def stream_chat(
         full_messages = messages
 
     runtime_obj = runtime.get()
-    stream_fn = getattr(runtime_obj, "stream_chat", None);
+    stream_fn = getattr(runtime_obj, "stream_chat", None)
     parts: List[str] = []
     if stream_fn is not None:
         async for chunk in stream_fn(model, full_messages):

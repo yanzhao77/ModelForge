@@ -44,10 +44,13 @@ class LocalRuntime(RuntimeEngine):
         else:
             from transformers import AutoModelForCausalLM, AutoTokenizer
             import torch
-            self._tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
+            # Model repositories and local model directories are untrusted input.
+            # Keep custom repository code disabled; supported architectures must
+            # use Transformers' built-in implementations.
+            self._tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=False)
             device = "cuda" if torch.cuda.is_available() else "cpu"
             self._model = AutoModelForCausalLM.from_pretrained(
-                path, trust_remote_code=True,
+                path, trust_remote_code=False,
                 torch_dtype=torch.float16 if device == "cuda" else torch.float32,
             ).to(device)
             self._model.eval()

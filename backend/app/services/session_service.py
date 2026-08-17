@@ -31,7 +31,7 @@ class SessionService:
     ) -> List[Session]:
         query = db.query(Session).filter(Session.user_id == user_id)
         if not include_inactive:
-            query = query.filter(Session.is_active == True)
+            query = query.filter(Session.is_active.is_(True))
         return query.order_by(Session.updated_at.desc()).all()
 
     @staticmethod
