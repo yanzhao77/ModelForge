@@ -1,14 +1,13 @@
 """Knowledge Base API routes."""
 import os
 import tempfile
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
 from core.database import get_db
-from core.security import get_current_user_optional
+from core.security import get_current_user
 from models.records import User
 from services.runtime_registry import get_runtime
 
@@ -44,7 +43,7 @@ def _get_kb():
 async def knowledge_upload(
     file: UploadFile = File(...),
     db: DBSession = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     kb = _get_kb()
     suffix = os.path.splitext(file.filename or "upload.txt")[1]
@@ -53,7 +52,7 @@ async def knowledge_upload(
         tmp.write(content)
         tmp_path = tmp.name
     try:
-        result = kb.upload(tmp_path, db=db, user_id=user.id if user else None, filename=file.filename)
+        result = kb.upload(tmp_path, db=db, user_id=user.id, filename=file.filename)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -66,25 +65,25 @@ async def knowledge_upload(
 
 @router.get("/documents")
 def knowledge_documents(
-    db: DBSession = Depends(get_db), user: Optional[User] = Depends(get_current_user_optional),
+    db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    return _get_kb().documents(db=db)
+    return _get_kb().documents(db=db, user_id=user.id)
 
 
 @router.get("/documents/{filename}/chunks")
 def knowledge_chunks(
     filename: str, db: DBSession = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
-    return _get_kb().chunks(filename, db=db)
+    return _get_kb().chunks(filename, db=db, user_id=user.id)
 
 
 @router.delete("/documents/{filename}")
 def knowledge_delete_document(
     filename: str, db: DBSession = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
-    ok = _get_kb().delete_document(filename, db=db, user_id=user.id if user else None)
+    ok = _get_kb().delete_document(filename, db=db, user_id=user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="文档不存在")
     return {"ok": True}
@@ -93,24 +92,24 @@ def knowledge_delete_document(
 @router.post("/query")
 def knowledge_query(
     req: QueryRequest, db: DBSession = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
-    return _get_kb().query(req.question, top_k=req.top_k, db=db)
+    return _get_kb().query(req.question, top_k=req.top_k, db=db, user_id=user.id)
 
 
 @router.post("/answer")
 async def knowledge_answer(
     req: AnswerRequest, db: DBSession = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     kb = _get_kb()
     return await kb.answer(
-        req.question, top_k=req.top_k, db=db, runtime=get_runtime(), model=req.model
+        req.question, top_k=req.top_k, db=db, user_id=user.id, runtime=get_runtime(), model=req.model
     )
 
 
 @router.get("/stats")
 def knowledge_stats(
-    db: DBSession = Depends(get_db), user: Optional[User] = Depends(get_current_user_optional),
+    db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    return _get_kb().stats(db=db)
+    return _get_kb().stats(db=db, user_id=user.id)

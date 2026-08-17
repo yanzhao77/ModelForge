@@ -135,12 +135,18 @@ class TestRuntimeMCP:
         assert rt.get_tool("mcp.weather") is None
 
     def test_mcp_api(self):
+        from unittest.mock import patch
         from fastapi.testclient import TestClient
+        from core.config import settings
         from main import app
-        with TestClient(app) as c:
-            r = c.post("/api/v1/agent/mcp/servers", json={"name": "fake", "endpoint": "http://fake/mcp"})
-            # no live server at that endpoint -> registration fails cleanly
-            assert r.status_code == 400
-            r = c.get("/api/v1/agent/mcp/servers")
-            assert r.status_code == 200
-            assert "servers" in r.json()
+        with patch.object(settings, "runtime_admin_usernames", "mcpapiadmin"):
+            with TestClient(app) as c:
+                c.post("/api/v1/auth/register", json={"username": "mcpapiadmin", "password": "secret123", "email": "mcpapiadmin@example.com"})
+                login = c.post("/api/v1/auth/login", json={"username": "mcpapiadmin", "password": "secret123"})
+                headers = {"Authorization": "Bearer " + login.json()["token"]}
+                r = c.post("/api/v1/agent/mcp/servers", json={"name": "fake", "endpoint": "http://fake/mcp"}, headers=headers)
+                # no live server at that endpoint -> registration fails cleanly
+                assert r.status_code == 400
+                r = c.get("/api/v1/agent/mcp/servers", headers=headers)
+                assert r.status_code == 200
+                assert "servers" in r.json()

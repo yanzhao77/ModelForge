@@ -80,9 +80,22 @@ def get_current_user(user: Optional[User] = Depends(_current_user)) -> User:
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
     return user
 
 
 def get_current_user_optional(user: Optional[User] = Depends(_current_user)) -> Optional[User]:
     """Auth optional: returns user or None."""
+    return user
+
+
+def get_runtime_admin(user: User = Depends(get_current_user)) -> User:
+    """Require an explicitly configured administrator for shared runtime state."""
+    admins = {name.strip() for name in settings.runtime_admin_usernames.split(",") if name.strip()}
+    if user.username not in admins:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Runtime administrator privileges are required",
+        )
     return user

@@ -2,7 +2,7 @@
 model_path: ./models
 database_path: ./data/modelforge.db
 log_level: INFO
-jwt_secret: "modelforge-dev-secret-change-me-0123456789abcdef"
+jwt_secret: ""  # Supply JWT_SECRET from the environment in production
 jwt_expire_minutes: 10080
 ollama_base_url: "http://localhost:11434"
 enable_streaming: true
@@ -25,6 +25,9 @@ runtime:
   event_retention_days: 30
 tools:
   default_timeout_seconds: 60
+  command_execution_enabled: false
+runtime_admin_usernames: ""  # Configure with RUNTIME_ADMIN_USERNAMES
+cors_allow_origins: "http://localhost:3000,http://localhost:5173"
 policy:
   default_network_access: false
   default_shell_access: false

@@ -25,7 +25,7 @@ jobs:
 
       - name: Lint (ruff)
         run: |
-          ruff check backend/app client/pyside6 --ignore E501,F401 --exit-zero || true
+          ruff check backend/app client/pyside6 --ignore E501,F401
 
       - name: Run full test suite
         run: |
@@ -46,7 +46,9 @@ jobs:
           set -e
           # unique container name per run to avoid collisions on retries
           CONTAINER="modelforge-ci-${{ github.run_id }}-${{ github.run_attempt }}"
-          docker run -d --name "$CONTAINER" -p 8000:8000 modelforge:ci
+          docker run -d --name "$CONTAINER" -p 8000:8000 \
+            -e JWT_SECRET="ci-only-jwt-secret-that-is-at-least-thirty-two-characters" \
+            modelforge:ci
           ok=0
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/healthz >/tmp/health.out 2>/dev/null; then

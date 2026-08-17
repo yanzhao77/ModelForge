@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from core.security import get_current_user
+from models.records import User
 from services.runtime_registry import get_runtime
 
 router = APIRouter(tags=["openai"])
@@ -48,7 +50,7 @@ def _openai_response(model: str, content: str) -> dict:
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(req: ChatCompletionRequest):
+async def chat_completions(req: ChatCompletionRequest, user: User = Depends(get_current_user)):
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
     try:
         runtime = get_runtime()
@@ -77,7 +79,7 @@ async def chat_completions(req: ChatCompletionRequest):
 
 
 @router.get("/v1/models")
-async def list_openai_models():
+async def list_openai_models(user: User = Depends(get_current_user)):
     """OpenAI-compatible model list."""
     return {
         "object": "list",

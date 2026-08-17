@@ -1,7 +1,9 @@
 """Agent tools: file_read, code_search, command_execute, web_search, knowledge_search."""
 import os
+import shlex
 import subprocess
-from typing import List
+from pathlib import Path
+from core.config import settings
 
 
 def tool_file_read(filepath: str) -> str:
@@ -49,11 +51,27 @@ def tool_code_search(directory: str, pattern: str) -> str:
 
 
 def tool_command_execute(command: str, timeout: int = 30) -> str:
-    """Execute a shell command and return output."""
+    """Run an allowlisted diagnostic command without invoking a shell."""
+    if not settings.tools.command_execution_enabled:
+        return "Command execution is disabled by server configuration."
+    try:
+        args = shlex.split(command)
+    except ValueError as exc:
+        return f"Invalid command syntax: {exc}"
+    allowed_commands = {
+        ("pwd",),
+        ("ls",),
+        ("git", "status", "--short"),
+        ("git", "diff", "--stat"),
+        ("git", "log", "-1", "--oneline"),
+    }
+    if tuple(args) not in allowed_commands:
+        return "Command is not in the server allowlist."
     try:
         result = subprocess.run(
-            command, shell=True, capture_output=True, text=True,
-            timeout=timeout, cwd=os.getcwd(),
+            args, shell=False, capture_output=True, text=True,
+            timeout=max(1, min(int(timeout), 30)),
+            cwd=str(Path(__file__).resolve().parents[3]),
         )
         output = result.stdout
         if result.stderr:
@@ -63,9 +81,8 @@ def tool_command_execute(command: str, timeout: int = 30) -> str:
         return output or "(no output)"
     except subprocess.TimeoutExpired:
         return f"Command timed out after {timeout}s"
-    except Exception as e:
-        return f"Error executing command: {e}"
-
+    except Exception as exc:
+        return f"Error executing command: {exc}"
 
 def tool_web_search(query: str) -> str:
     """Search the web (DuckDuckGo) and return formatted results."""

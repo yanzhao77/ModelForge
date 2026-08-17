@@ -10,7 +10,6 @@ index is rebuilt from the DB on first use. Without db, behaves as before
 """
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -257,29 +256,52 @@ class KnowledgeBase:
             "type": metadata.get("type", "unknown"),
         }
 
-    def query(self, question: str, top_k: int = 5, db=None) -> Dict:
+    def query(self, question: str, top_k: int = 5, db=None, user_id: Optional[int] = None) -> Dict:
         self._ensure_loaded(db)
         query_vector = self.embedder.embed(question)
-        results = self.vector_store.search(query_vector, top_k=top_k)
+        if db is not None and user_id is not None:
+            rows = (
+                db.query(KnowledgeChunk)
+                .join(KnowledgeDocument, KnowledgeChunk.doc_id == KnowledgeDocument.id)
+                .filter(KnowledgeDocument.user_id == user_id)
+                .all()
+            )
+            vectors = self.embedder.embed_batch([row.content for row in rows]) if rows else []
+            ranked = sorted(
+                zip(rows, vectors),
+                key=lambda pair: float(np.dot(query_vector, pair[1])),
+                reverse=True,
+            )[:top_k]
+            results = [
+                {
+                    "text": row.content,
+                    "score": float(np.dot(query_vector, vector)),
+                    "metadata": json.loads(row.meta) if row.meta else {},
+                }
+                for row, vector in ranked
+                if float(np.dot(query_vector, vector)) > 0
+            ]
+        else:
+            results = self.vector_store.search(query_vector, top_k=top_k)
         return {
             "question": question,
             "results": [
                 {
-                    "text": r["text"][:300],
-                    "score": round(r["score"], 4),
-                    "source": r["metadata"].get("filename", ""),
-                    "chunk_index": r["metadata"].get("chunk_index"),
+                    "text": item["text"][:300],
+                    "score": round(item["score"], 4),
+                    "source": item["metadata"].get("filename", ""),
+                    "chunk_index": item["metadata"].get("chunk_index"),
                 }
-                for r in results
+                for item in results
             ],
             "total_results": len(results),
         }
 
     async def answer(
-        self, question: str, top_k: int = 5, db=None, runtime=None, model: str = "default-model"
+        self, question: str, top_k: int = 5, db=None, user_id: Optional[int] = None, runtime=None, model: str = "default-model"
     ) -> Dict:
         """RAG answer: retrieve relevant chunks, then generate with the runtime."""
-        query_result = self.query(question, top_k=top_k, db=db)
+        query_result = self.query(question, top_k=top_k, db=db, user_id=user_id)
         sources = query_result["results"]
         if not sources:
             return {"answer": "知识库中没有找到相关内容。", "sources": []}
@@ -293,13 +315,12 @@ class KnowledgeBase:
         result = await runtime.chat(model, [{"role": "user", "content": prompt}])
         return {"answer": result.get("content", ""), "sources": sources}
 
-    def documents(self, db=None) -> List[Dict]:
+    def documents(self, db=None, user_id: Optional[int] = None) -> List[Dict]:
         if db is not None:
-            docs = (
-                db.query(KnowledgeDocument)
-                .order_by(KnowledgeDocument.created_at.desc())
-                .all()
-            )
+            query = db.query(KnowledgeDocument)
+            if user_id is not None:
+                query = query.filter(KnowledgeDocument.user_id == user_id)
+            docs = query.order_by(KnowledgeDocument.created_at.desc()).all()
             return [d.to_dict() for d in docs]
         seen = {}
         for doc in self.vector_store.documents:
@@ -325,9 +346,12 @@ class KnowledgeBase:
             self._docs_count = max(0, self._docs_count - 1)
         return len(self.vector_store.documents) < before or doc is not None
 
-    def chunks(self, filename: str, db=None) -> List[Dict]:
+    def chunks(self, filename: str, db=None, user_id: Optional[int] = None) -> List[Dict]:
         if db is not None:
-            doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.filename == filename).first()
+            query = db.query(KnowledgeDocument).filter(KnowledgeDocument.filename == filename)
+            if user_id is not None:
+                query = query.filter(KnowledgeDocument.user_id == user_id)
+            doc = query.first()
             if doc is None:
                 return []
             rows = (
@@ -343,8 +367,15 @@ class KnowledgeBase:
             if d["metadata"].get("filename") == filename
         ]
 
-    def stats(self, db=None) -> Dict:
+    def stats(self, db=None, user_id: Optional[int] = None) -> Dict:
         self._ensure_loaded(db)
+        if db is not None and user_id is not None:
+            docs = db.query(KnowledgeDocument).filter(KnowledgeDocument.user_id == user_id).all()
+            return {
+                "documents": len(docs),
+                "chunks": sum(doc.chunk_count or 0 for doc in docs),
+                "vocab_size": len(self.embedder.vocab),
+            }
         return {
             "documents": self._docs_count,
             "chunks": len(self.vector_store.documents),

@@ -8,11 +8,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from core.config import settings
 from core.database import init_db
-from services.agent_engine import AgentEngine, get_engine
+from services.agent_engine import get_engine
 from services.agent_runtime_service import build_agent_runtime, init_agent_runtime
-from services.knowledge_base import KnowledgeBase, get_global_kb
-from services.plugin_manager import PluginManager, get_manager
+from services.knowledge_base import get_global_kb
+from services.plugin_manager import get_manager
 from services.runtime_registry import get_runtime
 
 from api import (
@@ -56,9 +57,9 @@ app = FastAPI(title="ModelForge", version="3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[origin.strip() for origin in settings.cors_allow_origins.split(",") if origin.strip()],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 for _router in (

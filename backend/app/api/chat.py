@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
 from core.database import get_db
-from core.security import get_current_user_optional
+from core.security import get_current_user
 from models.records import User
 from services.chat_service import run_chat, stream_chat
 from services.runtime_registry import get_runtime
@@ -31,7 +31,7 @@ class ChatRequest(BaseModel):
 async def chat(
     req: ChatRequest,
     db: DBSession = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
     try:
@@ -51,7 +51,7 @@ async def chat(
 async def chat_stream(
     req: ChatRequest,
     db: DBSession = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 

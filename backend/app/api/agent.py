@@ -1,11 +1,9 @@
 """Agent API routes: 2.1 agent management + 3.0 Agent Run API (spec 25)."""
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session as DBSession
 
-from core.database import get_db
-from core.security import get_current_user_optional
+from core.security import get_current_user, get_runtime_admin
 from models.records import User
 from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
@@ -44,25 +42,16 @@ def _get_engine():
 @router.post("/create")
 async def create_agent(
     req: AgentCreateRequest,
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
-    """Create a new AI agent (in-memory engine + DB persistence)."""
-    engine = _get_engine()
-    info = engine.create_agent(
-        name=req.name,
-        model_name=req.model,
-        tools=req.tools,
-        plugins=req.plugins,
-        memory_config=req.memory,
-        system_prompt=req.system_prompt,
-    )
+    """Create an owned agent definition before exposing it to the legacy engine."""
+    rt = _get_runtime()
+    from runtime.types import AgentConfig
     try:
-        rt = _get_runtime()
-        from runtime.types import AgentConfig
         rt.create_agent(AgentConfig(
             name=req.name,
             model=req.model,
-            user_id=user.id if user else None,
+            user_id=user.id,
             tools=req.tools,
             plugins=req.plugins,
             system_prompt=req.system_prompt,
@@ -72,47 +61,48 @@ async def create_agent(
             runtime_config=req.runtime_config,
             knowledge_config=req.knowledge_config,
         ))
-    except HTTPException:
-        raise
-    except Exception:
-        pass  # engine-only registration still succeeds
-    return info
-
+    except PermissionError:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to persist agent definition: {exc}")
+    return _get_engine().create_agent(
+        name=req.name,
+        model_name=req.model,
+        tools=req.tools,
+        plugins=req.plugins,
+        memory_config=req.memory,
+        system_prompt=req.system_prompt,
+    )
 
 @router.post("/{name}/chat")
-async def agent_chat(name: str, req: dict):
-    """Send a message to an agent (2.1 LangGraph chat, policy-enforced in 3.x)."""
-    message = (req or {}).get("message", "")
-    engine = _get_engine()
-    policy = None
-    tool_registry = None
-    try:
-        rt = _get_runtime()
-        agent = rt.get_agent(name)
-        if agent is not None and rt.policy_engine is not None:
-            policy = rt.policy_engine.for_agent(agent)
-            tool_registry = rt.tool_registry
-    except HTTPException:
-        pass
-    except Exception:
-        pass
-    result = engine.chat(name, message, llm_callback=None, policy=policy, tool_registry=tool_registry)
+async def agent_chat(name: str, req: dict, user: User = Depends(get_current_user)):
+    """Send a message to an agent owned by the requesting user."""
+    rt = _get_runtime()
+    agent = rt.get_agent(name, user_id=user.id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    policy = rt.policy_engine.for_agent(agent) if rt.policy_engine is not None else None
+    result = _get_engine().chat(
+        name,
+        (req or {}).get("message", ""),
+        llm_callback=None,
+        policy=policy,
+        tool_registry=rt.tool_registry,
+    )
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result
 
-
 @router.get("/list")
-async def list_agents():
-    """List all registered agents (engine + DB)."""
-    rt = _get_runtime()
-    return [a.to_dict() for a in rt.list_agents()]
+async def list_agents(user: User = Depends(get_current_user)):
+    """List only agents owned by the current user."""
+    return [a.to_dict() for a in _get_runtime().list_agents(user_id=user.id)]
 
 
 @router.delete("/{name}")
-async def delete_agent(name: str):
-    """Delete an agent definition."""
-    ok = _get_runtime().delete_agent(name)
+async def delete_agent(name: str, user: User = Depends(get_current_user)):
+    """Delete an owned agent definition."""
+    ok = _get_runtime().delete_agent(name, user_id=user.id)
     if not ok:
         raise HTTPException(status_code=404, detail=f"Agent {name} not found")
     return {"ok": True}
@@ -124,15 +114,17 @@ async def delete_agent(name: str):
 @router.post("/runs")
 async def create_run(
     req: RunCreateRequest,
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Create an agent run; optionally start execution (async)."""
     rt = _get_runtime()
+    if rt.get_agent(req.agent_id, user_id=user.id) is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
     try:
         run = rt.create_run(
             agent_id=req.agent_id,
             input_text=req.input,
-            user_id=user.id if user else None,
+            user_id=user.id,
             session_id=req.session_id,
             metadata=req.metadata,
             execute=req.execute,
@@ -151,10 +143,10 @@ async def list_runs(
     status: Optional[str] = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     runs = _get_runtime().list_runs(
-        user_id=user.id if user else None,
+        user_id=user.id,
         agent_id=agent_id,
         status=status,
         limit=limit,
@@ -166,10 +158,10 @@ async def list_runs(
 @router.get("/runs/{run_id}")
 async def get_run(
     run_id: str,
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     try:
-        run = _get_runtime().get_run(run_id, user_id=user.id if user else None)
+        run = _get_runtime().get_run(run_id, user_id=user.id)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
     return run.to_dict()
@@ -178,10 +170,10 @@ async def get_run(
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(
     run_id: str,
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     try:
-        run = await _get_runtime().cancel_run(run_id, user_id=user.id if user else None)
+        run = await _get_runtime().cancel_run(run_id, user_id=user.id)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
     return run.to_dict()
@@ -190,11 +182,11 @@ async def cancel_run(
 @router.post("/runs/{run_id}/approve")
 async def approve_run(
     run_id: str,
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Approve a pending human-approval request (spec 32)."""
     try:
-        run = await _get_runtime().approve_run(run_id, user_id=user.id if user else None)
+        run = await _get_runtime().approve_run(run_id, user_id=user.id)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
     return run.to_dict()
@@ -203,11 +195,11 @@ async def approve_run(
 @router.post("/runs/{run_id}/reject")
 async def reject_run(
     run_id: str,
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Reject a pending human-approval request (spec 32)."""
     try:
-        run = await _get_runtime().reject_run(run_id, user_id=user.id if user else None)
+        run = await _get_runtime().reject_run(run_id, user_id=user.id)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
     return run.to_dict()
@@ -218,13 +210,13 @@ async def run_events(
     run_id: str,
     after_sequence: int = Query(0, ge=0),
     limit: int = Query(1000, ge=1, le=5000),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """Persisted event list with SSE resume support (spec 30 / 31)."""
     try:
         events = _get_runtime().list_events(
             run_id, after_sequence=after_sequence, limit=limit,
-            user_id=user.id if user else None,
+            user_id=user.id,
         )
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -235,14 +227,14 @@ async def run_events(
 async def run_stream(
     run_id: str,
     after_sequence: int = Query(0, ge=0),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ):
     """SSE run stream: replay persisted events then live events (spec 26 / 31)."""
     import json
     from fastapi.responses import StreamingResponse
     rt = _get_runtime()
     try:
-        rt.get_run(run_id, user_id=user.id if user else None)
+        rt.get_run(run_id, user_id=user.id)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -263,7 +255,7 @@ async def run_stream(
 
 
 @router.post("/mcp/servers")
-async def register_mcp(req: dict):
+async def register_mcp(req: dict, user: User = Depends(get_runtime_admin)):
     """Register an MCP server; its tools land in the Tool Registry (spec 70)."""
     name = (req or {}).get("name")
     endpoint = (req or {}).get("endpoint")
@@ -276,12 +268,12 @@ async def register_mcp(req: dict):
 
 
 @router.get("/mcp/servers")
-async def list_mcp_servers():
+async def list_mcp_servers(user: User = Depends(get_runtime_admin)):
     return {"servers": _get_runtime().list_mcp_servers()}
 
 
 @router.delete("/mcp/servers/{name}")
-async def unregister_mcp(name: str):
+async def unregister_mcp(name: str, user: User = Depends(get_runtime_admin)):
     ok = await _get_runtime().unregister_mcp_server(name)
     if not ok:
         raise HTTPException(status_code=404, detail=f"MCP server {name} not found")
@@ -289,13 +281,13 @@ async def unregister_mcp(name: str):
 
 
 @router.get("/tools")
-async def list_tools():
+async def list_tools(user: User = Depends(get_current_user)):
     """Registered tools with permissions (spec 8)."""
     return {"tools": _get_runtime().list_tools()}
 
 
 @router.post("/schedules")
-async def create_schedule(req: dict):
+async def create_schedule(req: dict, user: User = Depends(get_current_user)):
     """Schedule an agent run once or on an interval (spec 38 / 72)."""
     agent_id = (req or {}).get("agent_id")
     input_text = (req or {}).get("input", "")
@@ -305,12 +297,15 @@ async def create_schedule(req: dict):
     delay = (req or {}).get("delay_seconds")
     interval = (req or {}).get("interval_seconds")
     rt = _get_runtime()
+    if rt.get_agent(agent_id, user_id=user.id) is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    run_spec["user_id"] = user.id
     try:
         if delay is not None:
-            job_id = rt.schedule_once(float(delay), run_spec)
+            job_id = rt.schedule_once(float(delay), run_spec, user_id=user.id)
             kind = "once"
         elif interval is not None:
-            job_id = rt.schedule_interval(float(interval), run_spec)
+            job_id = rt.schedule_interval(float(interval), run_spec, user_id=user.id)
             kind = "interval"
         else:
             raise HTTPException(status_code=400, detail="delay_seconds or interval_seconds required")
@@ -322,19 +317,19 @@ async def create_schedule(req: dict):
 
 
 @router.get("/schedules")
-async def list_schedules():
-    return {"schedules": _get_runtime().list_schedules()}
+async def list_schedules(user: User = Depends(get_current_user)):
+    return {"schedules": _get_runtime().list_schedules(user_id=user.id)}
 
 
 @router.delete("/schedules/{job_id}")
-async def cancel_schedule(job_id: str):
-    ok = _get_runtime().cancel_schedule(job_id)
+async def cancel_schedule(job_id: str, user: User = Depends(get_current_user)):
+    ok = _get_runtime().cancel_schedule(job_id, user_id=user.id)
     if not ok:
         raise HTTPException(status_code=404, detail=f"Schedule {job_id} not found")
     return {"ok": True}
 
 
 @router.get("/metrics")
-async def runtime_metrics():
+async def runtime_metrics(user: User = Depends(get_runtime_admin)):
     """Runtime metrics snapshot (spec 49)."""
     return _get_runtime().metrics_snapshot()

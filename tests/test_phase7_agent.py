@@ -2,9 +2,9 @@
 import os
 import sys
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+from core.config import settings
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
@@ -46,15 +46,18 @@ class TestAgentTools:
         result = tool_code_search("/nonexistent/dir", "pattern")
         assert "Error" in result
 
-    def test_command_execute_echo(self):
+    def test_command_execute_disabled_by_default(self):
         result = tool_command_execute("echo hello", timeout=10)
-        assert "hello" in result
+        assert "disabled" in result.lower()
 
     @patch("services.agent_tools.subprocess.run")
     def test_command_execute_error(self, mock_run):
         mock_run.side_effect = Exception("simulated failure")
-        result = tool_command_execute("some_command", timeout=5)
+        with patch.object(settings.tools, "command_execution_enabled", True):
+            result = tool_command_execute("pwd", timeout=5)
         assert "Error" in result
+        assert mock_run.call_args.args[0] == ["pwd"]
+        assert mock_run.call_args.kwargs["shell"] is False
 
 
 class TestAgentEngine:

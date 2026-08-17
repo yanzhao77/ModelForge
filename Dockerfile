@@ -2,6 +2,7 @@
 FROM python:3.10-slim
 
 WORKDIR /app
+ENV MODELFORGE_ENV=production
 
 # Install system dependencies (build-essential only; no torch/GPU by default)
 RUN apt-get update && apt-get install -y --no-install-recommends \

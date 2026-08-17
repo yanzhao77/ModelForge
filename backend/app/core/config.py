@@ -3,12 +3,17 @@
 Loads config from config.yaml, .env, and os.environ (env overrides yaml).
 """
 import os
+import secrets
 from pathlib import Path
 from typing import Optional
 
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel
+
+
+_INSECURE_JWT_SECRETS = {"", "modelforge-dev-secret-change-me-0123456789abcdef", "dev-secret"}
+_PRODUCTION_ENVIRONMENTS = {"prod", "production"}
 
 
 class RuntimeSettings(BaseModel):
@@ -23,6 +28,7 @@ class RuntimeSettings(BaseModel):
 class ToolsSettings(BaseModel):
     """Tool execution defaults (config.yaml -> tools:)."""
     default_timeout_seconds: int = 60
+    command_execution_enabled: bool = False
 
 
 class PolicySettings(BaseModel):
@@ -38,8 +44,11 @@ class Settings(BaseModel):
     database_path: str = "./data/modelforge.db"
     log_level: str = "INFO"
     # 认证
-    jwt_secret: str = "modelforge-dev-secret-change-me-0123456789abcdef"
+    jwt_secret: str = ""
     jwt_expire_minutes: int = 60 * 24 * 7
+    # Comma-separated accounts allowed to administer process-wide runtime state.
+    runtime_admin_usernames: str = ""
+    cors_allow_origins: str = "http://localhost:3000,http://localhost:5173"
     # 运行时
     ollama_base_url: str = "http://localhost:11434"
     enable_streaming: bool = True
@@ -85,6 +94,8 @@ def load_config(config_path: Optional[str] = None) -> Settings:
         "DATABASE_PATH": "database_path",
         "LOG_LEVEL": "log_level",
         "JWT_SECRET": "jwt_secret",
+        "RUNTIME_ADMIN_USERNAMES": "runtime_admin_usernames",
+        "CORS_ALLOW_ORIGINS": "cors_allow_origins",
         "OLLAMA_BASE_URL": "ollama_base_url",
         "HF_ENDPOINT": "hf_endpoint",
         "MODEL_DIR": "model_dir",
@@ -106,6 +117,7 @@ def load_config(config_path: Optional[str] = None) -> Settings:
         "RUNTIME_EVENT_PERSISTENCE": ("runtime", "event_persistence"),
         "RUNTIME_EVENT_RETENTION_DAYS": ("runtime", "event_retention_days"),
         "TOOL_DEFAULT_TIMEOUT_SECONDS": ("tools", "default_timeout_seconds"),
+        "TOOLS_COMMAND_EXECUTION_ENABLED": ("tools", "command_execution_enabled"),
         "POLICY_DEFAULT_NETWORK_ACCESS": ("policy", "default_network_access"),
         "POLICY_DEFAULT_SHELL_ACCESS": ("policy", "default_shell_access"),
         "POLICY_DEFAULT_FILESYSTEM_ACCESS": ("policy", "default_filesystem_access"),
@@ -116,7 +128,18 @@ def load_config(config_path: Optional[str] = None) -> Settings:
             data.setdefault(section, {})[field] = env_val
 
     known = {k: v for k, v in data.items() if k in Settings.model_fields}
-    return Settings(**known)
+    result = Settings(**known)
+    environment = os.getenv("MODELFORGE_ENV", os.getenv("APP_ENV", "development")).strip().lower()
+    secret = (result.jwt_secret or "").strip()
+    if environment in _PRODUCTION_ENVIRONMENTS:
+        if secret in _INSECURE_JWT_SECRETS or len(secret) < 32:
+            raise RuntimeError(
+                "JWT_SECRET must be set to a non-default value of at least 32 characters when MODELFORGE_ENV=production"
+            )
+    elif secret in _INSECURE_JWT_SECRETS:
+        # Do not silently sign development JWTs with a public, predictable key.
+        result.jwt_secret = secrets.token_urlsafe(48)
+    return result
 
 
 # 进程级共享配置（启动时加载一次）

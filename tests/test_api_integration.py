@@ -6,7 +6,7 @@ import tempfile
 # Isolate the app database for this test session
 _tmp_db = tempfile.mkdtemp(prefix="mf_test_")
 os.environ["DATABASE_PATH"] = os.path.join(_tmp_db, "test.db")
-os.environ["JWT_SECRET"] = "integration-test-secret"
+os.environ["JWT_SECRET"] = "integration-test-secret-that-is-at-least-32-characters"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -187,11 +187,11 @@ class TestChat:
         monkeypatch.setattr(RuntimeRegistry, "get", lambda self, name=None: _FakeRuntime())
         monkeypatch.setattr(RuntimeRegistry, "chat", _FakeRuntime.chat)
 
-    def test_chat_anonymous_no_session(self, client):
-        r = client.post(
-            "/api/v1/chat",
-            json={"model": "mock", "messages": [{"role": "user", "content": "你好"}]},
-        )
+    def test_chat_requires_login_without_session(self, client):
+        payload = {"model": "mock", "messages": [{"role": "user", "content": "你好"}]}
+        assert client.post("/api/v1/chat", json=payload).status_code == 401
+        token = _login(client, "chatanonymous")
+        r = client.post("/api/v1/chat", json=payload, headers=_auth(token))
         assert r.status_code == 200
         assert r.json()["response"] == "这是模拟回复"
 
@@ -220,10 +220,10 @@ class TestChat:
         assert title.startswith("今天的天气")
 
     def test_chat_stream_sse(self, client):
-        r = client.post(
-            "/api/v1/chat/stream",
-            json={"model": "mock", "messages": [{"role": "user", "content": "流式"}]},
-        )
+        payload = {"model": "mock", "messages": [{"role": "user", "content": "流式"}]}
+        assert client.post("/api/v1/chat/stream", json=payload).status_code == 401
+        token = _login(client, "chatstream")
+        r = client.post("/api/v1/chat/stream", json=payload, headers=_auth(token))
         assert r.status_code == 200
         assert "text/event-stream" in r.headers.get("content-type", "")
         assert "这是模拟回复" in r.text
@@ -234,8 +234,7 @@ class TestChat:
             "/api/v1/chat/stream",
             json={"model": "mock", "messages": [{"role": "user", "content": "x"}], "session_id": 1},
         )
-        assert r.status_code == 200
-        assert '"type": "error"' in r.text
+        assert r.status_code == 401
 
 
 class TestOpenAICompat:
@@ -246,10 +245,10 @@ class TestOpenAICompat:
         monkeypatch.setattr(RuntimeRegistry, "get", lambda self, name=None: _FakeRuntime())
         monkeypatch.setattr(RuntimeRegistry, "chat", _FakeRuntime.chat)
 
-        r = client.post(
-            "/v1/chat/completions",
-            json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
-        )
+        payload = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+        assert client.post("/v1/chat/completions", json=payload).status_code == 401
+        token = _login(client, "openaiuser")
+        r = client.post("/v1/chat/completions", json=payload, headers=_auth(token))
         assert r.status_code == 200
         data = r.json()
         assert data["object"] == "chat.completion"
@@ -257,7 +256,9 @@ class TestOpenAICompat:
         assert "usage" in data
 
     def test_list_models(self, client):
-        r = client.get("/v1/models")
+        assert client.get("/v1/models").status_code == 401
+        token = _login(client, "openaimodeluser")
+        r = client.get("/v1/models", headers=_auth(token))
         assert r.status_code == 200
         assert r.json()["object"] == "list"
 

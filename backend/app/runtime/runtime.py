@@ -18,7 +18,6 @@ from .execution import ExecutionEngine
 from .logging import get_logger, log_run
 from .metrics import MetricsRegistry
 from .models.base import ModelProvider
-from .state import AgentState
 from .types import AgentConfig, RunRecord, RunStatus
 
 ProviderFactory = Callable[[str], ModelProvider]
@@ -460,15 +459,14 @@ class AgentRuntime:
     def create_agent(self, config: AgentConfig) -> AgentConfig:
         return self.agent_store.create(config)
 
-    def get_agent(self, name: str) -> Optional[AgentConfig]:
-        return self.agent_store.get(name)
+    def get_agent(self, name: str, user_id: Optional[int] = None) -> Optional[AgentConfig]:
+        return self.agent_store.get(name, user_id=user_id)
 
-    def list_agents(self) -> List[AgentConfig]:
-        return self.agent_store.list()
+    def list_agents(self, user_id: Optional[int] = None) -> List[AgentConfig]:
+        return self.agent_store.list(user_id=user_id)
 
-    def delete_agent(self, name: str) -> bool:
-        return self.agent_store.delete(name)
-
+    def delete_agent(self, name: str, user_id: Optional[int] = None) -> bool:
+        return self.agent_store.delete(name, user_id=user_id)
     # ---- plugin manager (3.x, audit §16.5) ----
     def discover_capabilities(self, scope_id: Optional[str] = None) -> Dict[str, Any]:
         """Read-only capability index (3.x-P6, audit §16.9)."""
@@ -517,35 +515,39 @@ class AgentRuntime:
 
     # ---- scheduler (spec 38 / 72) ----
     async def _scheduler_trigger(self, run_spec: Dict[str, Any]) -> None:
-        """Scheduler fires -> runtime creates the AgentRun (spec 72)."""
+        """Scheduler fires -> runtime creates an owned AgentRun."""
+        agent_id = run_spec.get("agent_id", "")
+        user_id = run_spec.get("user_id")
+        if self.get_agent(agent_id, user_id=user_id) is None:
+            return
         self.create_run(
-            agent_id=run_spec.get("agent_id", ""),
+            agent_id=agent_id,
             input_text=run_spec.get("input", ""),
+            user_id=user_id,
             session_id=run_spec.get("session_id"),
             metadata=run_spec.get("metadata"),
             execute=True,
         )
 
-    def schedule_once(self, delay: float, run_spec: Dict[str, Any]) -> str:
+    def schedule_once(self, delay: float, run_spec: Dict[str, Any], user_id: Optional[int] = None) -> str:
         if self.scheduler is None:
             raise RuntimeError("scheduler not configured")
-        return self.scheduler.schedule_once(delay, run_spec)
+        return self.scheduler.schedule_once(delay, run_spec, user_id=user_id)
 
-    def schedule_interval(self, interval: float, run_spec: Dict[str, Any]) -> str:
+    def schedule_interval(self, interval: float, run_spec: Dict[str, Any], user_id: Optional[int] = None) -> str:
         if self.scheduler is None:
             raise RuntimeError("scheduler not configured")
-        return self.scheduler.schedule_interval(interval, run_spec)
+        return self.scheduler.schedule_interval(interval, run_spec, user_id=user_id)
 
-    def cancel_schedule(self, job_id: str) -> bool:
+    def cancel_schedule(self, job_id: str, user_id: Optional[int] = None) -> bool:
         if self.scheduler is None:
             return False
-        return self.scheduler.cancel(job_id)
+        return self.scheduler.cancel(job_id, user_id=user_id)
 
-    def list_schedules(self) -> List[Dict[str, Any]]:
+    def list_schedules(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
         if self.scheduler is None:
             return []
-        return self.scheduler.jobs()
-
+        return self.scheduler.jobs(user_id=user_id)
     # ---- internals ----
     def _make_provider(self, run: RunRecord, agent: AgentConfig) -> ModelProvider:
         model = run.model or agent.model or ""

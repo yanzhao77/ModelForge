@@ -325,8 +325,11 @@ class TestAgentRunApi:
         assert r.status_code == 404
 
     def test_metrics_api(self, client):
+        from unittest.mock import patch
+        from core.config import settings
         h = self._login(client, "apiboth")
-        r = client.get("/api/v1/agent/metrics", headers=h)
+        with patch.object(settings, "runtime_admin_usernames", "apiboth"):
+            r = client.get("/api/v1/agent/metrics", headers=h)
         assert r.status_code == 200
         data = r.json()
         for name in ("agent_runs_total", "llm_calls_total", "tool_calls_total"):

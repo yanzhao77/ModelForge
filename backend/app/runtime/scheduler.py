@@ -43,23 +43,26 @@ class Scheduler:
         self._seq += 1
         return f"{kind}_{self._seq}"
 
-    def schedule_once(self, delay: float, run_spec: Dict[str, Any]) -> str:
+    def schedule_once(self, delay: float, run_spec: Dict[str, Any], user_id: Optional[int] = None) -> str:
         """Run once after `delay` seconds (spec 38)."""
         job_id = self._new_id("once")
-        self._jobs[job_id] = {"type": "once", "delay": delay, "run_spec": run_spec, "status": "scheduled", "triggered_at": None}
+        self._jobs[job_id] = {"type": "once", "delay": delay, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None}
         loop = asyncio.get_running_loop()
         self._tasks[job_id] = loop.create_task(self._run_once(job_id, delay, run_spec))
         return job_id
 
-    def schedule_interval(self, interval: float, run_spec: Dict[str, Any]) -> str:
+    def schedule_interval(self, interval: float, run_spec: Dict[str, Any], user_id: Optional[int] = None) -> str:
         """Run every `interval` seconds while started (spec 38 / 39)."""
         job_id = self._new_id("interval")
-        self._jobs[job_id] = {"type": "interval", "interval": interval, "run_spec": run_spec, "status": "scheduled", "triggered_at": None}
+        self._jobs[job_id] = {"type": "interval", "interval": interval, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None}
         loop = asyncio.get_running_loop()
         self._tasks[job_id] = loop.create_task(self._run_interval(job_id, interval, run_spec))
         return job_id
 
-    def cancel(self, job_id: str) -> bool:
+    def cancel(self, job_id: str, user_id: Optional[int] = None) -> bool:
+        job = self._jobs.get(job_id)
+        if job is None or (user_id is not None and job.get("user_id") != user_id):
+            return False
         task = self._tasks.pop(job_id, None)
         if task is None:
             return False
@@ -68,8 +71,11 @@ class Scheduler:
             self._jobs[job_id]["status"] = "cancelled"
         return True
 
-    def jobs(self) -> List[Dict[str, Any]]:
-        return [{"id": k, **dict(v)} for k, v in self._jobs.items()]
+    def jobs(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return [
+            {"id": k, **dict(v)} for k, v in self._jobs.items()
+            if user_id is None or v.get("user_id") == user_id
+        ]
 
     # ---- internals ----
     async def _run_once(self, job_id: str, delay: float, run_spec: Dict[str, Any]) -> None:
