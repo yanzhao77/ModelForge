@@ -57,7 +57,7 @@ class DatasetPage(QWidget):
         ops.addStretch();
         lay.addLayout(ops)
 
-        self.hint = QLabel("支持格式: jsonl / csv / json / txt（训练前建议先做"训练预检"）");
+        self.hint = QLabel("支持格式: jsonl / csv / json / txt（训练前建议先做“训练预检”）");
         lay.addWidget(self.hint)
 
     def refresh(self):

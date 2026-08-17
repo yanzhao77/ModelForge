@@ -205,7 +205,7 @@ class TrainingPage(QWidget):
             if t.get("task_id") == self._current_task_id:
                 self.progress_bar.setValue(int(t.get("progress", 0) or 0));
                 self.status_label.setText(
-                    f"状态: {t.get('status')} | Epoch {t.get('current_epoch')}/{t.get('total_epochs')} | 
+                    f"状态: {t.get('status')} | Epoch {t.get('current_epoch')}/{t.get('total_epochs')} | "
                     f"loss: {t.get('loss') if t.get('loss') is not None else '-'}"
                 );
                 return
@@ -231,7 +231,7 @@ class TrainingPage(QWidget):
         if t.get("status") in ("done", "error", "stopped"):
             self._timer.stop();
             if t.get("status") == "done":
-                QMessageBox.information(self, "训练完成", "可以点击"注册到模型列表"");
+                QMessageBox.information(self, "训练完成", "可以点击“注册到模型列表”");
         self._load_tasks()
 
     def stop_task(self):
