@@ -15,6 +15,7 @@ from services.agent_runtime_service import build_agent_runtime, init_agent_runti
 from services.knowledge_base import get_global_kb
 from services.plugin_manager import get_manager
 from services.runtime_registry import get_runtime
+from services.task_realtime import task_outbox_publisher
 
 from api import (
     agent,
@@ -29,6 +30,7 @@ from api import (
     runtime,
     sessions,
     system,
+    tasks,
     train,
 )
 
@@ -37,6 +39,7 @@ from api import (
 async def lifespan(app: FastAPI):
     """Initialize the database and inject service singletons."""
     init_db()
+    task_outbox_publisher.start()
     runtime.set_runtime(get_runtime())
     agent.set_agent_engine(get_engine())
     knowledge.set_knowledge_base(get_global_kb())
@@ -50,6 +53,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        task_outbox_publisher.stop()
         await agent_runtime.shutdown()
 
 
@@ -75,6 +79,7 @@ for _router in (
     plugin.router,
     train.router,
     system.router,
+    tasks.router,
 ):
     app.include_router(_router, prefix="/api/v1")
 

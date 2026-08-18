@@ -356,6 +356,50 @@ class ModelForgeClient:
             json={"question": question, "top_k": top_k, "model": model},
         )
 
+    # ---- global task center / onboarding ----
+    def list_tasks(self) -> List[Dict]:
+        return self._get("/api/v1/tasks").get("tasks", [])
+
+    def task_summary(self) -> Dict:
+        return self._get("/api/v1/tasks/summary")
+
+    def get_task(self, task_id: str) -> Dict:
+        return self._get(f"/api/v1/tasks/{task_id}")
+
+    def cancel_task(self, task_id: str) -> Dict:
+        return self._post(f"/api/v1/tasks/{task_id}/cancel")
+
+    def onboarding_state(self) -> Dict:
+        return self._get("/api/v1/tasks/onboarding/state")
+
+    def stream_tasks(self, after_id: int = 0):
+        """Yield decoded global task SSE events from a durable cursor."""
+        headers = self._headers()
+        headers["Last-Event-ID"] = str(max(0, after_id))
+        with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0, write=30.0, pool=30.0)) as client:
+            with client.stream(
+                "GET", f"{self.base_url}/api/v1/tasks/stream",
+                headers=headers, params={"after_id": max(0, after_id)},
+            ) as response:
+                response.raise_for_status()
+                event: Dict = {}
+                for line in response.iter_lines():
+                    if not line:
+                        if event.get("data"):
+                            import json
+                            try:
+                                event["payload"] = json.loads(event.pop("data"))
+                            except (TypeError, ValueError):
+                                event = {}
+                            if event:
+                                yield event
+                        event = {}
+                        continue
+                    if line.startswith(":"):
+                        continue
+                    key, _, value = line.partition(":")
+                    event[key] = value.lstrip()
+
     # ---- HTTP helpers ----
 
     def _get(self, path: str, **kwargs) -> Dict:

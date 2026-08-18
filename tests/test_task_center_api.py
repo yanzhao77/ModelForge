@@ -1,0 +1,98 @@
+"""Integration tests for the persisted global task center API."""
+import os
+import sys
+import uuid
+
+import pytest
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
+from main import app
+
+
+@pytest.fixture
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def auth(client, prefix):
+    username = f"{prefix}-{uuid.uuid4().hex[:10]}"
+    client.post("/api/v1/auth/register", json={"username": username, "password": "secret123", "email": f"{username}@example.com"})
+    response = client.post("/api/v1/auth/login", json={"username": username, "password": "secret123"})
+    assert response.status_code == 200, response.text
+    return {"Authorization": "Bearer " + response.json()["token"]}
+
+
+def create_task(client, headers, **overrides):
+    payload = {
+        "task_type": "knowledge_ingest",
+        "source": "knowledge",
+        "title": "产品手册.pdf",
+        "summary": "等待解析",
+        "metadata": {"filename": "产品手册.pdf"},
+        "cancelable": True,
+        "retryable": True,
+    }
+    payload.update(overrides)
+    response = client.post("/api/v1/tasks", json=payload, headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_task_routes_require_authentication(client):
+    assert client.get("/api/v1/tasks").status_code == 401
+    assert client.get("/api/v1/tasks/summary").status_code == 401
+    assert client.get("/api/v1/tasks/onboarding/state").status_code == 401
+
+
+def test_task_lifecycle_events_and_summary(client):
+    headers = auth(client, "tasklife")
+    task = create_task(client, headers)
+    assert task["status"] == "QUEUED"
+    assert task["cancelable"] is True
+
+    started = client.post(
+        f"/api/v1/tasks/{task['task_id']}/transition",
+        json={"status": "RUNNING", "progress_percent": 25, "summary": "正在分块"},
+        headers=headers,
+    )
+    assert started.status_code == 200, started.text
+    assert started.json()["status"] == "RUNNING"
+    assert started.json()["progress_percent"] == 25
+
+    events = client.get(f"/api/v1/tasks/{task['task_id']}/events", headers=headers)
+    assert events.status_code == 200
+    assert [event["event_type"] for event in events.json()["events"]] == ["task.created", "task.updated"]
+
+    summary = client.get("/api/v1/tasks/summary", headers=headers)
+    assert summary.status_code == 200
+    assert summary.json()["active"] >= 1
+
+    cancelled = client.post(f"/api/v1/tasks/{task['task_id']}/cancel", headers=headers)
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "CANCEL_REQUESTED"
+
+
+def test_tasks_are_isolated_by_user_and_support_idempotency(client):
+    alice = auth(client, "taskalice")
+    bob = auth(client, "taskbob")
+    key = uuid.uuid4().hex
+    first = create_task(client, alice, title="alice-private", idempotency_key=key)
+    duplicate = create_task(client, alice, title="ignored-duplicate", idempotency_key=key)
+    assert duplicate["task_id"] == first["task_id"]
+
+    alice_tasks = client.get("/api/v1/tasks", headers=alice).json()["tasks"]
+    bob_tasks = client.get("/api/v1/tasks", headers=bob).json()["tasks"]
+    assert any(item["task_id"] == first["task_id"] for item in alice_tasks)
+    assert all(item["task_id"] != first["task_id"] for item in bob_tasks)
+    assert client.get(f"/api/v1/tasks/{first['task_id']}", headers=bob).status_code == 404
+
+
+def test_onboarding_state_reflects_authenticated_user(client):
+    headers = auth(client, "taskonboard")
+    response = client.get("/api/v1/tasks/onboarding/state", headers=headers)
+    assert response.status_code == 200, response.text
+    state = response.json()
+    assert state["server_connected"] is True
+    assert state["next_recommended_step"] in {"select_model", "send_message", "run_agent", "complete"}

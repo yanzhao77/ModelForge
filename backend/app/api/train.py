@@ -12,6 +12,7 @@ from core.database import get_db
 from core.security import get_current_user
 from models.records import User
 from services.training import TrainingService, get_log_tail
+from services.task_service import project_legacy_tasks
 
 router = APIRouter(prefix="/train", tags=["train"])
 
@@ -44,6 +45,7 @@ def train_start(
 ):
     try:
         row = TrainingService().start(db, user.id, req.model_dump())
+        project_legacy_tasks(db, user.id)
         return row.to_dict()
     except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -53,6 +55,7 @@ def train_start(
 def train_tasks(
     db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
+    project_legacy_tasks(db, user.id)
     return [t.to_dict() for t in TrainingService().list(db, user.id)]
 
 

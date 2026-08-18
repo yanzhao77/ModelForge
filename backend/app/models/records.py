@@ -420,3 +420,129 @@ class ToolRecord(Base):
             "enabled": self.enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+class TaskRecord(Base):
+    """A user-owned, persisted projection of any long-running product task."""
+    __tablename__ = "task_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String(64), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    parent_task_id = Column(String(64), nullable=True, index=True)
+    task_type = Column(String(64), nullable=False, index=True)
+    source = Column(String(64), nullable=False, index=True)
+    source_task_id = Column(String(64), nullable=True, index=True)
+    title = Column(String(255), nullable=False)
+    summary = Column(Text, nullable=True)
+    status = Column(String(32), nullable=False, default="QUEUED", index=True)
+    progress_current = Column(Integer, nullable=True)
+    progress_total = Column(Integer, nullable=True)
+    progress_unit = Column(String(32), nullable=True)
+    progress_percent = Column(Integer, nullable=True)
+    priority = Column(String(16), nullable=False, default="normal")
+    cancelable = Column(Boolean, nullable=False, default=False)
+    retryable = Column(Boolean, nullable=False, default=False)
+    attempt = Column(Integer, nullable=False, default=1)
+    max_attempts = Column(Integer, nullable=False, default=1)
+    required_action = Column(Text, nullable=True)
+    result = Column(Text, nullable=True)
+    error_code = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    error_detail = Column(Text, nullable=True)
+    meta = Column(Text, nullable=True)
+    idempotency_key = Column(String(128), nullable=True, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    started_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, index=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_task_records_user_status_updated", "user_id", "status", "updated_at"),
+        Index("ix_task_records_source_external", "source", "source_task_id"),
+    )
+
+    @staticmethod
+    def _json(value, fallback):
+        import json as _json
+        if not value:
+            return fallback
+        try:
+            return _json.loads(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    def to_dict(self) -> dict:
+        return {
+            "task_id": self.task_id,
+            "parent_task_id": self.parent_task_id,
+            "task_type": self.task_type,
+            "source": self.source,
+            "source_task_id": self.source_task_id,
+            "title": self.title,
+            "summary": self.summary,
+            "status": self.status,
+            "progress_current": self.progress_current,
+            "progress_total": self.progress_total,
+            "progress_unit": self.progress_unit,
+            "progress_percent": self.progress_percent,
+            "priority": self.priority,
+            "cancelable": bool(self.cancelable),
+            "retryable": bool(self.retryable),
+            "attempt": self.attempt,
+            "max_attempts": self.max_attempts,
+            "required_action": self._json(self.required_action, None),
+            "result": self._json(self.result, None),
+            "error_code": self.error_code,
+            "error_message": self.error_message,
+            "error_detail": self._json(self.error_detail, None),
+            "metadata": self._json(self.meta, {}),
+            "version": self.version,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
+class TaskEvent(Base):
+    """Immutable audit/event stream for task center projections and recovery."""
+    __tablename__ = "task_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    event_type = Column(String(64), nullable=False)
+    version = Column(Integer, nullable=False)
+    payload = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+    def to_dict(self) -> dict:
+        import json as _json
+        try:
+            payload = _json.loads(self.payload or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+        return {
+            "event_id": self.id,
+            "task_id": self.task_id,
+            "event_type": self.event_type,
+            "version": self.version,
+            "payload": payload,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class TaskOutbox(Base):
+    """Transactional outbox entry used to wake realtime task stream consumers."""
+    __tablename__ = "task_outbox"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(Integer, ForeignKey("task_events.id"), nullable=False, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    event_type = Column(String(64), nullable=False)
+    payload = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    dispatched_at = Column(DateTime, nullable=True, index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)

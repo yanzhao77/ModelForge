@@ -11,16 +11,19 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QLabel, QTextEdit, QListWidget, QListWidgetItem, QLineEdit,
     QMessageBox, QDialog, QMenu, QInputDialog, QTableWidget, QTableWidgetItem,
-    QComboBox, QFileDialog, QProgressBar, QHeaderView, QAbstractItemView,
+    QComboBox, QFileDialog, QHeaderView, QAbstractItemView,
     QCheckBox, QTabWidget,
 )
 
 from api_client.client import ModelForgeClient
+from components.task_store import TaskStore
+from components.task_center import TaskCenterDock
 from pages.agent_page import AgentPage
 from pages.dataset_page import DatasetPage
 from pages.knowledge_page import KnowledgePage
 from pages.login_dialog import LoginDialog
 from pages.training_page import TrainingPage
+from pages.workspace_page import WorkspacePage
 
 
 class StreamWorker(QThread):
@@ -527,9 +530,11 @@ class MainWindow(QMainWindow):
     def __init__(self, api: ModelForgeClient):
         super().__init__()
         self.api = api
-        self.setWindowTitle(f"ModelForge 2.1 - {api.username or ''}")
-        self.resize(1080, 680)
+        self.setWindowTitle(f"ModelForge 3.1 - {api.username or ''}")
+        self.resize(1180, 760)
+        self.task_store = TaskStore(self.api, self)
         self._init_ui()
+        self.task_store.start()
         self._load_status()
 
     def _init_ui(self):
@@ -537,7 +542,11 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        # --- 标签 0: 聊天 ---
+        # --- 标签 0: 工作台 ---
+        self.workspace_page = WorkspacePage(self.task_store)
+        self.workspace_page.navigate_requested.connect(self._navigate_to)
+        self.tabs.addTab(self.workspace_page, "工作台")
+        # --- 标签 1: 聊天 ---
         chat_tab = QWidget()
         chat_layout = QVBoxLayout(chat_tab)
         chat_layout.setContentsMargins(0, 0, 0, 0)
@@ -569,6 +578,14 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.agent_page, "Agent")
 
         menubar = self.menuBar()
+        task_menu = menubar.addMenu("任务")
+        open_tasks = QAction("打开任务中心", self)
+        open_tasks.setShortcut("Ctrl+J")
+        open_tasks.triggered.connect(self._show_task_center)
+        task_menu.addAction(open_tasks)
+        self.task_center = TaskCenterDock(self.task_store, self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.task_center)
+        self.task_center.hide()
         model_menu = menubar.addMenu("模型")
         model_center = QAction("模型中心", self)
         model_center.triggered.connect(lambda: ModelCenterDialog(self.api, self).exec_())
@@ -603,8 +620,34 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(f"后端连接失败: {e}")
 
+    def _show_task_center(self):
+        self.task_center.show()
+        self.task_center.raise_()
+        self.task_center.activateWindow()
+
+    def _navigate_to(self, destination: str):
+        mapping = {
+            "chat": self.chat_page,
+            "agents": self.agent_page,
+            "knowledge": self.knowledge_page,
+            "training": self.training_page,
+            "models": None,
+            "tasks": None,
+        }
+        target = mapping.get(destination)
+        if destination == "models":
+            ModelCenterDialog(self.api, self).exec_()
+        elif destination == "tasks":
+            self._show_task_center()
+        elif target is not None:
+            self.tabs.setCurrentWidget(target.parentWidget() if destination == "chat" else target)
+
     def _on_session_selected(self, session_id: int):
         self.chat_page.set_session(session_id)
+
+    def closeEvent(self, event):
+        self.task_store.stop()
+        super().closeEvent(event)
 
 
 def main():
