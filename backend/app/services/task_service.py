@@ -151,6 +151,42 @@ class TaskService:
         db.refresh(task)
         return task
 
+    def retry(self, db: Session, task: TaskRecord) -> TaskRecord:
+        """Queue an auditable retry child without mutating the failed task."""
+        if task.status not in TERMINAL or task.status not in {"FAILED", "PARTIAL"}:
+            raise TaskConflict("TASK_NOT_RETRYABLE_STATE")
+        if not task.retryable:
+            raise TaskConflict("TASK_NOT_RETRYABLE")
+        max_attempts = max(int(task.max_attempts or 1), 3)
+        if int(task.attempt or 1) >= max_attempts:
+            raise TaskConflict("TASK_RETRY_LIMIT_REACHED")
+        metadata = task._json(task.meta, {})
+        metadata.update({"retry_of": task.task_id, "retry_request": True})
+        retry_task = TaskRecord(
+            task_id=uuid.uuid4().hex,
+            user_id=task.user_id,
+            parent_task_id=task.task_id,
+            task_type=task.task_type,
+            source=task.source,
+            source_task_id=task.source_task_id,
+            title=f"{task.title} · 重试 {int(task.attempt or 1) + 1}",
+            summary="已从失败现场创建重试任务，等待执行器领取。",
+            status="QUEUED",
+            cancelable=task.cancelable,
+            retryable=task.retryable,
+            priority=task.priority,
+            attempt=int(task.attempt or 1) + 1,
+            max_attempts=max_attempts,
+            metadata=_dump(metadata),
+        )
+        db.add(retry_task)
+        db.flush()
+        self._append_event(db, retry_task, "task.created", {"task": retry_task.to_dict()})
+        self._append_event(db, task, "task.retry_requested", {"retry_task": retry_task.to_dict()})
+        db.commit()
+        db.refresh(retry_task)
+        return retry_task
+
     def transition(
         self,
         db: Session,

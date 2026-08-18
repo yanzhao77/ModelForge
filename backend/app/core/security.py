@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session as DBSession
 
@@ -57,12 +57,16 @@ def decode_token(token: str) -> Optional[dict]:
 
 
 def _current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: DBSession = Depends(get_db),
 ) -> Optional[User]:
-    if credentials is None:
+    # Bearer remains supported for programmatic clients. Browser sessions use an
+    # HttpOnly cookie so JavaScript never receives the access token.
+    token = credentials.credentials if credentials is not None else request.cookies.get(settings.session_cookie_name)
+    if not token:
         return None
-    payload = decode_token(credentials.credentials)
+    payload = decode_token(token)
     if payload is None:
         return None
     try:

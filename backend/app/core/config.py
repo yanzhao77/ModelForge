@@ -49,6 +49,10 @@ class Settings(BaseModel):
     # Comma-separated accounts allowed to administer process-wide runtime state.
     runtime_admin_usernames: str = ""
     cors_allow_origins: str = "http://localhost:3000,http://localhost:5173"
+    session_cookie_name: str = "modelforge_session"
+    csrf_cookie_name: str = "modelforge_csrf"
+    session_cookie_secure: bool = False
+    session_cookie_samesite: str = "lax"
     # 运行时
     ollama_base_url: str = "http://localhost:11434"
     enable_streaming: bool = True
@@ -96,6 +100,10 @@ def load_config(config_path: Optional[str] = None) -> Settings:
         "JWT_SECRET": "jwt_secret",
         "RUNTIME_ADMIN_USERNAMES": "runtime_admin_usernames",
         "CORS_ALLOW_ORIGINS": "cors_allow_origins",
+        "SESSION_COOKIE_NAME": "session_cookie_name",
+        "CSRF_COOKIE_NAME": "csrf_cookie_name",
+        "SESSION_COOKIE_SECURE": "session_cookie_secure",
+        "SESSION_COOKIE_SAMESITE": "session_cookie_samesite",
         "OLLAMA_BASE_URL": "ollama_base_url",
         "HF_ENDPOINT": "hf_endpoint",
         "MODEL_DIR": "model_dir",

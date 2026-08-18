@@ -96,3 +96,27 @@ def test_onboarding_state_reflects_authenticated_user(client):
     state = response.json()
     assert state["server_connected"] is True
     assert state["next_recommended_step"] in {"select_model", "send_message", "run_agent", "complete"}
+
+
+def test_failed_retryable_task_creates_auditable_queued_child(client):
+    headers = auth(client, "taskretry")
+    failed = create_task(client, headers, title="网络抓取", retryable=True)
+    transitioned = client.post(
+        f"/api/v1/tasks/{failed['task_id']}/transition",
+        headers=headers,
+        json={"status": "FAILED", "error_message": "upstream timeout"},
+    )
+    assert transitioned.status_code == 200, transitioned.text
+    retried = client.post(f"/api/v1/tasks/{failed['task_id']}/retry", headers=headers)
+    assert retried.status_code == 200, retried.text
+    payload = retried.json()
+    assert payload["status"] == "QUEUED"
+    assert payload["parent_task_id"] == failed["task_id"]
+    assert payload["attempt"] == 2
+    events = client.get(f"/api/v1/tasks/{failed['task_id']}/events", headers=headers).json()["events"]
+    assert any(event["event_type"] == "task.retry_requested" for event in events)
+
+    non_retryable = create_task(client, headers, title="不可重试", retryable=False)
+    client.post(f"/api/v1/tasks/{non_retryable['task_id']}/transition", headers=headers, json={"status": "FAILED"})
+    blocked = client.post(f"/api/v1/tasks/{non_retryable['task_id']}/retry", headers=headers)
+    assert blocked.status_code == 400

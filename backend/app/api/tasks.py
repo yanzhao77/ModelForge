@@ -146,6 +146,17 @@ def transition_task(task_id: str, req: TaskTransitionRequest, db: DBSession = De
     return task.to_dict()
 
 
+@router.post("/{task_id}/retry")
+def retry_task(task_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    task = _task_or_404(db, task_id, user.id)
+    try:
+        retry = service.retry(db, task)
+    except TaskConflict as error:
+        _conflict(error)
+    task_outbox_publisher.nudge()
+    return retry.to_dict()
+
+
 @router.post("/{task_id}/cancel")
 def cancel_task(task_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
     task = _task_or_404(db, task_id, user.id)

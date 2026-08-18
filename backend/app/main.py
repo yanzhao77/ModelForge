@@ -5,7 +5,9 @@ stay untouched; the 3.0 Agent Runtime is layered on top).
 """
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+import hmac
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
@@ -63,8 +65,23 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.cors_allow_origins.split(",") if origin.strip()],
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+    allow_credentials=True,
 )
+
+@app.middleware("http")
+async def csrf_protect_cookie_session(request: Request, call_next):
+    """Require a nonce for unsafe browser-cookie requests; Bearer clients remain compatible."""
+    unsafe = request.method in {"POST", "PUT", "PATCH", "DELETE"}
+    exempt = {"/api/v1/auth/login", "/api/v1/auth/register"}
+    has_cookie_session = bool(request.cookies.get(settings.session_cookie_name))
+    has_bearer = bool(request.headers.get("Authorization"))
+    if unsafe and request.url.path.startswith("/api/v1/") and request.url.path not in exempt and has_cookie_session and not has_bearer:
+        provided = request.headers.get("X-CSRF-Token", "")
+        expected = request.cookies.get(settings.csrf_cookie_name, "")
+        if not expected or not provided or not hmac.compare_digest(provided, expected):
+            return JSONResponse(status_code=403, content={"detail": "CSRF token missing or invalid"})
+    return await call_next(request)
 
 for _router in (
     auth.router,
