@@ -4,20 +4,25 @@ import asyncio
 import datetime
 import time
 import uuid
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
-from core.config import RuntimeSettings, Settings, settings as global_settings
+from core.config import RuntimeSettings, Settings
+from core.config import settings as global_settings
 
 from .cancellation import CancellationToken
-from .run_context import RunContext
 from .errors import (
-    AgentNotFoundError, ModelUnavailableError, RunNotFoundError, RuntimeError,
+    AgentNotFoundError,
+    ModelUnavailableError,
+    RunNotFoundError,
+    RuntimeError,
 )
 from .events import EventBus
 from .execution import ExecutionEngine
 from .logging import get_logger, log_run
 from .metrics import MetricsRegistry
 from .models.base import ModelProvider
+from .run_context import RunContext
 from .types import AgentConfig, RunRecord, RunStatus
 
 ProviderFactory = Callable[[str], ModelProvider]
@@ -42,18 +47,18 @@ class AgentRuntime:
         *,
         run_store: Any,
         agent_store: Any,
-        event_bus: Optional[EventBus] = None,
+        event_bus: EventBus | None = None,
         tool_runner: Any = None,
         tool_registry: Any = None,
-        provider_factory: Optional[ProviderFactory] = None,
+        provider_factory: ProviderFactory | None = None,
         context_builder: Any = None,
         memory_provider: Any = None,
         knowledge_provider: Any = None,
         history_provider: Any = None,
         policy_engine: Any = None,
-        metrics: Optional[MetricsRegistry] = None,
+        metrics: MetricsRegistry | None = None,
         scheduler: Any = None,
-        settings: Optional[Settings] = None,
+        settings: Settings | None = None,
         logger: Any = None,
     ):
         self.run_store = run_store
@@ -104,14 +109,14 @@ class AgentRuntime:
         )
 
         # per-run bookkeeping (no globals, spec 58)
-        self._cancellations: Dict[str, CancellationToken] = {}
+        self._cancellations: dict[str, CancellationToken] = {}
         self._running: set = set()
-        self._approvals: Dict[str, asyncio.Event] = {}
-        self._approval_grants: Dict[str, bool] = {}
+        self._approvals: dict[str, asyncio.Event] = {}
+        self._approval_grants: dict[str, bool] = {}
         self._created_events: set = set()
-        self._delegation_counts: Dict[str, int] = {}
+        self._delegation_counts: dict[str, int] = {}
         self._mcp_registry: Any = None
-        self._scopes: Dict[str, Any] = {}
+        self._scopes: dict[str, Any] = {}
         self.plugin_manager: Any = None
         self._started = False
 
@@ -144,10 +149,10 @@ class AgentRuntime:
         *,
         agent_id: str,
         input_text: str,
-        user_id: Optional[int] = None,
-        session_id: Optional[int] = None,
-        parent_run_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        user_id: int | None = None,
+        session_id: int | None = None,
+        parent_run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
         execute: bool = True,
     ) -> RunRecord:
         agent = self.agent_store.get(agent_id)
@@ -171,7 +176,7 @@ class AgentRuntime:
         log_run(self.logger, 20, "run created", run_id=run.run_id, agent_id=agent_id)
         return run
 
-    async def execute_run(self, run_id: str) -> Dict[str, Any]:
+    async def execute_run(self, run_id: str) -> dict[str, Any]:
         run = self.run_store.get(run_id)
         if run is None:
             raise RunNotFoundError(run_id)
@@ -257,7 +262,7 @@ class AgentRuntime:
                 status=status, duration_ms=round(duration * 1000))
         return outcome
 
-    async def cancel_run(self, run_id: str, user_id: Optional[int] = None) -> RunRecord:
+    async def cancel_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.run_store.get(run_id)
         if run is None:
             raise RunNotFoundError(run_id)
@@ -285,7 +290,7 @@ class AgentRuntime:
                     continue
         return self.run_store.get(run_id)
 
-    def get_run(self, run_id: str, user_id: Optional[int] = None) -> RunRecord:
+    def get_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.run_store.get(run_id)
         if run is None:
             raise RunNotFoundError(run_id)
@@ -295,17 +300,17 @@ class AgentRuntime:
 
     def list_runs(
         self,
-        user_id: Optional[int] = None,
-        agent_id: Optional[str] = None,
-        status: Optional[str] = None,
+        user_id: int | None = None,
+        agent_id: str | None = None,
+        status: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[RunRecord]:
+    ) -> list[RunRecord]:
         return self.run_store.list(
             user_id=user_id, agent_id=agent_id, status=status, limit=limit, offset=offset,
         )
 
-    def metrics_snapshot(self) -> Dict[str, Any]:
+    def metrics_snapshot(self) -> dict[str, Any]:
         return self.metrics.snapshot()
 
     def is_running(self, run_id: str) -> bool:
@@ -334,7 +339,7 @@ class AgentRuntime:
         self.run_store.update(run_id, status="RUNNING")
         return granted
 
-    async def approve_run(self, run_id: str, user_id: Optional[int] = None) -> RunRecord:
+    async def approve_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.get_run(run_id, user_id=user_id)
         self._approval_grants[run_id] = True
         event = self._approvals.get(run_id)
@@ -343,7 +348,7 @@ class AgentRuntime:
         await self._publish(run_id, "human.approval.granted", {"tool": None})
         return run
 
-    async def reject_run(self, run_id: str, user_id: Optional[int] = None) -> RunRecord:
+    async def reject_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.get_run(run_id, user_id=user_id)
         self._approval_grants[run_id] = False
         event = self._approvals.get(run_id)
@@ -353,7 +358,7 @@ class AgentRuntime:
         return run
 
     # ---- tool registry (spec 8 / 36) ----
-    def register_tool(self, tool: Any, aliases: Optional[List[str]] = None) -> Any:
+    def register_tool(self, tool: Any, aliases: list[str] | None = None) -> Any:
         if self.tool_registry is None:
             raise RuntimeError("tool registry not configured")
         self.tool_registry.register(tool, aliases=aliases)
@@ -364,21 +369,21 @@ class AgentRuntime:
             return False
         return self.tool_registry.unregister(name)
 
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def list_tools(self) -> list[dict[str, Any]]:
         if self.tool_registry is None:
             return []
         return [t.to_dict() for t in self.tool_registry.list()]
 
-    def get_tool(self, name: str) -> Optional[Any]:
+    def get_tool(self, name: str) -> Any | None:
         if self.tool_registry is None:
             return None
         return self.tool_registry.get(name)
 
     # ---- MCP servers (spec 36 / 70) ----
     async def register_mcp_server(
-        self, name: str, endpoint: str, headers: Optional[Dict[str, str]] = None,
+        self, name: str, endpoint: str, headers: dict[str, str] | None = None,
         transport: Any = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         from .mcp import MCPClient, MCPRegistry
         if self._mcp_registry is None:
             self._mcp_registry = MCPRegistry()
@@ -392,7 +397,7 @@ class AgentRuntime:
         log_run(self.logger, 20, "mcp server registered", name=name, tools=len(client.tools))
         return {"name": name, "endpoint": endpoint, "tools": len(client.tools), "server_info": client.server_info}
 
-    def list_mcp_servers(self) -> List[Dict[str, Any]]:
+    def list_mcp_servers(self) -> list[dict[str, Any]]:
         if self._mcp_registry is None:
             return []
         return self._mcp_registry.list()
@@ -408,14 +413,14 @@ class AgentRuntime:
         return self._mcp_registry.unregister(name)
 
     # ---- events (spec 6 / 30 / 31) ----
-    def list_events(self, run_id: str, after_sequence: int = 0, limit: int = 1000, user_id: Optional[int] = None) -> List[Any]:
+    def list_events(self, run_id: str, after_sequence: int = 0, limit: int = 1000, user_id: int | None = None) -> list[Any]:
         run = self.get_run(run_id, user_id=user_id)
         if self.event_store is None:
             return []
         events = self.event_store.list(run.run_id, after_sequence=after_sequence, limit=limit)
         return events
 
-    async def stream_events(self, run_id: str, after_sequence: int = 0, user_id: Optional[int] = None):
+    async def stream_events(self, run_id: str, after_sequence: int = 0, user_id: int | None = None):
         """Async generator: replay persisted events, then live events (SSE, spec 26 / 31).
 
         Subscribe first (no gap), then replay persisted events, then drain live
@@ -424,7 +429,7 @@ class AgentRuntime:
         self.get_run(run_id, user_id=user_id)
         bus = self.event_bus
         last = after_sequence
-        queue: "asyncio.Queue[Any]" = asyncio.Queue()
+        queue: asyncio.Queue[Any] = asyncio.Queue()
 
         def _sub(event: Any) -> None:
             if event.run_id == run_id and event.sequence > after_sequence:
@@ -459,16 +464,16 @@ class AgentRuntime:
     def create_agent(self, config: AgentConfig) -> AgentConfig:
         return self.agent_store.create(config)
 
-    def get_agent(self, name: str, user_id: Optional[int] = None) -> Optional[AgentConfig]:
+    def get_agent(self, name: str, user_id: int | None = None) -> AgentConfig | None:
         return self.agent_store.get(name, user_id=user_id)
 
-    def list_agents(self, user_id: Optional[int] = None) -> List[AgentConfig]:
+    def list_agents(self, user_id: int | None = None) -> list[AgentConfig]:
         return self.agent_store.list(user_id=user_id)
 
-    def delete_agent(self, name: str, user_id: Optional[int] = None) -> bool:
+    def delete_agent(self, name: str, user_id: int | None = None) -> bool:
         return self.agent_store.delete(name, user_id=user_id)
     # ---- plugin manager (3.x, audit §16.5) ----
-    def discover_capabilities(self, scope_id: Optional[str] = None) -> Dict[str, Any]:
+    def discover_capabilities(self, scope_id: str | None = None) -> dict[str, Any]:
         """Read-only capability index (3.x-P6, audit §16.9)."""
         from .plugins.discovery import CapabilityDiscovery
         return CapabilityDiscovery(self).discover(scope_id=scope_id)
@@ -484,7 +489,7 @@ class AgentRuntime:
         return self.plugin_manager
 
     # ---- plugin scopes (3.x, audit §16.4) ----
-    def create_scope(self, scope_id: str, name: Optional[str] = None) -> Any:
+    def create_scope(self, scope_id: str, name: str | None = None) -> Any:
         """Create (or reuse) a plugin scope; mounts tools into the shared registry."""
         if scope_id in self._scopes:
             return self._scopes[scope_id]
@@ -496,10 +501,10 @@ class AgentRuntime:
         self._scopes[scope_id] = scope
         return scope
 
-    def get_scope(self, scope_id: str) -> Optional[Any]:
+    def get_scope(self, scope_id: str) -> Any | None:
         return self._scopes.get(scope_id)
 
-    def list_scopes(self) -> List[Dict[str, Any]]:
+    def list_scopes(self) -> list[dict[str, Any]]:
         return [s.to_dict() for s in self._scopes.values()]
 
     def remove_scope(self, scope_id: str) -> bool:
@@ -509,12 +514,12 @@ class AgentRuntime:
         scope.unmount()
         return True
 
-    def plugin_context(self, scope_id: str, plugin_name: str, config: Optional[Dict[str, Any]] = None) -> Any:
+    def plugin_context(self, scope_id: str, plugin_name: str, config: dict[str, Any] | None = None) -> Any:
         scope = self.create_scope(scope_id)
         return scope.context(plugin_name, config=config)
 
     # ---- scheduler (spec 38 / 72) ----
-    async def _scheduler_trigger(self, run_spec: Dict[str, Any]) -> None:
+    async def _scheduler_trigger(self, run_spec: dict[str, Any]) -> None:
         """Scheduler fires -> runtime creates an owned AgentRun."""
         agent_id = run_spec.get("agent_id", "")
         user_id = run_spec.get("user_id")
@@ -529,22 +534,22 @@ class AgentRuntime:
             execute=True,
         )
 
-    def schedule_once(self, delay: float, run_spec: Dict[str, Any], user_id: Optional[int] = None) -> str:
+    def schedule_once(self, delay: float, run_spec: dict[str, Any], user_id: int | None = None) -> str:
         if self.scheduler is None:
             raise RuntimeError("scheduler not configured")
         return self.scheduler.schedule_once(delay, run_spec, user_id=user_id)
 
-    def schedule_interval(self, interval: float, run_spec: Dict[str, Any], user_id: Optional[int] = None) -> str:
+    def schedule_interval(self, interval: float, run_spec: dict[str, Any], user_id: int | None = None) -> str:
         if self.scheduler is None:
             raise RuntimeError("scheduler not configured")
         return self.scheduler.schedule_interval(interval, run_spec, user_id=user_id)
 
-    def cancel_schedule(self, job_id: str, user_id: Optional[int] = None) -> bool:
+    def cancel_schedule(self, job_id: str, user_id: int | None = None) -> bool:
         if self.scheduler is None:
             return False
         return self.scheduler.cancel(job_id, user_id=user_id)
 
-    def list_schedules(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def list_schedules(self, user_id: int | None = None) -> list[dict[str, Any]]:
         if self.scheduler is None:
             return []
         return self.scheduler.jobs(user_id=user_id)
@@ -606,7 +611,7 @@ class AgentRuntime:
         )
 
     @staticmethod
-    def _budgeted_timeout(rt_cfg: Dict[str, Any], meta: Dict[str, Any], rs: RuntimeSettings) -> int:
+    def _budgeted_timeout(rt_cfg: dict[str, Any], meta: dict[str, Any], rs: RuntimeSettings) -> int:
         """Cap the child run timeout by the parent remaining budget (3.x-P5)."""
         timeout = int(rt_cfg.get("timeout_seconds", rs.timeout_seconds))
         remaining = meta.get("remaining_seconds")
@@ -622,7 +627,7 @@ class AgentRuntime:
         self._delegation_counts[parent_run_id] = n + 1
         return True
 
-    def _plugin_extensions(self, agent: AgentConfig) -> List[Dict[str, Any]]:
+    def _plugin_extensions(self, agent: AgentConfig) -> list[dict[str, Any]]:
         """Collect behavior extensions from the loaded plugins of the agent (3.x-P3).
 
         Agent composition: AgentProfile = base agent + plugin contributions.
@@ -636,15 +641,15 @@ class AgentRuntime:
                 exts.append(state["extension"])
         return exts
 
-    def _resolve_agent_profile(self, agent: AgentConfig) -> Dict[str, Any]:
+    def _resolve_agent_profile(self, agent: AgentConfig) -> dict[str, Any]:
         """Merge plugin extensions into the agent profile (additive, no core change)."""
         tools = list(agent.tools or [])
         sys_prompt = agent.system_prompt
         knowledge = dict(agent.knowledge_config or {})
         memory = dict(agent.memory_config or {}) if agent.memory_config else None
         policy = dict(agent.policy or {}) if agent.policy else {}
-        contributions: List[Dict[str, Any]] = []
-        contributions: List[Dict[str, Any]] = []
+        contributions: list[dict[str, Any]] = []
+        contributions: list[dict[str, Any]] = []
         if agent.plugins and self.plugin_manager is not None:
             for name in agent.plugins:
                 state = self.plugin_manager.get(name)
@@ -697,7 +702,7 @@ class AgentRuntime:
             "agent_id": run.agent_id, "input": (run.input or "")[:200], "user_id": run.user_id,
         })
 
-    async def _publish(self, run_id: str, event_type: str, payload: Dict[str, Any]) -> None:
+    async def _publish(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
         if self.event_bus is not None:
             await self.event_bus.publish(run_id, event_type, payload=payload)
 
@@ -717,7 +722,7 @@ class AgentRuntime:
             log_run(self.logger, 40, "background task failed", error=str(exc))
 
     @staticmethod
-    def _error_code(error: Optional[str]) -> str:
+    def _error_code(error: str | None) -> str:
         if not error:
             return "RUNTIME_ERROR"
         for code in ("AGENT_LOOP_LIMIT", "AGENT_TOOL_CALL_LIMIT", "RUN_TIMEOUT",

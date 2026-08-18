@@ -1,5 +1,4 @@
 """Runtime API routes."""
-from typing import List, Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -14,7 +13,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     model: str
-    messages: List[ChatMessage]
+    messages: list[ChatMessage]
 
 
 class LoadRequest(BaseModel):

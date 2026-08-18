@@ -1,16 +1,14 @@
 """Auth API routes."""
-from typing import Optional
 import secrets
-
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
-from sqlalchemy.orm import Session as DBSession
 
 from core.config import settings
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from models.records import User
+from pydantic import BaseModel
 from services.auth_service import AuthService
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -33,14 +31,25 @@ def _set_browser_session(response: Response, token: str) -> str:
 
 
 def _clear_browser_session(response: Response) -> None:
-    response.delete_cookie(settings.session_cookie_name, path="/")
-    response.delete_cookie(settings.csrf_cookie_name, path="/")
+    response.delete_cookie(
+        settings.session_cookie_name,
+        path="/",
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite=settings.session_cookie_samesite,
+    )
+    response.delete_cookie(
+        settings.csrf_cookie_name,
+        path="/",
+        secure=settings.session_cookie_secure,
+        samesite=settings.session_cookie_samesite,
+    )
 
 
 class RegisterRequest(BaseModel):
     username: str
     password: str
-    email: Optional[str] = None
+    email: str | None = None
 
 
 class LoginRequest(BaseModel):

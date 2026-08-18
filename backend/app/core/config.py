@@ -5,12 +5,11 @@ Loads config from config.yaml, .env, and os.environ (env overrides yaml).
 import os
 import secrets
 from pathlib import Path
-from typing import Optional
+from urllib.parse import urlparse
 
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel
-
 
 _INSECURE_JWT_SECRETS = {"", "modelforge-dev-secret-change-me-0123456789abcdef", "dev-secret"}
 _PRODUCTION_ENVIRONMENTS = {"prod", "production"}
@@ -43,6 +42,7 @@ class Settings(BaseModel):
     model_path: str = "./models"
     database_path: str = "./data/modelforge.db"
     log_level: str = "INFO"
+    environment: str = "development"
     # 认证
     jwt_secret: str = ""
     jwt_expire_minutes: int = 60 * 24 * 7
@@ -74,8 +74,29 @@ class Settings(BaseModel):
     # 3.x Plugins
     plugins_dir: str = "./plugins"
 
+    @property
+    def is_production(self) -> bool:
+        """Whether this process is running with production security invariants."""
+        return self.environment in _PRODUCTION_ENVIRONMENTS
 
-def load_config(config_path: Optional[str] = None) -> Settings:
+    @property
+    def cors_origins(self) -> list[str]:
+        """Return normalized, explicit browser origins for CORS middleware."""
+        return [origin.strip().rstrip("/") for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
+
+
+def _validate_production_origins(origins: list[str]) -> None:
+    """Reject wildcard and non-HTTPS origins when credentialed production CORS is enabled."""
+    if not origins:
+        raise RuntimeError("CORS_ALLOW_ORIGINS must list at least one HTTPS origin in production")
+    for origin in origins:
+        parsed = urlparse(origin)
+        if origin == "*" or parsed.scheme != "https" or not parsed.netloc or parsed.path not in {"", "/"}:
+            raise RuntimeError(
+                "CORS_ALLOW_ORIGINS must contain explicit HTTPS origins without paths when MODELFORGE_ENV=production"
+            )
+def load_config(config_path: str | None = None) -> Settings:
     """Load settings from config.yaml, then override with .env and os.environ."""
     base_dir = Path(__file__).resolve().parents[3]  # ModelForge root
     data: dict = {}
@@ -138,12 +159,17 @@ def load_config(config_path: Optional[str] = None) -> Settings:
     known = {k: v for k, v in data.items() if k in Settings.model_fields}
     result = Settings(**known)
     environment = os.getenv("MODELFORGE_ENV", os.getenv("APP_ENV", "development")).strip().lower()
+    result.environment = environment
     secret = (result.jwt_secret or "").strip()
     if environment in _PRODUCTION_ENVIRONMENTS:
         if secret in _INSECURE_JWT_SECRETS or len(secret) < 32:
             raise RuntimeError(
                 "JWT_SECRET must be set to a non-default value of at least 32 characters when MODELFORGE_ENV=production"
             )
+        _validate_production_origins(result.cors_origins)
+        # Credentialed cross-site browser sessions must never downgrade to insecure defaults.
+        result.session_cookie_secure = True
+        result.session_cookie_samesite = "none"
     elif secret in _INSECURE_JWT_SECRETS:
         # Do not silently sign development JWTs with a public, predictable key.
         result.jwt_secret = secrets.token_urlsafe(48)

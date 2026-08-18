@@ -2,14 +2,12 @@
 import json
 import time
 import uuid
-from typing import List, Optional
-
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from models.records import User
+from pydantic import BaseModel
 from services.runtime_registry import get_runtime
 
 router = APIRouter(tags=["openai"])
@@ -22,10 +20,10 @@ class OpenAIMessage(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     model: str = "default-model"
-    messages: List[OpenAIMessage]
-    temperature: Optional[float] = 0.7
-    max_tokens: Optional[int] = 2048
-    stream: Optional[bool] = False
+    messages: list[OpenAIMessage]
+    temperature: float | None = 0.7
+    max_tokens: int | None = 2048
+    stream: bool | None = False
 
 
 def _openai_response(model: str, content: str) -> dict:

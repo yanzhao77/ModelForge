@@ -13,10 +13,10 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
+from langchain_core.messages import AIMessage, ToolMessage
 from main import app
 from services.agent_engine import AgentEngine
 from services.runtime_registry import RuntimeRegistry
-from langchain_core.messages import AIMessage, ToolMessage
 
 
 @pytest.fixture(scope="module")

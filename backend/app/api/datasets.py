@@ -1,13 +1,11 @@
 """Dataset API routes."""
-from typing import Optional
-
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy.orm import Session as DBSession
 
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from models.records import User
 from services.dataset_service import DatasetService
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -15,7 +13,7 @@ router = APIRouter(prefix="/datasets", tags=["datasets"])
 @router.post("/upload")
 def upload_dataset(
     file: UploadFile = File(...),
-    name: Optional[str] = Form(None),
+    name: str | None = Form(None),
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

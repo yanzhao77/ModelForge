@@ -78,15 +78,15 @@ class TestScheduler:
 
     @pytest.mark.asyncio
     async def test_runtime_scheduler_creates_run(self):
-        from models.records import AgentRun  # noqa: F401
         from core.database import init_db
+        from models.records import AgentRun  # noqa: F401
         from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus
+        from runtime.models import MockProvider
         from runtime.runtime import AgentRuntime
         from runtime.scheduler import Scheduler
-        from runtime.tools import ToolRegistry, ToolExecutor
+        from runtime.tools import ToolExecutor, ToolRegistry
         from runtime.tools.builtin import register_builtin_tools
-        from runtime.models import MockProvider
         from runtime.types import AgentConfig
         from services.agent_store import DBAgentStore
         init_db()

@@ -1,9 +1,10 @@
 """RunStore port adapter backed by SQLAlchemy (agent_runs table)."""
 from __future__ import annotations
 
+import builtins
 import datetime
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.database import SessionLocal
 from models.records import AgentRun
@@ -62,16 +63,16 @@ class SQLAlchemyRunStore:
             db.commit()
         return run
 
-    def get(self, run_id: str) -> Optional[RunRecord]:
+    def get(self, run_id: str) -> RunRecord | None:
         with SessionLocal() as db:
             row = db.query(AgentRun).filter(AgentRun.run_id == run_id).first()
             return self._to_record(row) if row else None
 
     def list(
-        self, user_id: Optional[int] = None, agent_id: Optional[str] = None,
-        status: Optional[str] = None, parent_run_id: Optional[str] = None,
+        self, user_id: int | None = None, agent_id: str | None = None,
+        status: str | None = None, parent_run_id: str | None = None,
         limit: int = 50, offset: int = 0,
-    ) -> List[RunRecord]:
+    ) -> builtins.list[RunRecord]:
         with SessionLocal() as db:
             q = db.query(AgentRun)
             if user_id is not None:
@@ -85,7 +86,7 @@ class SQLAlchemyRunStore:
             rows = q.order_by(AgentRun.created_at.desc()).offset(offset).limit(limit).all()
             return [self._to_record(r) for r in rows]
 
-    def update(self, run_id: str, **fields: Any) -> Optional[RunRecord]:
+    def update(self, run_id: str, **fields: Any) -> RunRecord | None:
         with SessionLocal() as db:
             row = db.query(AgentRun).filter(AgentRun.run_id == run_id).first()
             if row is None:

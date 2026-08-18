@@ -68,3 +68,53 @@ def test_shared_runtime_management_requires_administrator(client):
     user = _auth(client, "securityoperator")
     assert client.get("/api/v1/agent/mcp/servers", headers=user).status_code == 403
     assert client.get("/api/v1/agent/metrics", headers=user).status_code == 403
+
+
+def test_development_cookie_defaults_remain_localhost_compatible(tmp_path, monkeypatch):
+    monkeypatch.setenv("MODELFORGE_ENV", "development")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("cors_allow_origins: 'http://localhost:3000/'\n", encoding="utf-8")
+
+    config = load_config(str(config_path))
+
+    assert config.is_production is False
+    assert config.session_cookie_secure is False
+    assert config.session_cookie_samesite == "lax"
+    assert config.cors_origins == ["http://localhost:3000"]
+
+
+def test_production_forces_cross_site_https_cookie_policy(tmp_path, monkeypatch):
+    monkeypatch.setenv("MODELFORGE_ENV", "production")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "jwt_secret: 'production-secret-at-least-thirty-two-characters-long'\n"
+        "cors_allow_origins: 'https://console.example.com,https://ops.example.com/'\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(str(config_path))
+
+    assert config.is_production is True
+    assert config.session_cookie_secure is True
+    assert config.session_cookie_samesite == "none"
+    assert config.cors_origins == ["https://console.example.com", "https://ops.example.com"]
+
+
+@pytest.mark.parametrize("origins", ["*", "http://console.example.com", "https://console.example.com/admin", ""])
+def test_production_rejects_non_explicit_https_cors_origins(tmp_path, monkeypatch, origins):
+    monkeypatch.setenv("MODELFORGE_ENV", "production")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "jwt_secret: 'production-secret-at-least-thirty-two-characters-long'\n"
+        f"cors_allow_origins: '{origins}'\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="CORS_ALLOW_ORIGINS"):
+        load_config(str(config_path))

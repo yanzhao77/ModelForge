@@ -3,7 +3,7 @@
 In-process EventBus + (phase 3) Database Event Store + SSE subscribers.
 """
 
-from .types import AgentEvent, EventType
 from .bus import EventBus
+from .types import AgentEvent, EventType
 
-__all__ = ["AgentEvent", "EventType", "EventBus"]
+__all__ = ["AgentEvent", "EventBus", "EventType"]

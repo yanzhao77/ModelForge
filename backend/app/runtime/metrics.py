@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 
 class MetricsRegistry:
@@ -12,8 +12,8 @@ class MetricsRegistry:
     """
 
     def __init__(self):
-        self._counters: Dict[str, int] = defaultdict(int)
-        self._durations: Dict[str, List[float]] = defaultdict(list)
+        self._counters: dict[str, int] = defaultdict(int)
+        self._durations: dict[str, list[float]] = defaultdict(list)
 
     def inc(self, name: str, amount: int = 1) -> None:
         self._counters[name] += amount
@@ -37,8 +37,8 @@ class MetricsRegistry:
         "llm_calls_total", "llm_tokens_total",
     )
 
-    def snapshot(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
+    def snapshot(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         for name in self.CANONICAL:
             if name.endswith("_duration"):
                 if name not in self._durations:

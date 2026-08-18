@@ -1,5 +1,4 @@
 """3.x-P3 tests: AgentProfile composition + AgentPlugin (audit §16.2/§16.8)."""
-import asyncio
 import os
 import sys
 import tempfile
@@ -10,7 +9,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app
 
 from runtime.plugins import PluginManager, PluginManifest
 from runtime.types import AgentConfig
-
 
 AGENT_PLUGIN_ENTRY = """
 from runtime.tools import Tool, ToolResult
@@ -46,8 +44,8 @@ def make_plugin_dir():
 
 
 def make_runtime(plugins_dir=None):
-    from models.records import AgentRun  # noqa: F401
     from core.database import init_db
+    from models.records import AgentRun  # noqa: F401
     from repositories.event_repository import SQLAlchemyEventStore
     from repositories.run_repository import SQLAlchemyRunStore
     from runtime.events import EventBus
@@ -114,9 +112,8 @@ class TestAgentProfile:
         assert "BASE PROMPT" in system
         assert "[AgentPlugin] You have weather skills." in system
         # plugin tool is offered to the LLM even though agent.tools was empty
-        offered = [t["function"]["name"] for t in (seen[-1] and (None,)) or []] if False else None
+        [t["function"]["name"] for t in (seen[-1] and (None,)) or []] if False else None
         # tool schemas come from the ctx.tools merge - verify via run tool_call_count
-        rt2_provider = rt.provider_factory
         rt.provider_factory = lambda m: MockProvider(script=[
             MockProvider.tool_call("agent.wx", {}),
             MockProvider.final("with weather"),

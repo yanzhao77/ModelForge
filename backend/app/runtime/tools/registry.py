@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import builtins
+from typing import Any
 
 from .base import Tool
 
@@ -13,10 +14,10 @@ class ToolRegistry:
     """
 
     def __init__(self):
-        self._tools: Dict[str, Tool] = {}
-        self._aliases: Dict[str, str] = {}
+        self._tools: dict[str, Tool] = {}
+        self._aliases: dict[str, str] = {}
 
-    def register(self, tool: Tool, aliases: Optional[List[str]] = None) -> None:
+    def register(self, tool: Tool, aliases: builtins.list[str] | None = None) -> None:
         self._tools[tool.name] = tool
         for alias in (aliases or []) + list(getattr(tool, "aliases", []) or []):
             self._aliases[alias] = tool.name
@@ -27,27 +28,27 @@ class ToolRegistry:
         self._aliases = {k: v for k, v in self._aliases.items() if v != canonical}
         return removed
 
-    def get(self, name: str) -> Optional[Tool]:
+    def get(self, name: str) -> Tool | None:
         canonical = self._aliases.get(name, name)
         return self._tools.get(canonical)
 
     def canonical(self, name: str) -> str:
         return self._aliases.get(name, name)
 
-    def names(self) -> List[str]:
+    def names(self) -> builtins.list[str]:
         return sorted(self._tools.keys())
 
-    def all_names(self) -> List[str]:
+    def all_names(self) -> builtins.list[str]:
         return sorted(set(self._tools.keys()) | set(self._aliases.keys()))
 
-    def list(self) -> List[Tool]:
+    def list(self) -> builtins.list[Tool]:
         return list(self._tools.values())
 
-    def schema(self, name: str) -> Optional[Dict[str, Any]]:
+    def schema(self, name: str) -> dict[str, Any] | None:
         tool = self.get(name)
         return tool.schema() if tool is not None else None
 
-    def schemas(self, names: List[str]) -> List[Dict[str, Any]]:
+    def schemas(self, names: builtins.list[str]) -> builtins.list[dict[str, Any]]:
         out = []
         for name in names:
             s = self.schema(name)

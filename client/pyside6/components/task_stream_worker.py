@@ -6,6 +6,24 @@ import time
 from PySide6.QtCore import QThread, Signal
 
 
+def normalize_task_event(event: dict) -> dict | None:
+    """Convert API-client SSE data into the stable TaskStore event contract."""
+    payload = event.get("payload")
+    event_id = event.get("event_id", event.get("id"))
+    if not isinstance(payload, dict):
+        return None
+    try:
+        cursor = int(event_id)
+    except (TypeError, ValueError):
+        return None
+    if cursor <= 0:
+        return None
+    return {
+        "event_id": cursor,
+        "event_type": str(event.get("event_type", event.get("event", "task.updated"))),
+        "payload": payload if isinstance(payload.get("task"), dict) else {"task": payload},
+    }
+
 class TaskStreamWorker(QThread):
     """Consume server events off the GUI thread and resume from the last cursor."""
 
@@ -24,17 +42,16 @@ class TaskStreamWorker(QThread):
         delay = 1.0
         while not self.isInterruptionRequested():
             try:
-                self.stream_state.emit(True, "")
                 for event in self.api.stream_tasks(self._cursor):
                     if self.isInterruptionRequested():
                         return
-                    payload = event.get("payload") or {}
-                    event_id = payload.get("event_id") or event.get("id")
-                    try:
-                        self._cursor = max(self._cursor, int(event_id))
-                    except (TypeError, ValueError):
-                        pass
-                    self.event_received.emit(payload)
+                    normalized = normalize_task_event(event)
+                    if normalized is None:
+                        continue
+                    self._cursor = max(self._cursor, normalized["event_id"])
+                    delay = 1.0
+                    self.stream_state.emit(True, "")
+                    self.event_received.emit(normalized)
                 if self.isInterruptionRequested():
                     return
                 raise RuntimeError("任务事件流意外结束")
@@ -44,5 +61,3 @@ class TaskStreamWorker(QThread):
                 self.stream_state.emit(False, str(exc))
                 time.sleep(delay)
                 delay = min(15.0, delay * 2)
-            else:
-                delay = 1.0

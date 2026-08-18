@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
-
 
 PLUGIN_TYPES = ("tool", "agent", "skill")
 
@@ -24,13 +23,13 @@ class PluginManifest:
     version: str = "1.0.0"
     type: str = "tool"
     description: str = ""
-    entry: Optional[str] = None
-    dependencies: List[str] = field(default_factory=list)
-    permissions: List[str] = field(default_factory=list)
-    tools: List[Dict[str, Any]] = field(default_factory=list)
-    config: Dict[str, Any] = field(default_factory=dict)
+    entry: str | None = None
+    dependencies: list[str] = field(default_factory=list)
+    permissions: list[str] = field(default_factory=list)
+    tools: list[dict[str, Any]] = field(default_factory=list)
+    config: dict[str, Any] = field(default_factory=dict)
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         problems = []
         if not self.name:
             problems.append("name is required")
@@ -40,15 +39,15 @@ class PluginManifest:
             problems.append("tool plugin needs entry or tools")
         return problems
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PluginManifest":
+    def from_dict(cls, data: dict[str, Any]) -> PluginManifest:
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
     @classmethod
-    def from_file(cls, path: str) -> "PluginManifest":
+    def from_file(cls, path: str) -> PluginManifest:
         with open(path, "r", encoding="utf-8") as f:
             if path.endswith(".json"):
                 data = json.load(f)

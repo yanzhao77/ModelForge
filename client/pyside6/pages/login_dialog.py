@@ -1,11 +1,16 @@
 """登录/注册对话框（对接新版后端 /api/v1/auth/*）。"""
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QMessageBox, QTabWidget, QWidget,
-)
-from PySide6.QtCore import Qt
-
 from api_client.client import ModelForgeClient
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QDialog,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class LoginDialog(QDialog):

@@ -6,13 +6,11 @@ import sys
 import threading
 import time
 import uuid
-from typing import Dict, List, Optional
-
-from sqlalchemy.orm import Session as DBSession
 
 from core.config import settings
 from models.records import Dataset, TrainTask
 from services.model_manager import ModelManager
+from sqlalchemy.orm import Session as DBSession
 
 
 def _torch_available() -> bool:
@@ -30,7 +28,7 @@ class TrainingService:
     POLL_INTERVAL = 2.0
 
     def __init__(self):
-        self._procs: Dict[str, subprocess.Popen] = {}
+        self._procs: dict[str, subprocess.Popen] = {}
 
     # ---- launch ----
 
@@ -155,10 +153,10 @@ class TrainingService:
 
     # ---- query / stop / register ----
 
-    def get(self, db: DBSession, task_id: str, user_id: int) -> Optional[TrainTask]:
+    def get(self, db: DBSession, task_id: str, user_id: int) -> TrainTask | None:
         return db.query(TrainTask).filter_by(task_id=task_id, user_id=user_id).first()
 
-    def list(self, db: DBSession, user_id: int) -> List[TrainTask]:
+    def list(self, db: DBSession, user_id: int) -> list[TrainTask]:
         return (
             db.query(TrainTask)
             .filter_by(user_id=user_id)
@@ -197,7 +195,7 @@ class TrainingService:
         return model.to_dict()
 
     @staticmethod
-    def templates() -> Dict:
+    def templates() -> dict:
         """Default hyperparameter templates for the training form."""
         return {
             "full": {
@@ -211,7 +209,7 @@ class TrainingService:
         }
 
 
-def get_log_tail(log_path: str, max_lines: int = 200) -> List[str]:
+def get_log_tail(log_path: str, max_lines: int = 200) -> list[str]:
     if not log_path or not os.path.exists(log_path):
         return []
     with open(log_path, "r", encoding="utf-8", errors="replace") as f:

@@ -1,7 +1,7 @@
 """KnowledgeProvider + HistoryProvider adapters for the Context Engine."""
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 
 class KBKnowledgeProvider:
@@ -10,7 +10,7 @@ class KBKnowledgeProvider:
     def __init__(self, kb: Any = None):
         self._kb = kb
 
-    async def retrieve(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    async def retrieve(self, query: str, top_k: int = 3) -> list[dict[str, Any]]:
         kb = self._kb
         if kb is None:
             from services.knowledge_base import get_global_kb
@@ -25,7 +25,7 @@ class KBKnowledgeProvider:
 class SessionHistoryProvider:
     """HistoryProvider port backed by the sessions table (spec 5)."""
 
-    async def load(self, session_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+    async def load(self, session_id: int, limit: int = 20) -> list[dict[str, Any]]:
         from core.database import SessionLocal
         from services.session_service import SessionService
         with SessionLocal() as db:

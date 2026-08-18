@@ -1,15 +1,27 @@
 """Training page with non-blocking API operations and guarded polling."""
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar,
-    QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget,
-)
-
 from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class TrainingPage(QWidget, AsyncApiMixin):

@@ -6,11 +6,14 @@ timeout and retry. Legacy names (file_read, ...) remain as aliases.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from services.agent_tools import (
-    tool_code_search, tool_command_execute, tool_file_read,
-    tool_knowledge_search, tool_web_search,
+    tool_code_search,
+    tool_command_execute,
+    tool_file_read,
+    tool_knowledge_search,
+    tool_web_search,
 )
 
 from .base import PermissionLevel, Tool, ToolResult
@@ -25,14 +28,14 @@ class FunctionTool(Tool):
         name: str,
         description: str,
         func: Any,
-        input_schema: Dict[str, Any],
-        permissions: Optional[List[str]] = None,
+        input_schema: dict[str, Any],
+        permissions: list[str] | None = None,
         timeout: float = 60.0,
         source: str = "builtin",
-        aliases: Optional[List[str]] = None,
+        aliases: list[str] | None = None,
         retry_count: int = 0,
         retry_delay: float = 1.0,
-        retryable_errors: Optional[List[str]] = None,
+        retryable_errors: list[str] | None = None,
     ):
         self.name = name
         self.description = description
@@ -46,12 +49,12 @@ class FunctionTool(Tool):
         self.retry_delay = retry_delay
         self.retryable_errors = retryable_errors or []
 
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return self._input_schema
 
     async def execute(
         self,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         context: Any = None,
     ) -> ToolResult:
         try:
@@ -63,7 +66,7 @@ class FunctionTool(Tool):
         return ToolResult.ok(str(output))
 
 
-def _schema(properties: Dict[str, Any], required: List[str]) -> Dict[str, Any]:
+def _schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
     return {"type": "object", "properties": properties, "required": required}
 
 

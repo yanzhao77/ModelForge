@@ -1,5 +1,4 @@
 """OpenAI-compatible API runtime, ported from legacy interface_generate."""
-from typing import Dict, Optional
 
 from services.runtime import RuntimeEngine
 
@@ -19,10 +18,10 @@ class OpenAIRuntime(RuntimeEngine):
             self._client = OpenAI(api_key=self.api_key or "sk-placeholder", base_url=self.base_url)
         return self._client
 
-    async def load(self, model_name: str, **kwargs) -> Dict:
+    async def load(self, model_name: str, **kwargs) -> dict:
         return {"status": "loaded", "model": model_name}
 
-    async def chat(self, model_name: str, messages: list, **kwargs) -> Dict:
+    async def chat(self, model_name: str, messages: list, **kwargs) -> dict:
         """Call the remote chat completions endpoint."""
         client = self._get_client()
         params = {
@@ -39,7 +38,7 @@ class OpenAIRuntime(RuntimeEngine):
         except Exception as e:
             return {"model": params["model"], "content": f"[接口错误] {e}", "raw": None}
 
-    async def stop(self, model_name: str) -> Dict:
+    async def stop(self, model_name: str) -> dict:
         return {"status": "stopped", "model": model_name}
 
 async def asyncio_to_thread(func, *args, **kwargs):

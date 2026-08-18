@@ -1,6 +1,6 @@
 """Plugin System - Service Provider Interface (SPI)."""
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 
 class Plugin(ABC):
@@ -34,7 +34,7 @@ class Plugin(ABC):
         """Execute the plugin with given parameters."""
         ...
 
-    def get_info(self) -> Dict:
+    def get_info(self) -> dict:
         """Get plugin metadata."""
         return {
             "name": self.name,
@@ -51,7 +51,7 @@ class ModelPlugin(Plugin):
         return "model"
 
     @abstractmethod
-    def get_supported_formats(self) -> List[str]:
+    def get_supported_formats(self) -> list[str]:
         """Return list of supported model formats."""
         ...
 
@@ -64,7 +64,7 @@ class ToolPlugin(Plugin):
         return "tool"
 
     @abstractmethod
-    def get_tool_spec(self) -> Dict:
+    def get_tool_spec(self) -> dict:
         """Return the OpenAPI-like tool specification."""
         ...
 
@@ -77,6 +77,6 @@ class RuntimePlugin(Plugin):
         return "runtime"
 
     @abstractmethod
-    def get_supported_models(self) -> List[str]:
+    def get_supported_models(self) -> list[str]:
         """Return list of supported model identifiers."""
         ...

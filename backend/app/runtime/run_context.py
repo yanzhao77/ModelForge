@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .cancellation import CancellationToken
 
@@ -16,15 +16,15 @@ class RunContext:
 
     run_id: str
     agent_id: str
-    user_id: Optional[int] = None
-    session_id: Optional[int] = None
+    user_id: int | None = None
+    session_id: int | None = None
     input_text: str = ""
-    model: Optional[str] = None
-    system_prompt: Optional[str] = None
-    tools: List[str] = field(default_factory=list)
-    policy: Optional[Any] = None
-    approval_waiter: Optional[Any] = None
-    cancellation: Optional[CancellationToken] = None
+    model: str | None = None
+    system_prompt: str | None = None
+    tools: list[str] = field(default_factory=list)
+    policy: Any | None = None
+    approval_waiter: Any | None = None
+    cancellation: CancellationToken | None = None
     max_iterations: int = 20
     max_tool_calls: int = 50
     timeout_seconds: int = 600
@@ -33,11 +33,11 @@ class RunContext:
     tool_timeout: float = 60.0
     delegation_max_depth: int = 3
     delegation_max_children: int = 5
-    memory_config: Optional[Dict[str, Any]] = None
-    knowledge_sources: List[str] = field(default_factory=list)
-    contributions: List[Dict[str, Any]] = field(default_factory=list)
-    variables: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    memory_config: dict[str, Any] | None = None
+    knowledge_sources: list[str] = field(default_factory=list)
+    contributions: list[dict[str, Any]] = field(default_factory=list)
+    variables: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     started_at: float = 0.0
 
     def elapsed(self) -> float:
@@ -51,7 +51,7 @@ class RunContext:
             from .errors import RunTimeoutError
             raise RunTimeoutError()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
             "agent_id": self.agent_id,
@@ -71,15 +71,15 @@ class RunContext:
 class ToolExecutionContext:
     """Per-tool-call execution context (spec 9)."""
 
-    user_id: Optional[int] = None
+    user_id: int | None = None
     agent_id: str = ""
     run_id: str = ""
-    session_id: Optional[int] = None
-    permissions: List[str] = field(default_factory=list)
+    session_id: int | None = None
+    permissions: list[str] = field(default_factory=list)
     timeout: float = 60.0
-    policy: Optional[Any] = None
-    cancellation_token: Optional[CancellationToken] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    policy: Any | None = None
+    cancellation_token: CancellationToken | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def check_cancelled(self) -> None:
         if self.cancellation_token is not None:

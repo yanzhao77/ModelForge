@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..errors import ToolNotFoundError, ToolTimeoutError
 from .base import Tool, ToolResult
@@ -17,16 +17,16 @@ class ToolExecutor:
         self.registry = registry
         self.default_timeout = default_timeout
 
-    def names(self) -> List[str]:
+    def names(self) -> list[str]:
         return self.registry.names()
 
-    def schema(self, name: str) -> Optional[Dict[str, Any]]:
+    def schema(self, name: str) -> dict[str, Any] | None:
         return self.registry.schema(name)
 
     async def run(
         self,
         name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         ctx: Any = None,
     ) -> str:
         """Run one tool call; returns a text result for the LLM loop.
@@ -41,7 +41,7 @@ class ToolExecutor:
         self._enforce_policy(name, tool, ctx)
         timeout = tool.timeout or getattr(ctx, "timeout", None) or self.default_timeout
         attempts = tool.retry_count + 1
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(attempts):
             try:
                 result = await asyncio.wait_for(

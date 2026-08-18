@@ -3,11 +3,10 @@ import os
 import subprocess
 import time
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session as DBSession
-
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/system", tags=["system"])
 

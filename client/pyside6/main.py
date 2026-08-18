@@ -153,7 +153,7 @@ class SessionSidebar(QWidget):
                 self.refresh()
 
 
-class ChatPage(QWidget):
+class LegacyChatPage(QWidget):
     """聊天区：模型选择 + 消息流（SSE 流式）+ 输入框。"""
 
     def __init__(self, api: ModelForgeClient, parent=None):
@@ -290,7 +290,7 @@ class ChatPage(QWidget):
         self.display.append(f"<b style='color:#FF5722'>[错误]</b> {err}<br>")
         self.send_btn.setEnabled(True)
 
-class ModelCenterDialog(QDialog):
+class LegacyModelCenterDialog(QDialog):
     """模型中心：列表 / 扫描 / 手动登记 / 删除。"""
 
     def __init__(self, api: ModelForgeClient, parent=None):
@@ -379,7 +379,7 @@ class ModelCenterDialog(QDialog):
                 QMessageBox.warning(self, "失败", str(e))
 
 
-class DownloadDialog(QDialog):
+class LegacyDownloadDialog(QDialog):
     """GGUF 模型下载器：HF 搜索（作者/量化）+ 后台下载 + 进度轮询。"""
 
     def __init__(self, api: ModelForgeClient, parent=None):
@@ -473,7 +473,7 @@ class DownloadDialog(QDialog):
                 QMessageBox.warning(self, "失败", task.get("error", ""))
 
 
-class KnowledgeDialog(QDialog):
+class LegacyKnowledgeDialog(QDialog):
     """知识库：上传文档 + 检索问答。"""
 
     def __init__(self, api: ModelForgeClient, parent=None):
@@ -523,6 +523,9 @@ class KnowledgeDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "失败", str(e))
 
+
+from pages.chat_page import ChatPage
+from pages.model_dialogs import DownloadDialog, ModelCenterDialog
 
 class MainWindow(QMainWindow):
     """主窗口：会话侧边栏 + 聊天区 + 菜单。"""

@@ -1,16 +1,13 @@
 """Plugin Manager - discovers, loads, and manages plugins."""
-import importlib
-import pkgutil
-from typing import Dict, List, Type, Optional
 
-from core.plugin_base import Plugin, ModelPlugin, ToolPlugin, RuntimePlugin
+from core.plugin_base import Plugin
 
 
 class PluginManager:
     """Central plugin registry and lifecycle manager."""
 
     def __init__(self):
-        self._plugins: Dict[str, Plugin] = {}
+        self._plugins: dict[str, Plugin] = {}
 
     def register(self, plugin: Plugin) -> bool:
         """Register a plugin instance."""
@@ -26,15 +23,15 @@ class PluginManager:
         del self._plugins[name]
         return True
 
-    def get(self, name: str) -> Optional[Plugin]:
+    def get(self, name: str) -> Plugin | None:
         """Get a plugin by name."""
         return self._plugins.get(name)
 
-    def list_all(self) -> List[Dict]:
+    def list_all(self) -> list[dict]:
         """List all registered plugins with their info."""
         return [p.get_info() for p in self._plugins.values()]
 
-    def list_by_type(self, plugin_type: str) -> List[Dict]:
+    def list_by_type(self, plugin_type: str) -> list[dict]:
         """List plugins filtered by type."""
         return [
             p.get_info()
@@ -42,7 +39,7 @@ class PluginManager:
             if p.plugin_type == plugin_type
         ]
 
-    def install_all(self) -> Dict[str, bool]:
+    def install_all(self) -> dict[str, bool]:
         """Install all registered plugins."""
         results = {}
         for name, plugin in self._plugins.items():
@@ -52,7 +49,7 @@ class PluginManager:
                 results[name] = False
         return results
 
-    def execute(self, name: str, **kwargs) -> Dict:
+    def execute(self, name: str, **kwargs) -> dict:
         """Execute a plugin by name."""
         plugin = self._plugins.get(name)
         if plugin is None:

@@ -1,12 +1,10 @@
 """Cross-session memory store (DB-backed, ported from legacy memory service)."""
 import re
 from datetime import datetime, timezone
-from typing import List, Optional
-
-from sqlalchemy import or_
-from sqlalchemy.orm import Session as DBSession
 
 from models.records import Memory
+from sqlalchemy import or_
+from sqlalchemy.orm import Session as DBSession
 
 
 class MemoryStore:
@@ -27,7 +25,7 @@ class MemoryStore:
         memory_type: str,
         key: str,
         value: str,
-        source_session_id: Optional[int] = None,
+        source_session_id: int | None = None,
         importance: float = 1.0,
     ) -> Memory:
         existing = (
@@ -62,8 +60,8 @@ class MemoryStore:
 
     @staticmethod
     def get_user_memories(
-        db: DBSession, user_id: int, memory_type: Optional[str] = None, limit: Optional[int] = None
-    ) -> List[Memory]:
+        db: DBSession, user_id: int, memory_type: str | None = None, limit: int | None = None
+    ) -> list[Memory]:
         query = db.query(Memory).filter(Memory.user_id == user_id)
         if memory_type:
             query = query.filter(Memory.memory_type == memory_type)
@@ -75,7 +73,7 @@ class MemoryStore:
     @staticmethod
     def search_memories(
         db: DBSession, user_id: int, keyword: str, limit: int = 5
-    ) -> List[Memory]:
+    ) -> list[Memory]:
         memories = (
             db.query(Memory)
             .filter(
@@ -94,10 +92,10 @@ class MemoryStore:
 
     @staticmethod
     def extract_memories_from_message(
-        db: DBSession, user_id: int, message_content: str, session_id: Optional[int] = None
-    ) -> List[Memory]:
+        db: DBSession, user_id: int, message_content: str, session_id: int | None = None
+    ) -> list[Memory]:
         """Rule-based extraction of preference/fact memories from a message."""
-        extracted: List[Memory] = []
+        extracted: list[Memory] = []
         sentences = re.split(r"[。！？\n]", message_content or "")
         rules = [
             (MemoryStore.MEMORY_TYPE_PREFERENCE, MemoryStore.PREFERENCE_KEYWORDS, 0.8),
@@ -123,16 +121,16 @@ class MemoryStore:
     @staticmethod
     def get_relevant_memories_for_query(
         db: DBSession, user_id: int, query: str, limit: int = 3
-    ) -> List[Memory]:
+    ) -> list[Memory]:
         keywords = re.findall(r"[\u4e00-\u9fa5a-zA-Z]+", query or "")
-        all_memories: List[Memory] = []
+        all_memories: list[Memory] = []
         for keyword in keywords[:5]:
             all_memories.extend(MemoryStore.search_memories(db, user_id, keyword, limit=2))
         unique = {m.id: m for m in all_memories}.values()
         return sorted(unique, key=lambda x: x.importance, reverse=True)[:limit]
 
     @staticmethod
-    def format_memories_for_context(memories: List[Memory]) -> str:
+    def format_memories_for_context(memories: list[Memory]) -> str:
         if not memories:
             return ""
         parts = ["[用户记忆]"]
@@ -141,7 +139,7 @@ class MemoryStore:
 
     @staticmethod
     def delete_memory(
-        db: DBSession, memory_id: int, user_id: Optional[int] = None
+        db: DBSession, memory_id: int, user_id: int | None = None
     ) -> bool:
         query = db.query(Memory).filter(Memory.id == memory_id)
         if user_id is not None:

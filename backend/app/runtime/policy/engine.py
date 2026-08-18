@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..tools.base import PermissionLevel
 
@@ -15,15 +15,15 @@ class PolicyDecision:
     require_approval: bool = False
 
     @classmethod
-    def allow(cls, reason: str = "allowed") -> "PolicyDecision":
+    def allow(cls, reason: str = "allowed") -> PolicyDecision:
         return cls(True, reason)
 
     @classmethod
-    def deny(cls, reason: str) -> "PolicyDecision":
+    def deny(cls, reason: str) -> PolicyDecision:
         return cls(False, reason)
 
     @classmethod
-    def approval(cls, reason: str = "requires human approval") -> "PolicyDecision":
+    def approval(cls, reason: str = "requires human approval") -> PolicyDecision:
         return cls(True, reason, require_approval=True)
 
 
@@ -31,19 +31,19 @@ class PolicyDecision:
 class Policy:
     """Runtime policy (spec 33). Dangerous capabilities are OFF by default (spec 34)."""
 
-    allowed_tools: Optional[List[str]] = None
-    denied_tools: List[str] = field(default_factory=list)
-    allowed_models: Optional[List[str]] = None
+    allowed_tools: list[str] | None = None
+    denied_tools: list[str] = field(default_factory=list)
+    allowed_models: list[str] | None = None
     network_access: bool = False
     shell_access: bool = False
     filesystem_access: bool = True
     filesystem_write: bool = False
-    max_iterations: Optional[int] = None
-    max_tool_calls: Optional[int] = None
+    max_iterations: int | None = None
+    max_tool_calls: int | None = None
     human_approval_required: bool = False
-    require_approval_for: List[str] = field(default_factory=list)
+    require_approval_for: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def check_tool(
@@ -71,7 +71,7 @@ class Policy:
         return PolicyDecision.allow()
 
     @classmethod
-    def from_settings(cls, settings: Any) -> "Policy":
+    def from_settings(cls, settings: Any) -> Policy:
         p = settings.policy
         return cls(
             network_access=bool(p.default_network_access),
@@ -83,7 +83,7 @@ class Policy:
 class PolicyEngine:
     """Resolves per-agent policies merged over runtime defaults (spec 33)."""
 
-    def __init__(self, defaults: Optional[Policy] = None, settings: Any = None):
+    def __init__(self, defaults: Policy | None = None, settings: Any = None):
         self.defaults = defaults or Policy.from_settings(settings)
 
     def for_agent(self, agent: Any) -> Policy:

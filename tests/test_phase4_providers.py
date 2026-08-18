@@ -1,14 +1,14 @@
 """Phase 4: Model Provider tests."""
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from services.model_provider import ModelProvider
 from services.hf_provider import HFProvider
+from services.model_provider import ModelProvider
 from services.ms_provider import ModelScopeProvider
 
 

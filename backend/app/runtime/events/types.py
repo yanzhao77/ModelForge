@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class EventType:
@@ -52,16 +52,16 @@ class AgentEvent:
     run_id: str
     event_type: str
     sequence: int
-    timestamp: Optional[datetime.datetime] = None
-    payload: Dict[str, Any] = field(default_factory=dict)
-    session_id: Optional[int] = None
-    correlation_id: Optional[str] = None
+    timestamp: datetime.datetime | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+    session_id: int | None = None
+    correlation_id: str | None = None
 
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.datetime.utcnow()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "run_id": self.run_id,

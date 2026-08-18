@@ -1,6 +1,5 @@
 """Online search service (DuckDuckGo), ported from legacy webSearcher.py."""
 from functools import lru_cache
-from typing import List, Dict
 
 _SEARCH_KEYWORDS = ["最新", "当前", "现在", "搜索", "过去", "推荐", "新闻", "实时", "怎么安装", "如何配置"]
 
@@ -11,7 +10,7 @@ def needs_web_search(question: str) -> bool:
 
 
 @lru_cache(maxsize=100)
-def cached_search(query: str, max_results: int = 5) -> List[Dict]:
+def cached_search(query: str, max_results: int = 5) -> list[dict]:
     """Cached DuckDuckGo search. Returns [{"title","content"}, ...]."""
     try:
         from duckduckgo_search import DDGS
@@ -27,7 +26,7 @@ def cached_search(query: str, max_results: int = 5) -> List[Dict]:
         return []
 
 
-def format_search_context(results: List[Dict]) -> str:
+def format_search_context(results: list[dict]) -> str:
     if not results:
         return ""
     lines = [f"- {item['title']}: {item['content']}" for item in results]

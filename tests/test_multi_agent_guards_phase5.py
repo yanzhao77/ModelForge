@@ -17,8 +17,8 @@ from runtime.tools.builtin import register_builtin_tools
 
 
 def build_runtime(scripts, agent_cfgs):
-    from models.records import AgentRun  # noqa: F401
     from core.database import init_db
+    from models.records import AgentRun  # noqa: F401
     from repositories.event_repository import SQLAlchemyEventStore
     from repositories.run_repository import SQLAlchemyRunStore
     from runtime.events import EventBus

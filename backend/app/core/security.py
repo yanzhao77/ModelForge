@@ -1,15 +1,13 @@
 """Security utilities: password hashing, JWT tokens, auth dependencies."""
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session as DBSession
-
 from core.config import settings
 from core.database import get_db
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from models.records import User
+from sqlalchemy.orm import Session as DBSession
 
 ALGORITHM = "HS256"
 _bearer = HTTPBearer(auto_error=False)
@@ -49,7 +47,7 @@ def create_access_token(user_id: int, username: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=ALGORITHM)
 
 
-def decode_token(token: str) -> Optional[dict]:
+def decode_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM])
     except jwt.PyJWTError:
@@ -58,9 +56,9 @@ def decode_token(token: str) -> Optional[dict]:
 
 def _current_user(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: DBSession = Depends(get_db),
-) -> Optional[User]:
+) -> User | None:
     # Bearer remains supported for programmatic clients. Browser sessions use an
     # HttpOnly cookie so JavaScript never receives the access token.
     token = credentials.credentials if credentials is not None else request.cookies.get(settings.session_cookie_name)
@@ -76,7 +74,7 @@ def _current_user(
     return db.query(User).filter(User.id == user_id).first()
 
 
-def get_current_user(user: Optional[User] = Depends(_current_user)) -> User:
+def get_current_user(user: User | None = Depends(_current_user)) -> User:
     """Require a valid logged-in user."""
     if user is None:
         raise HTTPException(
@@ -89,7 +87,7 @@ def get_current_user(user: Optional[User] = Depends(_current_user)) -> User:
     return user
 
 
-def get_current_user_optional(user: Optional[User] = Depends(_current_user)) -> Optional[User]:
+def get_current_user_optional(user: User | None = Depends(_current_user)) -> User | None:
     """Auth optional: returns user or None."""
     return user
 

@@ -3,10 +3,17 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDockWidget, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-
 
 STATUS_ICON = {
     "RUNNING": "◐", "QUEUED": "◌", "SCHEDULED": "◌", "WAITING_INPUT": "!",

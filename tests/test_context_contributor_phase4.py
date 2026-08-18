@@ -10,8 +10,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from runtime.context.contributor import ContextContributor, ContextSegment
 from runtime.context.builder import ContextBuilder
+from runtime.context.contributor import ContextContributor, ContextSegment
 from runtime.run_context import RunContext
 
 
@@ -92,8 +92,8 @@ def contribute(ctx):
             f.write("name: skill.analyze\nversion: 1.0.0\ntype: skill\nentry: skill_plugin.py\n")
         with open(os.path.join(pdir, "skill_plugin.py"), "w", encoding="utf-8") as f:
             f.write(self.SKILL_ENTRY)
-        from models.records import AgentRun  # noqa: F401
         from core.database import init_db
+        from models.records import AgentRun  # noqa: F401
         from repositories.event_repository import SQLAlchemyEventStore
         from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus

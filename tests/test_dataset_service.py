@@ -30,7 +30,9 @@ def db_session():
 @pytest.fixture
 def user(db_session):
     u = User(username="dsuser", password_hash="x")
-    db_session.add(u); db_session.commit(); db_session.refresh(u)
+    db_session.add(u)
+    db_session.commit()
+    db_session.refresh(u)
     return u
 
 

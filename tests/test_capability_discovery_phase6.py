@@ -3,8 +3,6 @@ import os
 import sys
 import tempfile
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
 _tmp_db = tempfile.mkdtemp(prefix="mf_p6_")
@@ -23,9 +21,8 @@ class CapTool(Tool):
 
 
 def make_runtime():
-    from models.records import AgentRun  # noqa: F401
     from core.database import init_db
-    from repositories.event_repository import SQLAlchemyEventStore
+    from models.records import AgentRun  # noqa: F401
     from repositories.run_repository import SQLAlchemyRunStore
     from runtime.events import EventBus
     from runtime.runtime import AgentRuntime

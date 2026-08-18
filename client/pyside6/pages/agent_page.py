@@ -1,27 +1,38 @@
-"""AgentPage: manage 3.0 agents, trigger runs, watch live timelines (spec 50).
+"""Native Agent Run workspace backed by the ModelForge REST and SSE APIs."""
+from __future__ import annotations
 
-Thin client: all runtime logic lives in the backend; this page only calls
-the REST + SSE APIs.
-"""
-import time
-
+from components.api_worker import AsyncApiMixin
+from pages.run_timeline import RunTimeline
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
-    QLineEdit, QListWidget, QMessageBox, QPushButton, QSplitter, QTableWidget,
-    QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
+    QAbstractItemView,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
-from pages.run_timeline import RunTimeline
 
-
-class AgentPage(QWidget):
-    """Agent list + create + runs table + live timeline (spec 71)."""
+class AgentPage(QWidget, AsyncApiMixin):
+    """Agent definitions, runs and live timeline without UI-thread HTTP calls."""
 
     def __init__(self, api, parent=None):
-        super().__init__(parent)
+        QWidget.__init__(self, parent)
+        self._init_async_api()
         self.api = api
         self.current_run_id = None
+        self._agents_loading = False
+        self._runs_loading = False
         self._init_ui()
         self.refresh_agents()
         self.refresh_runs()
@@ -30,22 +41,20 @@ class AgentPage(QWidget):
         root = QHBoxLayout(self)
         splitter = QSplitter(Qt.Horizontal)
 
-        # ---- left: agents ----
         left = QWidget()
         lay = QVBoxLayout(left)
         lay.addWidget(QLabel("<b>Agents</b>"))
         self.agent_list = QListWidget()
         self.agent_list.currentItemChanged.connect(lambda *_: self._on_agent_selected())
         lay.addWidget(self.agent_list, 1)
-        create_btn = QPushButton("+ 新建 Agent")
-        create_btn.clicked.connect(self.create_agent)
-        lay.addWidget(create_btn)
-        delete_btn = QPushButton("删除 Agent")
-        delete_btn.clicked.connect(self.delete_agent)
-        lay.addWidget(delete_btn)
+        self.create_btn = QPushButton("+ 新建 Agent")
+        self.create_btn.clicked.connect(self.create_agent)
+        lay.addWidget(self.create_btn)
+        self.delete_btn = QPushButton("删除 Agent")
+        self.delete_btn.clicked.connect(self.delete_agent)
+        lay.addWidget(self.delete_btn)
         splitter.addWidget(left)
 
-        # ---- middle: runs ----
         mid = QWidget()
         mlay = QVBoxLayout(mid)
         mlay.addWidget(QLabel("<b>Runs</b>"))
@@ -61,18 +70,20 @@ class AgentPage(QWidget):
         self.task_input.setPlaceholderText("给 Agent 的任务描述...")
         self.task_input.setMaximumHeight(70)
         mlay.addWidget(self.task_input)
-        run_btn = QPushButton("▶ 运行选中 Agent")
-        run_btn.clicked.connect(self.run_agent)
-        mlay.addWidget(run_btn)
-        cancel_btn = QPushButton("✖ 取消运行")
-        cancel_btn.clicked.connect(self.cancel_run)
-        mlay.addWidget(cancel_btn)
-        refresh_btn = QPushButton("刷新 Runs")
-        refresh_btn.clicked.connect(self.refresh_runs)
-        mlay.addWidget(refresh_btn)
+        self.run_btn = QPushButton("▶ 运行选中 Agent")
+        self.run_btn.clicked.connect(self.run_agent)
+        mlay.addWidget(self.run_btn)
+        self.cancel_btn = QPushButton("✖ 取消运行")
+        self.cancel_btn.clicked.connect(self.cancel_run)
+        mlay.addWidget(self.cancel_btn)
+        self.refresh_btn = QPushButton("刷新 Runs")
+        self.refresh_btn.clicked.connect(self.refresh_runs)
+        mlay.addWidget(self.refresh_btn)
+        self.status = QLabel("正在加载 Agent 与运行记录…")
+        self.status.setWordWrap(True)
+        mlay.addWidget(self.status)
         splitter.addWidget(mid)
 
-        # ---- right: timeline ----
         right = QWidget()
         rlay = QVBoxLayout(right)
         rlay.addWidget(QLabel("<b>Run Timeline</b>"))
@@ -83,52 +94,102 @@ class AgentPage(QWidget):
         root.addWidget(splitter)
 
         self._timer = QTimer(self)
-        self._timer.timeout.connect(self._poll_runs)
+        self._timer.timeout.connect(lambda: self.refresh_runs(silent=True))
         self._timer.start(2000)
 
+    def _set_agent_busy(self, busy: bool):
+        self.create_btn.setEnabled(not busy)
+        self.delete_btn.setEnabled(not busy)
+
+    def _set_run_busy(self, busy: bool):
+        self.run_btn.setEnabled(not busy)
+        self.cancel_btn.setEnabled(not busy)
+        self.refresh_btn.setEnabled(not busy)
+
+    def _report_error(self, action: str, error: str, popup: bool = True):
+        self.status.setText(f"{action}失败：{error}")
+        if popup:
+            QMessageBox.warning(self, action, error)
+
     def refresh_agents(self):
-        try:
-            agents = self.api.list_agents()
-        except Exception as e:
-            QMessageBox.warning(self, "错误", f"获取 Agents 失败: {e}")
+        if self._agents_loading:
             return
+        self._agents_loading = True
+        self._set_agent_busy(True)
+        self._run_api(self.api.list_agents, self._render_agents, self._agents_failed)
+
+    def _render_agents(self, agents):
+        self._agents_loading = False
+        self._set_agent_busy(False)
+        selected = self.selected_agent()
         self.agent_list.clear()
-        for a in agents:
-            self.agent_list.addItem(f"{a.get('name', '?')}  ({a.get('model', '')})")
+        for agent in agents:
+            item = QListWidgetItem(f"{agent.get('name', '?')}  ({agent.get('model', '')})")
+            item.setData(Qt.UserRole, agent.get("name"))
+            self.agent_list.addItem(item)
+            if agent.get("name") == selected:
+                self.agent_list.setCurrentItem(item)
+        self.status.setText(f"已同步 {len(agents)} 个 Agent 定义。")
+
+    def _agents_failed(self, error: str):
+        self._agents_loading = False
+        self._set_agent_busy(False)
+        self._report_error("获取 Agent", error)
 
     def create_agent(self):
         name, ok1 = QInputDialog.getText(self, "新建 Agent", "名称:")
         if not ok1 or not name.strip():
             return
         model, ok2 = QInputDialog.getText(self, "新建 Agent", "模型 (Ollama 名称):")
-        if not ok2:
+        if not ok2 or not model.strip():
             return
         tools, ok3 = QInputDialog.getText(self, "新建 Agent", "工具 (逗号分隔, 如 filesystem.read,code.search):")
-        tool_list = [t.strip() for t in (tools or "").split(",") if t.strip()]
-        try:
-            self.api.create_agent_config(name.strip(), model.strip(), tool_list)
-            self.refresh_agents()
-        except Exception as e:
-            QMessageBox.warning(self, "失败", str(e))
+        if not ok3:
+            return
+        tool_list = [tool.strip() for tool in tools.split(",") if tool.strip()]
+        self._set_agent_busy(True)
+        self.status.setText("正在提交 Agent 定义…")
+        self._run_api(
+            lambda: self.api.create_agent_config(name.strip(), model.strip(), tool_list),
+            lambda _result: self._agent_created(name.strip()),
+            lambda error: self._agent_action_failed("创建 Agent", error),
+        )
+
+    def _agent_created(self, name: str):
+        self._set_agent_busy(False)
+        self.status.setText(f"已创建 Agent：{name}。正在刷新定义列表…")
+        self.refresh_agents()
 
     def delete_agent(self):
-        item = self.agent_list.currentItem()
-        if not item:
+        name = self.selected_agent()
+        if not name:
+            QMessageBox.information(self, "提示", "请先选择需要删除的 Agent。")
             return
-        name = item.text().split("  (")[0]
-        if QMessageBox.question(self, "确认", f"删除 Agent {name}?") == QMessageBox.Yes:
-            try:
-                self.api._delete(f"/api/v1/agent/{name}")
-                self.refresh_agents()
-            except Exception as e:
-                QMessageBox.warning(self, "失败", str(e))
+        if QMessageBox.question(self, "确认", f"确定删除 Agent {name}?" ) != QMessageBox.Yes:
+            return
+        self._set_agent_busy(True)
+        self.status.setText(f"正在删除 Agent：{name}…")
+        self._run_api(
+            lambda: self.api.delete_agent(name),
+            lambda _result: self._agent_deleted(name),
+            lambda error: self._agent_action_failed("删除 Agent", error),
+        )
+
+    def _agent_deleted(self, name: str):
+        self._set_agent_busy(False)
+        self.status.setText(f"已删除 Agent：{name}。正在刷新定义列表…")
+        self.refresh_agents()
+
+    def _agent_action_failed(self, action: str, error: str):
+        self._set_agent_busy(False)
+        self._report_error(action, error)
 
     def _on_agent_selected(self):
-        pass
+        self.delete_btn.setEnabled(bool(self.selected_agent()) and not self._agents_loading)
 
     def selected_agent(self):
         item = self.agent_list.currentItem()
-        return item.text().split("  (")[0] if item else None
+        return item.data(Qt.UserRole) if item else None
 
     def run_agent(self):
         agent = self.selected_agent()
@@ -139,35 +200,76 @@ class AgentPage(QWidget):
         if not task:
             QMessageBox.warning(self, "提示", "请输入任务描述")
             return
-        try:
-            result = self.api.create_agent_run(agent, task)
-            self.current_run_id = result["run_id"]
-            self.refresh_runs()
-            self.timeline.watch(self.current_run_id)
-            self.task_input.clear()
-        except Exception as e:
-            QMessageBox.warning(self, "失败", str(e))
+        self._set_run_busy(True)
+        self.status.setText(f"正在启动 {agent}…")
+        self._run_api(
+            lambda: self.api.create_agent_run(agent, task),
+            self._run_created,
+            lambda error: self._run_action_failed("启动 Agent Run", error),
+        )
+
+    def _run_created(self, result):
+        self._set_run_busy(False)
+        self.current_run_id = result["run_id"]
+        self.task_input.clear()
+        self.status.setText(f"已创建 Run {self.current_run_id[:8]}，正在订阅事件流。")
+        self.timeline.watch(self.current_run_id)
+        self.refresh_runs()
 
     def cancel_run(self):
-        if self.current_run_id:
-            try:
-                self.api.cancel_agent_run(self.current_run_id)
-                self.refresh_runs()
-            except Exception as e:
-                QMessageBox.warning(self, "失败", str(e))
-
-    def refresh_runs(self):
-        try:
-            runs = self.api.list_agent_runs(limit=30)
-        except Exception:
+        if not self.current_run_id:
+            QMessageBox.information(self, "提示", "请先选择需要取消的 Run。")
             return
+        self._set_run_busy(True)
+        self.status.setText(f"正在请求取消 Run {self.current_run_id[:8]}…")
+        self._run_api(
+            lambda: self.api.cancel_agent_run(self.current_run_id),
+            lambda _result: self._run_cancelled(),
+            lambda error: self._run_action_failed("取消 Agent Run", error),
+        )
+
+    def _run_cancelled(self):
+        self._set_run_busy(False)
+        self.status.setText("取消请求已提交，正在刷新运行记录。")
+        self.refresh_runs()
+
+    def _run_action_failed(self, action: str, error: str):
+        self._set_run_busy(False)
+        self._report_error(action, error)
+
+    def refresh_runs(self, silent: bool = False):
+        if self._runs_loading:
+            return
+        self._runs_loading = True
+        self._set_run_busy(True)
+        self._run_api(
+            lambda: self.api.list_agent_runs(limit=30),
+            self._render_runs,
+            lambda error: self._runs_failed(error, silent),
+        )
+
+    def _render_runs(self, runs):
+        self._runs_loading = False
+        self._set_run_busy(False)
+        selected = self.current_run_id
         self.runs_table.setRowCount(len(runs))
-        for row, r in enumerate(runs):
-            self.runs_table.setItem(row, 0, QTableWidgetItem(r.get("run_id", "")[:8]))
-            self.runs_table.setItem(row, 1, QTableWidgetItem(str(r.get("agent_id", ""))))
-            self.runs_table.setItem(row, 2, QTableWidgetItem(str(r.get("status", ""))))
-            self.runs_table.setItem(row, 3, QTableWidgetItem(str(r.get("output", "") or "")[:60]))
-            self.runs_table.item(row, 0).setData(Qt.UserRole, r.get("run_id"))
+        for row, run in enumerate(runs):
+            self.runs_table.setItem(row, 0, QTableWidgetItem(str(run.get("run_id", ""))[:8]))
+            self.runs_table.setItem(row, 1, QTableWidgetItem(str(run.get("agent_id", ""))))
+            self.runs_table.setItem(row, 2, QTableWidgetItem(str(run.get("status", ""))))
+            self.runs_table.setItem(row, 3, QTableWidgetItem(str(run.get("output", "") or "")[:60]))
+            self.runs_table.item(row, 0).setData(Qt.UserRole, run.get("run_id"))
+            if run.get("run_id") == selected:
+                self.runs_table.selectRow(row)
+        self.status.setText(f"运行记录已更新 · {len(runs)} 项。")
+
+    def _runs_failed(self, error: str, silent: bool):
+        self._runs_loading = False
+        self._set_run_busy(False)
+        if not silent:
+            self._report_error("获取运行记录", error)
+        else:
+            self.status.setText(f"运行记录刷新失败：{error}")
 
     def _on_run_selected(self):
         rows = self.runs_table.selectionModel().selectedRows()
@@ -177,12 +279,6 @@ class AgentPage(QWidget):
         if run_id and run_id != self.current_run_id:
             self.current_run_id = run_id
             self.timeline.watch(run_id)
-
-    def _poll_runs(self):
-        try:
-            self.refresh_runs()
-        except Exception:
-            pass
 
     def closeEvent(self, event):
         self._timer.stop()

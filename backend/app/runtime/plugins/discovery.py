@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class CapabilityDiscovery:
@@ -13,14 +13,14 @@ class CapabilityDiscovery:
     def __init__(self, runtime: Any):
         self._runtime = runtime
 
-    def discover(self, scope_id: Optional[str] = None) -> Dict[str, Any]:
+    def discover(self, scope_id: str | None = None) -> dict[str, Any]:
         return {
             "tools": self._tools(scope_id),
             "skills": self._skills(scope_id),
             "agent_extensions": self._agent_extensions(scope_id),
         }
 
-    def _tools(self, scope_id: Optional[str]) -> List[Dict[str, Any]]:
+    def _tools(self, scope_id: str | None) -> list[dict[str, Any]]:
         registry = getattr(self._runtime, "tool_registry", None)
         if registry is None:
             return []
@@ -30,7 +30,7 @@ class CapabilityDiscovery:
             tool_scope = meta.get("scope")
             if scope_id is not None and tool_scope != scope_id:
                 continue
-            entry: Dict[str, Any] = {
+            entry: dict[str, Any] = {
                 "name": getattr(tool, "name", ""),
                 "description": getattr(tool, "description", ""),
                 "source": getattr(tool, "source", "builtin"),
@@ -42,7 +42,7 @@ class CapabilityDiscovery:
             out.append(entry)
         return sorted(out, key=lambda x: x["name"])
 
-    def _skills(self, scope_id: Optional[str]) -> List[Dict[str, Any]]:
+    def _skills(self, scope_id: str | None) -> list[dict[str, Any]]:
         pm = getattr(self._runtime, "plugin_manager", None)
         if pm is None:
             return []
@@ -62,7 +62,7 @@ class CapabilityDiscovery:
             })
         return sorted(out, key=lambda x: x["name"])
 
-    def _agent_extensions(self, scope_id: Optional[str]) -> List[Dict[str, Any]]:
+    def _agent_extensions(self, scope_id: str | None) -> list[dict[str, Any]]:
         pm = getattr(self._runtime, "plugin_manager", None)
         if pm is None:
             return []

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from models.records import TaskEvent, TaskOutbox, TaskRecord
@@ -209,7 +209,7 @@ class TaskService:
             raise TaskConflict("TASK_VERSION_CONFLICT")
         if status != task.status and status not in TRANSITIONS.get(task.status, set()):
             raise TaskConflict(f"Illegal transition: {task.status} -> {status}")
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         if status != task.status:
             task.status = status
             task.version += 1

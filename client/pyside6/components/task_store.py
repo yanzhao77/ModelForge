@@ -3,10 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QObject, QSettings, QTimer, Signal
-
 from components.api_worker import AsyncApiMixin
 from components.task_stream_worker import TaskStreamWorker
+from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 
 
 class TaskStore(QObject, AsyncApiMixin):

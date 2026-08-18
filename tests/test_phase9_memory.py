@@ -2,8 +2,6 @@
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
 from services.memory import ConversationMemory, LongTermMemory, MemoryManager

@@ -1,11 +1,9 @@
 """Authentication service: register / login / password management."""
 from datetime import datetime, timezone
-from typing import Optional
-
-from sqlalchemy.orm import Session as DBSession
 
 from core.security import create_access_token, hash_password, verify_password
 from models.records import User
+from sqlalchemy.orm import Session as DBSession
 
 
 class AuthService:
@@ -13,7 +11,7 @@ class AuthService:
 
     @staticmethod
     def register(
-        db: DBSession, username: str, password: str, email: Optional[str] = None
+        db: DBSession, username: str, password: str, email: str | None = None
     ) -> tuple:
         """Register a new user. Returns (ok, message, user)."""
         username = (username or "").strip()

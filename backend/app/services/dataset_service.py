@@ -3,12 +3,10 @@ import csv
 import json
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-from sqlalchemy.orm import Session as DBSession
 
 from core.config import settings
 from models.records import Dataset
+from sqlalchemy.orm import Session as DBSession
 
 ALLOWED_EXTENSIONS = {".jsonl", ".csv", ".json", ".txt"}
 
@@ -17,7 +15,7 @@ class DatasetParser:
     """Parse dataset files into (row_count, columns, sample)."""
 
     @staticmethod
-    def parse(path: str, fmt: str) -> Tuple[int, List[str], List[dict]]:
+    def parse(path: str, fmt: str) -> tuple[int, list[str], list[dict]]:
         if fmt == "jsonl":
             return DatasetParser._parse_jsonl(path)
         if fmt == "csv":
@@ -29,9 +27,9 @@ class DatasetParser:
         raise ValueError(f"不支持的数据集格式: {fmt}")
 
     @staticmethod
-    def _parse_jsonl(path: str) -> Tuple[int, List[str], List[dict]]:
+    def _parse_jsonl(path: str) -> tuple[int, list[str], list[dict]]:
         rows = []
-        columns: List[str] = []
+        columns: list[str] = []
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
@@ -49,9 +47,9 @@ class DatasetParser:
         return len(rows), columns, rows[:5]
 
     @staticmethod
-    def _parse_csv(path: str) -> Tuple[int, List[str], List[dict]]:
+    def _parse_csv(path: str) -> tuple[int, list[str], list[dict]]:
         rows = []
-        columns: List[str] = []
+        columns: list[str] = []
         with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
             reader = csv.DictReader(f)
             columns = reader.fieldnames or ["text"]
@@ -60,7 +58,7 @@ class DatasetParser:
         return len(rows), columns, rows[:5]
 
     @staticmethod
-    def _parse_json(path: str) -> Tuple[int, List[str], List[dict]]:
+    def _parse_json(path: str) -> tuple[int, list[str], list[dict]]:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             data = json.load(f)
         if isinstance(data, list):
@@ -78,7 +76,7 @@ class DatasetParser:
         raise ValueError("JSON 数据集必须是对象数组或包含 train 字段的对象")
 
     @staticmethod
-    def _parse_txt(path: str) -> Tuple[int, List[str], List[dict]]:
+    def _parse_txt(path: str) -> tuple[int, list[str], list[dict]]:
         lines = []
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -92,7 +90,7 @@ class DatasetService:
     """CRUD for user datasets."""
 
     def upload(
-        self, db: DBSession, user_id: int, original_name: str, content: bytes, name: Optional[str] = None
+        self, db: DBSession, user_id: int, original_name: str, content: bytes, name: str | None = None
     ) -> Dataset:
         ext = Path(original_name or "dataset.txt").suffix.lower()
         fmt = ext.lstrip(".")
@@ -132,10 +130,10 @@ class DatasetService:
         db.refresh(rec)
         return rec
 
-    def get(self, db: DBSession, dataset_id: int, user_id: int) -> Optional[Dataset]:
+    def get(self, db: DBSession, dataset_id: int, user_id: int) -> Dataset | None:
         return db.query(Dataset).filter_by(id=dataset_id, user_id=user_id).first()
 
-    def list(self, db: DBSession, user_id: int) -> List[Dataset]:
+    def list(self, db: DBSession, user_id: int) -> list[Dataset]:
         return (
             db.query(Dataset)
             .filter_by(user_id=user_id)
@@ -155,7 +153,7 @@ class DatasetService:
         db.commit()
         return True
 
-    def validate(self, db: DBSession, dataset_id: int, user_id: int) -> Dict:
+    def validate(self, db: DBSession, dataset_id: int, user_id: int) -> dict:
         rec = self.get(db, dataset_id, user_id)
         if not rec:
             raise ValueError("数据集不存在")

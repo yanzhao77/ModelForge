@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from .base import ModelProvider, ModelResult, ToolCall
 
@@ -18,16 +19,16 @@ class MockProvider(ModelProvider):
 
     def __init__(
         self,
-        script: Optional[List[ModelResult]] = None,
-        callback: Optional[Callable] = None,
+        script: list[ModelResult] | None = None,
+        callback: Callable | None = None,
     ):
         self.script = list(script or [])
         self.callback = callback
-        self.calls: List[Dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
         self.call_count = 0
 
     @staticmethod
-    def tool_call(name: str, arguments: Dict[str, Any], call_id: Optional[str] = None) -> ModelResult:
+    def tool_call(name: str, arguments: dict[str, Any], call_id: str | None = None) -> ModelResult:
         return ModelResult(
             content="",
             tool_calls=[ToolCall(id=call_id or f"call_{name}", name=name, arguments=arguments)],
@@ -35,7 +36,7 @@ class MockProvider(ModelProvider):
         )
 
     @staticmethod
-    def final(content: str, usage: Optional[Dict[str, int]] = None) -> ModelResult:
+    def final(content: str, usage: dict[str, int] | None = None) -> ModelResult:
         return ModelResult(
             content=content,
             model="mock",
@@ -44,10 +45,10 @@ class MockProvider(ModelProvider):
 
     async def chat(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         *,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        timeout: Optional[float] = None,
+        tools: list[dict[str, Any]] | None = None,
+        timeout: float | None = None,
     ) -> ModelResult:
         self.call_count += 1
         self.calls.append({"messages": messages, "tools": tools, "index": self.call_count})

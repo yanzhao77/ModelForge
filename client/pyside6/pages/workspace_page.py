@@ -3,7 +3,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QPushButton, QProgressBar, QVBoxLayout, QWidget,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 

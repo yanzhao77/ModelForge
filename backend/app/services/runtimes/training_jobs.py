@@ -74,8 +74,12 @@ def run(config: dict, state_path: str, log_path: str):
     _write_state(state_path, status="running", progress=0, epoch=0, loss=None)
     _log(f"加载基础模型: {config['base_model']}", log_path)
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
-    import torch
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        Trainer,
+        TrainingArguments,
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(config["base_model"])
     if tokenizer.pad_token is None:

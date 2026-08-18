@@ -6,10 +6,10 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from runtime.context.builder import ContextBuilder
-from runtime.run_context import RunContext
 from runtime.cancellation import CancellationToken
+from runtime.context.builder import ContextBuilder
 from runtime.models import MockProvider
+from runtime.run_context import RunContext
 
 
 class FakeMemoryProvider:
@@ -136,12 +136,12 @@ class TestContextBuilder:
 class TestRuntimeContext:
     @pytest.mark.asyncio
     async def test_engine_uses_context_builder(self):
-        from models.records import AgentRun  # noqa: F401
         from core.database import init_db
+        from models.records import AgentRun  # noqa: F401
         from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus
         from runtime.runtime import AgentRuntime
-        from runtime.tools import ToolRegistry, ToolExecutor
+        from runtime.tools import ToolExecutor, ToolRegistry
         from runtime.tools.builtin import register_builtin_tools
         from runtime.types import AgentConfig
         from services.agent_store import DBAgentStore

@@ -1,10 +1,8 @@
 """Session and message management (DB-backed, ported from legacy app)."""
 from datetime import datetime, timezone
-from typing import List, Optional
 
+from models.records import Message, Session
 from sqlalchemy.orm import Session as DBSession
-
-from models.records import Session, Message
 
 
 class SessionService:
@@ -12,7 +10,7 @@ class SessionService:
 
     @staticmethod
     def create_session(
-        db: DBSession, user_id: int, title: str = "新对话", model_id: Optional[int] = None
+        db: DBSession, user_id: int, title: str = "新对话", model_id: int | None = None
     ) -> Session:
         session = Session(
             user_id=user_id,
@@ -28,7 +26,7 @@ class SessionService:
     @staticmethod
     def get_user_sessions(
         db: DBSession, user_id: int, include_inactive: bool = False
-    ) -> List[Session]:
+    ) -> list[Session]:
         query = db.query(Session).filter(Session.user_id == user_id)
         if not include_inactive:
             query = query.filter(Session.is_active.is_(True))
@@ -36,8 +34,8 @@ class SessionService:
 
     @staticmethod
     def get_session_by_id(
-        db: DBSession, session_id: int, user_id: Optional[int] = None
-    ) -> Optional[Session]:
+        db: DBSession, session_id: int, user_id: int | None = None
+    ) -> Session | None:
         query = db.query(Session).filter(Session.id == session_id)
         if user_id is not None:
             query = query.filter(Session.user_id == user_id)
@@ -45,7 +43,7 @@ class SessionService:
 
     @staticmethod
     def update_session_title(
-        db: DBSession, session_id: int, title: str, user_id: Optional[int] = None
+        db: DBSession, session_id: int, title: str, user_id: int | None = None
     ) -> bool:
         session = SessionService.get_session_by_id(db, session_id, user_id)
         if not session:
@@ -57,7 +55,7 @@ class SessionService:
 
     @staticmethod
     def delete_session(
-        db: DBSession, session_id: int, user_id: Optional[int] = None
+        db: DBSession, session_id: int, user_id: int | None = None
     ) -> bool:
         """Soft delete a session."""
         session = SessionService.get_session_by_id(db, session_id, user_id)
@@ -70,7 +68,7 @@ class SessionService:
 
     @staticmethod
     def hard_delete_session(
-        db: DBSession, session_id: int, user_id: Optional[int] = None
+        db: DBSession, session_id: int, user_id: int | None = None
     ) -> bool:
         session = SessionService.get_session_by_id(db, session_id, user_id)
         if not session:
@@ -99,8 +97,8 @@ class SessionService:
 
     @staticmethod
     def get_session_messages(
-        db: DBSession, session_id: int, limit: Optional[int] = None, offset: Optional[int] = None
-    ) -> List[Message]:
+        db: DBSession, session_id: int, limit: int | None = None, offset: int | None = None
+    ) -> list[Message]:
         query = (
             db.query(Message)
             .filter(Message.session_id == session_id)
@@ -114,14 +112,14 @@ class SessionService:
 
     @staticmethod
     def get_session_history(
-        db: DBSession, session_id: int, limit: Optional[int] = None
-    ) -> List[dict]:
+        db: DBSession, session_id: int, limit: int | None = None
+    ) -> list[dict]:
         messages = SessionService.get_session_messages(db, session_id, limit)
         return [m.to_dict() for m in messages]
 
     @staticmethod
     def clear_session_messages(
-        db: DBSession, session_id: int, user_id: Optional[int] = None
+        db: DBSession, session_id: int, user_id: int | None = None
     ) -> bool:
         session = SessionService.get_session_by_id(db, session_id, user_id)
         if not session:

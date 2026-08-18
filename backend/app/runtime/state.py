@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 
 @dataclass
@@ -13,16 +13,16 @@ class AgentState:
     """
 
     run_id: str
-    messages: List[Dict[str, Any]] = field(default_factory=list)
-    context: Dict[str, Any] = field(default_factory=dict)
-    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    context: dict[str, Any] = field(default_factory=dict)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_call_count: int = 0
-    variables: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    variables: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     iteration: int = 0
     status: str = "PENDING"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
             "messages": self.messages,
@@ -36,7 +36,7 @@ class AgentState:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AgentState":
+    def from_dict(cls, data: dict[str, Any]) -> AgentState:
         return cls(
             run_id=data.get("run_id", ""),
             messages=data.get("messages", []),

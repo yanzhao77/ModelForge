@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class DBMemoryProvider:
@@ -11,7 +11,7 @@ class DBMemoryProvider:
         user_id: int,
         query: str,
         top_k: int = 3,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         from core.database import SessionLocal
         from services.memory_store import MemoryStore
         with SessionLocal() as db:
@@ -36,21 +36,21 @@ class ConversationMemory:
     """
 
     def __init__(self):
-        self._store: Dict[str, List[Dict[str, Any]]] = {}
+        self._store: dict[str, list[dict[str, Any]]] = {}
 
-    def _key(self, agent_id: str, session_id: Optional[int]) -> str:
+    def _key(self, agent_id: str, session_id: int | None) -> str:
         return "{}:{}".format(agent_id, session_id or "global")
 
     async def remember(
-        self, agent_id: str, session_id: Optional[int], content: Dict[str, Any],
+        self, agent_id: str, session_id: int | None, content: dict[str, Any],
     ) -> None:
         self._store.setdefault(self._key(agent_id, session_id), []).append(content)
 
     async def recall(
-        self, agent_id: str, session_id: Optional[int], limit: int = 20,
-    ) -> List[Dict[str, Any]]:
+        self, agent_id: str, session_id: int | None, limit: int = 20,
+    ) -> list[dict[str, Any]]:
         items = self._store.get(self._key(agent_id, session_id), [])
         return items[-limit:]
 
-    async def clear(self, agent_id: str, session_id: Optional[int]) -> None:
+    async def clear(self, agent_id: str, session_id: int | None) -> None:
         self._store.pop(self._key(agent_id, session_id), None)

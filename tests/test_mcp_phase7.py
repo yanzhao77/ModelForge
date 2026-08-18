@@ -8,9 +8,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from runtime.mcp import MCPClient, MCPRegistry, MCPToolAdapter
-from runtime.tools import ToolRegistry, ToolExecutor
-
+from runtime.mcp import MCPClient, MCPRegistry
+from runtime.tools import ToolExecutor, ToolRegistry
 
 FAKE_TOOLS = [
     {"name": "mcp.weather", "description": "Get weather", "inputSchema": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}},
@@ -93,14 +92,14 @@ class TestMCPRegistry:
 class TestRuntimeMCP:
     @pytest.mark.asyncio
     async def test_register_server_and_run_tool(self):
-        from models.records import AgentRun  # noqa: F401
         from core.database import init_db
+        from models.records import AgentRun  # noqa: F401
         from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus
-        from runtime.runtime import AgentRuntime
-        from runtime.tools import ToolRegistry, ToolExecutor
-        from runtime.tools.builtin import register_builtin_tools
         from runtime.models import MockProvider
+        from runtime.runtime import AgentRuntime
+        from runtime.tools import ToolExecutor, ToolRegistry
+        from runtime.tools.builtin import register_builtin_tools
         from runtime.types import AgentConfig
         from services.agent_store import DBAgentStore
         init_db()
@@ -136,8 +135,9 @@ class TestRuntimeMCP:
 
     def test_mcp_api(self):
         from unittest.mock import patch
-        from fastapi.testclient import TestClient
+
         from core.config import settings
+        from fastapi.testclient import TestClient
         from main import app
         with patch.object(settings, "runtime_admin_usernames", "mcpapiadmin"):
             with TestClient(app) as c:

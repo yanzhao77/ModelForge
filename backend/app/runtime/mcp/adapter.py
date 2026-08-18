@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from ..tools.base import PermissionLevel, Tool, ToolResult
 
@@ -11,7 +11,7 @@ class MCPToolAdapter(Tool):
     def __init__(
         self,
         server_name: str,
-        tool_def: Dict[str, Any],
+        tool_def: dict[str, Any],
         client: Any,
         timeout: float = 30.0,
     ):
@@ -26,10 +26,10 @@ class MCPToolAdapter(Tool):
         self._client = client
         self.aliases = []
 
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return self._input_schema
 
-    async def execute(self, arguments: Dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(self, arguments: dict[str, Any], context: Any = None) -> ToolResult:
         try:
             output = await self._client.call_tool(self.name, arguments)
         except Exception as e:

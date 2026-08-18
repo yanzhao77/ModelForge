@@ -19,8 +19,8 @@ from runtime.types import AgentConfig
 
 def build_runtime(scripts):
     """scripts maps agent model -> [ModelResult...] provider scripts."""
-    from models.records import AgentRun  # noqa: F401
     from core.database import init_db
+    from models.records import AgentRun  # noqa: F401
     from repositories.event_repository import SQLAlchemyEventStore
     from repositories.run_repository import SQLAlchemyRunStore
     from runtime.events import EventBus

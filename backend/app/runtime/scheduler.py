@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 class Scheduler:
@@ -13,15 +14,15 @@ class Scheduler:
     agent itself (spec 72).
     """
 
-    def __init__(self, trigger: Optional[Callable] = None):
+    def __init__(self, trigger: Callable | None = None):
         self._trigger = trigger
-        self._jobs: Dict[str, Dict[str, Any]] = {}
-        self._tasks: Dict[str, asyncio.Task] = {}
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
         self._seq = 0
         self._started = False
 
     @property
-    def trigger(self) -> Optional[Callable]:
+    def trigger(self) -> Callable | None:
         return self._trigger
 
     @trigger.setter
@@ -43,7 +44,7 @@ class Scheduler:
         self._seq += 1
         return f"{kind}_{self._seq}"
 
-    def schedule_once(self, delay: float, run_spec: Dict[str, Any], user_id: Optional[int] = None) -> str:
+    def schedule_once(self, delay: float, run_spec: dict[str, Any], user_id: int | None = None) -> str:
         """Run once after `delay` seconds (spec 38)."""
         job_id = self._new_id("once")
         self._jobs[job_id] = {"type": "once", "delay": delay, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None}
@@ -51,7 +52,7 @@ class Scheduler:
         self._tasks[job_id] = loop.create_task(self._run_once(job_id, delay, run_spec))
         return job_id
 
-    def schedule_interval(self, interval: float, run_spec: Dict[str, Any], user_id: Optional[int] = None) -> str:
+    def schedule_interval(self, interval: float, run_spec: dict[str, Any], user_id: int | None = None) -> str:
         """Run every `interval` seconds while started (spec 38 / 39)."""
         job_id = self._new_id("interval")
         self._jobs[job_id] = {"type": "interval", "interval": interval, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None}
@@ -59,7 +60,7 @@ class Scheduler:
         self._tasks[job_id] = loop.create_task(self._run_interval(job_id, interval, run_spec))
         return job_id
 
-    def cancel(self, job_id: str, user_id: Optional[int] = None) -> bool:
+    def cancel(self, job_id: str, user_id: int | None = None) -> bool:
         job = self._jobs.get(job_id)
         if job is None or (user_id is not None and job.get("user_id") != user_id):
             return False
@@ -71,14 +72,14 @@ class Scheduler:
             self._jobs[job_id]["status"] = "cancelled"
         return True
 
-    def jobs(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def jobs(self, user_id: int | None = None) -> list[dict[str, Any]]:
         return [
             {"id": k, **dict(v)} for k, v in self._jobs.items()
             if user_id is None or v.get("user_id") == user_id
         ]
 
     # ---- internals ----
-    async def _run_once(self, job_id: str, delay: float, run_spec: Dict[str, Any]) -> None:
+    async def _run_once(self, job_id: str, delay: float, run_spec: dict[str, Any]) -> None:
         try:
             await asyncio.sleep(delay)
             await self._fire(job_id, run_spec)
@@ -88,7 +89,7 @@ class Scheduler:
         finally:
             self._tasks.pop(job_id, None)
 
-    async def _run_interval(self, job_id: str, interval: float, run_spec: Dict[str, Any]) -> None:
+    async def _run_interval(self, job_id: str, interval: float, run_spec: dict[str, Any]) -> None:
         try:
             while self._started:
                 await asyncio.sleep(interval)
@@ -101,7 +102,7 @@ class Scheduler:
         finally:
             self._tasks.pop(job_id, None)
 
-    async def _fire(self, job_id: str, run_spec: Dict[str, Any]) -> None:
+    async def _fire(self, job_id: str, run_spec: dict[str, Any]) -> None:
         if self._trigger is None:
             return
         if job_id in self._jobs:

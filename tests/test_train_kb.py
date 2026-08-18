@@ -8,9 +8,10 @@ import time
 os.environ.setdefault("DATABASE_PATH", os.path.join(tempfile.mkdtemp(prefix="mf_tk_"), "test.db"))
 os.environ.setdefault("JWT_SECRET", "integration-test-secret")
 
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
@@ -97,10 +98,10 @@ class TestTrainingFlow:
                 json.dump({"status": "done", "progress": 100, "epoch": 1, "loss": 0.5}, f)
             with open(log_path, "w", encoding="utf-8") as f:
                 f.write("mock training completed\n")
-            p = MagicMock();
-            p.poll.return_value = 0;
-            p.returncode = 0;
-            p.terminate = MagicMock();
+            p = MagicMock()
+            p.poll.return_value = 0
+            p.returncode = 0
+            p.terminate = MagicMock()
             return p
         monkeypatch.setattr(tr.TrainingService, "_launch", fake_launch)
         monkeypatch.setattr(settings_mod(), "train_output_dir", str(tmp_path / "outputs"))
@@ -157,10 +158,10 @@ class TestTrainingFlow:
         def fake_launch_running(self, cfg_path, state_path, log_path):
             with open(log_path, "w", encoding="utf-8") as f:
                 f.write("started\n")
-            p = MagicMock();
-            p.poll.return_value = None;
-            p.terminate = MagicMock();
-            p.returncode = None;
+            p = MagicMock()
+            p.poll.return_value = None
+            p.terminate = MagicMock()
+            p.returncode = None
             return p
         monkeypatch.setattr(tr.TrainingService, "_launch", fake_launch_running)
 

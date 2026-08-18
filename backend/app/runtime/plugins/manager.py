@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import builtins
 import importlib.util
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from ..logging import get_logger, log_run
+from ..logging import get_logger
 from .manifest import PluginManifest
-
 
 PLUGIN_LIFECYCLE_EVENTS = (
     "plugin.discovered", "plugin.loaded", "plugin.started", "plugin.stopped",
@@ -24,7 +24,7 @@ class PluginManager:
     def __init__(
         self,
         runtime: Any,
-        plugins_dir: Optional[str] = None,
+        plugins_dir: str | None = None,
         event_bus: Any = None,
         logger: Any = None,
     ):
@@ -32,10 +32,10 @@ class PluginManager:
         self._plugins_dir = plugins_dir
         self._event_bus = event_bus or getattr(runtime, "event_bus", None)
         self._logger = logger or get_logger()
-        self._plugins: Dict[str, Dict[str, Any]] = {}
+        self._plugins: dict[str, dict[str, Any]] = {}
 
     # ---- discovery (audit §16.9) ----
-    def discover(self, directory: Optional[str] = None) -> List[Dict[str, Any]]:
+    def discover(self, directory: str | None = None) -> builtins.list[dict[str, Any]]:
         """Scan `*/plugin.yaml|plugin.json` under a directory."""
         directory = directory or self._plugins_dir
         found = []
@@ -58,7 +58,7 @@ class PluginManager:
         return found
 
     # ---- lifecycle ----
-    def load(self, manifest: PluginManifest) -> Dict[str, Any]:
+    def load(self, manifest: PluginManifest) -> dict[str, Any]:
         """Resolve dependencies, create scope/context, import entry, mount tools."""
         if manifest.name in self._plugins:
             return self._plugins[manifest.name]
@@ -71,7 +71,7 @@ class PluginManager:
 
         scope = self._runtime.create_scope(f"plugin:{manifest.name}", name=manifest.name)
         ctx = scope.context(manifest.name, config=manifest.config)
-        state: Dict[str, Any] = {
+        state: dict[str, Any] = {
             "manifest": manifest,
             "scope": scope,
             "context": ctx,
@@ -159,7 +159,7 @@ class PluginManager:
         self._emit("plugin.unloaded", {"name": name})
         return True
 
-    def list(self) -> List[Dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         return [{
             "name": name,
             "version": s["manifest"].version,
@@ -170,10 +170,10 @@ class PluginManager:
             "error": s.get("error"),
         } for name, s in sorted(self._plugins.items())]
 
-    def get(self, name: str) -> Optional[Dict[str, Any]]:
+    def get(self, name: str) -> dict[str, Any] | None:
         return self._plugins.get(name)
 
-    def dependencies_of(self, name: str) -> List[str]:
+    def dependencies_of(self, name: str) -> builtins.list[str]:
         state = self._plugins.get(name)
         return list(state["manifest"].dependencies) if state else []
 
@@ -189,7 +189,7 @@ class PluginManager:
         spec.loader.exec_module(module)
         return module
 
-    def _emit(self, event_type: str, payload: Dict[str, Any]) -> None:
+    def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
         if self._event_bus is None:
             return
         import asyncio

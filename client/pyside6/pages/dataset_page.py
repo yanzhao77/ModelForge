@@ -1,15 +1,24 @@
 """Dataset page with non-blocking API operations."""
 import json
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget,
-)
-
 from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class DatasetPage(QWidget, AsyncApiMixin):

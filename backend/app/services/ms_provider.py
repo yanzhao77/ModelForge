@@ -4,7 +4,6 @@ Uses modelscope SDK when available, with a fallback stub for environments
 where it is not installed.
 """
 import os
-from typing import List, Dict, Optional
 
 from .model_provider import ModelProvider
 
@@ -12,7 +11,7 @@ from .model_provider import ModelProvider
 class ModelScopeProvider(ModelProvider):
     """Provider for downloading models from ModelScope."""
 
-    def __init__(self, cache_dir: Optional[str] = None):
+    def __init__(self, cache_dir: str | None = None):
         self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".cache", "modelscope")
         self._snapshot_download = None
         try:
@@ -21,7 +20,7 @@ class ModelScopeProvider(ModelProvider):
         except ImportError:
             pass
 
-    def download(self, model_id: str, save_dir: Optional[str] = None) -> str:
+    def download(self, model_id: str, save_dir: str | None = None) -> str:
         """Download a model from ModelScope."""
         if self._snapshot_download is None:
             raise RuntimeError(
@@ -31,7 +30,7 @@ class ModelScopeProvider(ModelProvider):
         os.makedirs(target, exist_ok=True)
         return self._snapshot_download(model_id, cache_dir=target)
 
-    def list_models(self, query: str = "", limit: int = 20) -> List[Dict]:
+    def list_models(self, query: str = "", limit: int = 20) -> list[dict]:
         """Search models on ModelScope. Returns stub when SDK not available."""
         if self._snapshot_download is None:
             return [{"id": "modelscope-unavailable", "note": "Install modelscope SDK to search"}]

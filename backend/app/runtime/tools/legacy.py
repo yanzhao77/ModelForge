@@ -6,14 +6,13 @@ with the real ToolRegistry + ToolExecutor while keeping these names working.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from services.agent_tools import AGENT_TOOLS
 
 from ..errors import ToolNotFoundError, ToolTimeoutError
 
-
-LEGACY_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
+LEGACY_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "file_read": {
         "type": "object",
         "properties": {"filepath": {"type": "string", "description": "Path of the file to read"}},
@@ -54,10 +53,10 @@ LEGACY_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
 class LegacyToolRunner:
     """Runs legacy AGENT_TOOLS functions (sync) in a thread pool with timeout."""
 
-    def names(self) -> List[str]:
+    def names(self) -> list[str]:
         return list(AGENT_TOOLS.keys())
 
-    def schema(self, name: str) -> Optional[Dict[str, Any]]:
+    def schema(self, name: str) -> dict[str, Any] | None:
         if name not in AGENT_TOOLS:
             return None
         return {
@@ -72,7 +71,7 @@ class LegacyToolRunner:
     async def run(
         self,
         name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         ctx: Any = None,
     ) -> str:
         func = AGENT_TOOLS.get(name)

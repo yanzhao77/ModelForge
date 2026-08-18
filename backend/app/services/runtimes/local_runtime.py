@@ -1,5 +1,4 @@
 """Local inference runtime: transformers + GGUF (llama-cpp), ported from legacy model_generate."""
-from typing import Dict, Optional
 
 from services.runtime import RuntimeEngine
 
@@ -11,7 +10,7 @@ class LocalRuntime(RuntimeEngine):
     so this module can be imported without the AI stack installed.
     """
 
-    def __init__(self, model_path: Optional[str] = None):
+    def __init__(self, model_path: str | None = None):
         self.model_path = model_path
         self._model = None
         self._tokenizer = None
@@ -26,7 +25,7 @@ class LocalRuntime(RuntimeEngine):
             return any(f.lower().endswith(".gguf") for f in os.listdir(path))
         return False
 
-    async def load(self, model_name: str, **kwargs) -> Dict:
+    async def load(self, model_name: str, **kwargs) -> dict:
         """Load a local model (directory or .gguf file)."""
         path = self.model_path or model_name
         self._is_gguf = self._is_gguf_model(path)
@@ -42,8 +41,8 @@ class LocalRuntime(RuntimeEngine):
             self._model = Llama(model_path=gguf_path, n_ctx=kwargs.get("input_max_length", 4096))
             self._tokenizer = None
         else:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
             import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
             # Model repositories and local model directories are untrusted input.
             # Keep custom repository code disabled; supported architectures must
             # use Transformers' built-in implementations.
@@ -56,7 +55,7 @@ class LocalRuntime(RuntimeEngine):
             self._model.eval()
         return {"status": "loaded", "model": model_name}
 
-    async def chat(self, model_name: str, messages: list, **kwargs) -> Dict:
+    async def chat(self, model_name: str, messages: list, **kwargs) -> dict:
         """Run a chat turn locally."""
         if self._model is None:
             await self.load(model_name)
@@ -84,11 +83,10 @@ class LocalRuntime(RuntimeEngine):
             content = self._release_response(content)
         return {"model": model_name, "content": content, "raw": None}
 
-    async def stop(self, model_name: str) -> Dict:
+    async def stop(self, model_name: str) -> dict:
         try:
             if self._model is not None:
                 if not self._is_gguf:
-                    import torch
                     self._model.to("cpu")
                 del self._model
                 self._model = None

@@ -8,8 +8,11 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
 from services.knowledge_base import (
-    KnowledgeBase, TextChunker, SimpleEmbedder,
-    InMemoryVectorStore, FileParser,
+    FileParser,
+    InMemoryVectorStore,
+    KnowledgeBase,
+    SimpleEmbedder,
+    TextChunker,
 )
 
 

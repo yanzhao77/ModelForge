@@ -2,14 +2,13 @@
 import os
 import tempfile
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
-from sqlalchemy.orm import Session as DBSession
-
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from models.records import User
+from pydantic import BaseModel
 from services.runtime_registry import get_runtime
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 

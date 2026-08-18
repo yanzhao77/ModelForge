@@ -1,12 +1,11 @@
 """Unified chat service: session history + memory injection + runtime + persistence."""
-from typing import AsyncIterator, Dict, List, Optional
-
-from sqlalchemy.orm import Session as DBSession
+from collections.abc import AsyncIterator
 
 from models.records import User
 from services.memory_store import MemoryStore
-from services.session_service import SessionService
 from services.runtime_registry import RuntimeRegistry
+from services.session_service import SessionService
+from sqlalchemy.orm import Session as DBSession
 
 
 def _memory_context(db: DBSession, user_id: int, query: str) -> str:
@@ -22,10 +21,10 @@ async def run_chat(
     db: DBSession,
     runtime: RuntimeRegistry,
     model: str,
-    messages: List[dict],
-    user: Optional[User] = None,
-    session_id: Optional[int] = None,
-) -> Dict:
+    messages: list[dict],
+    user: User | None = None,
+    session_id: int | None = None,
+) -> dict:
     """Run a chat turn. Persists to the session when session_id is provided."""
     if session_id is not None:
         if user is None:
@@ -64,10 +63,10 @@ async def stream_chat(
     db: DBSession,
     runtime: RuntimeRegistry,
     model: str,
-    messages: List[dict],
-    user: Optional[User] = None,
-    session_id: Optional[int] = None,
-) -> AsyncIterator[Dict]:
+    messages: list[dict],
+    user: User | None = None,
+    session_id: int | None = None,
+) -> AsyncIterator[dict]:
     """Stream chat deltas. Yields {"type": "delta", "data": chunk} ...
     {"type": "done", "data": {...}}."""
     session = None
@@ -92,7 +91,7 @@ async def stream_chat(
 
     runtime_obj = runtime.get()
     stream_fn = getattr(runtime_obj, "stream_chat", None)
-    parts: List[str] = []
+    parts: list[str] = []
     if stream_fn is not None:
         async for chunk in stream_fn(model, full_messages):
             parts.append(chunk)

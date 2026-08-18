@@ -3,21 +3,8 @@
 Wires all API routers and injects service singletons on startup (2.1 features
 stay untouched; the 3.0 Agent Runtime is layered on top).
 """
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 import hmac
-from fastapi.middleware.cors import CORSMiddleware
-
-from core.config import settings
-from core.database import init_db
-from services.agent_engine import get_engine
-from services.agent_runtime_service import build_agent_runtime, init_agent_runtime
-from services.knowledge_base import get_global_kb
-from services.plugin_manager import get_manager
-from services.runtime_registry import get_runtime
-from services.task_realtime import task_outbox_publisher
+from contextlib import asynccontextmanager
 
 from api import (
     agent,
@@ -35,6 +22,18 @@ from api import (
     tasks,
     train,
 )
+from core.config import settings
+from core.database import init_db
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from services.agent_engine import get_engine
+from services.agent_runtime_service import build_agent_runtime, init_agent_runtime
+from services.knowledge_base import get_global_kb
+from services.plugin_manager import get_manager
+from services.runtime_registry import get_runtime
+from services.task_execution import RetryTaskMonitor
+from services.task_realtime import task_outbox_publisher
 
 
 @asynccontextmanager
@@ -42,6 +41,7 @@ async def lifespan(app: FastAPI):
     """Initialize the database and inject service singletons."""
     init_db()
     task_outbox_publisher.start()
+    task_retry_monitor.start()
     runtime.set_runtime(get_runtime())
     agent.set_agent_engine(get_engine())
     knowledge.set_knowledge_base(get_global_kb())
@@ -55,15 +55,18 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        task_retry_monitor.stop()
         task_outbox_publisher.stop()
         await agent_runtime.shutdown()
 
 
+
+task_retry_monitor = RetryTaskMonitor(nudge=task_outbox_publisher.nudge)
 app = FastAPI(title="ModelForge", version="3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.cors_allow_origins.split(",") if origin.strip()],
+    allow_origins=settings.cors_origins,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
     allow_credentials=True,

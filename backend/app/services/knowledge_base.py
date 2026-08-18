@@ -12,10 +12,8 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-
 from models.records import KnowledgeChunk, KnowledgeDocument
 
 
@@ -23,9 +21,9 @@ class SimpleEmbedder:
     """Lightweight embedding using TF-IDF-like bag-of-words vectors."""
 
     def __init__(self):
-        self.vocab: Dict[str, int] = {}
+        self.vocab: dict[str, int] = {}
 
-    def fit(self, texts: List[str]):
+    def fit(self, texts: list[str]):
         for text in texts:
             for token in self._tokenize(text):
                 if token not in self.vocab:
@@ -43,10 +41,10 @@ class SimpleEmbedder:
             vec /= norm
         return vec
 
-    def embed_batch(self, texts: List[str]) -> List[np.ndarray]:
+    def embed_batch(self, texts: list[str]) -> list[np.ndarray]:
         return [self.embed(t) for t in texts]
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         return re.findall(r"[\w]+", text.lower())
 
 
@@ -54,14 +52,14 @@ class InMemoryVectorStore:
     """In-memory vector store with cosine similarity search."""
 
     def __init__(self):
-        self.documents: List[Dict] = []
-        self.vectors: List[np.ndarray] = []
+        self.documents: list[dict] = []
+        self.vectors: list[np.ndarray] = []
 
-    def add(self, doc_id: str, text: str, metadata: Dict, vector: np.ndarray):
+    def add(self, doc_id: str, text: str, metadata: dict, vector: np.ndarray):
         self.documents.append({"id": doc_id, "text": text, "metadata": metadata})
         self.vectors.append(vector)
 
-    def search(self, query_vector: np.ndarray, top_k: int = 5) -> List[Dict]:
+    def search(self, query_vector: np.ndarray, top_k: int = 5) -> list[dict]:
         if not self.vectors:
             return []
         scores = np.array([np.dot(query_vector, v) for v in self.vectors])
@@ -80,7 +78,7 @@ class InMemoryVectorStore:
 
     def remove_by_metadata(self, key: str, value):
         keep = [
-            (d, v) for d, v in zip(self.documents, self.vectors)
+            (d, v) for d, v in zip(self.documents, self.vectors, strict=False)
             if d["metadata"].get(key) != value
         ]
         self.documents = [d for d, _ in keep]
@@ -94,7 +92,7 @@ class TextChunker:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    def split(self, text: str) -> List[str]:
+    def split(self, text: str) -> list[str]:
         paragraphs = text.split("\n\n")
         chunks = []
         current = ""
@@ -128,7 +126,7 @@ class FileParser:
         ".yaml", ".yml", ".xml", ".toml", ".cfg", ".ini",
     }
 
-    def parse(self, filepath: str) -> Tuple[str, Dict]:
+    def parse(self, filepath: str) -> tuple[str, dict]:
         path = Path(filepath)
         ext = path.suffix.lower()
         if ext == ".pdf":
@@ -138,12 +136,12 @@ class FileParser:
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
-    def _parse_text(self, path: Path) -> Tuple[str, Dict]:
+    def _parse_text(self, path: Path) -> tuple[str, dict]:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
         return content, {"filename": path.name, "type": "text", "size": path.stat().st_size}
 
-    def _parse_pdf(self, path: Path) -> Tuple[str, Dict]:
+    def _parse_pdf(self, path: Path) -> tuple[str, dict]:
         try:
             import PyPDF2
             text = ""
@@ -183,7 +181,7 @@ class KnowledgeBase:
         if db is None or self._db_loaded:
             return
         try:
-            for doc in db.query(KnowledgeDocument).all():
+            for _doc in db.query(KnowledgeDocument).all():
                 self._docs_count += 1
             chunks = (
                 db.query(KnowledgeChunk)
@@ -203,7 +201,7 @@ class KnowledgeBase:
             # DB not ready (e.g. table missing) -> in-memory only
             self._db_loaded = True
 
-    def upload(self, filepath: str, db=None, user_id: Optional[int] = None, filename: Optional[str] = None) -> Dict:
+    def upload(self, filepath: str, db=None, user_id: int | None = None, filename: str | None = None) -> dict:
         """Ingest a file: parse, chunk, embed, index (and persist when db given)."""
         text, metadata = self.parser.parse(filepath)
         if filename:
@@ -222,7 +220,7 @@ class KnowledgeBase:
 
         file_id = hashlib.md5(filepath.encode()).hexdigest()[:12]
         chunk_meta_base = {"filename": metadata.get("filename", Path(filepath).name), "type": metadata.get("type", "text")}
-        for i, (chunk, vector) in enumerate(zip(chunks, new_vecs)):
+        for i, (chunk, vector) in enumerate(zip(chunks, new_vecs, strict=False)):
             doc_id = f"{file_id}_{i}"
             chunk_meta = {**chunk_meta_base, "chunk_index": i, "total_chunks": len(chunks)}
             self.vector_store.add(doc_id, chunk, chunk_meta, vector)
@@ -256,7 +254,7 @@ class KnowledgeBase:
             "type": metadata.get("type", "unknown"),
         }
 
-    def query(self, question: str, top_k: int = 5, db=None, user_id: Optional[int] = None) -> Dict:
+    def query(self, question: str, top_k: int = 5, db=None, user_id: int | None = None) -> dict:
         self._ensure_loaded(db)
         query_vector = self.embedder.embed(question)
         if db is not None and user_id is not None:
@@ -268,7 +266,7 @@ class KnowledgeBase:
             )
             vectors = self.embedder.embed_batch([row.content for row in rows]) if rows else []
             ranked = sorted(
-                zip(rows, vectors),
+                zip(rows, vectors, strict=False),
                 key=lambda pair: float(np.dot(query_vector, pair[1])),
                 reverse=True,
             )[:top_k]
@@ -298,8 +296,8 @@ class KnowledgeBase:
         }
 
     async def answer(
-        self, question: str, top_k: int = 5, db=None, user_id: Optional[int] = None, runtime=None, model: str = "default-model"
-    ) -> Dict:
+        self, question: str, top_k: int = 5, db=None, user_id: int | None = None, runtime=None, model: str = "default-model"
+    ) -> dict:
         """RAG answer: retrieve relevant chunks, then generate with the runtime."""
         query_result = self.query(question, top_k=top_k, db=db, user_id=user_id)
         sources = query_result["results"]
@@ -315,7 +313,7 @@ class KnowledgeBase:
         result = await runtime.chat(model, [{"role": "user", "content": prompt}])
         return {"answer": result.get("content", ""), "sources": sources}
 
-    def documents(self, db=None, user_id: Optional[int] = None) -> List[Dict]:
+    def documents(self, db=None, user_id: int | None = None) -> list[dict]:
         if db is not None:
             query = db.query(KnowledgeDocument)
             if user_id is not None:
@@ -329,7 +327,7 @@ class KnowledgeBase:
             seen[name]["chunks"] += 1
         return list(seen.values())
 
-    def delete_document(self, filename: str, db=None, user_id: Optional[int] = None) -> bool:
+    def delete_document(self, filename: str, db=None, user_id: int | None = None) -> bool:
         if db is not None:
             query = db.query(KnowledgeDocument).filter(KnowledgeDocument.filename == filename)
             if user_id is not None:
@@ -346,7 +344,7 @@ class KnowledgeBase:
             self._docs_count = max(0, self._docs_count - 1)
         return len(self.vector_store.documents) < before or doc is not None
 
-    def chunks(self, filename: str, db=None, user_id: Optional[int] = None) -> List[Dict]:
+    def chunks(self, filename: str, db=None, user_id: int | None = None) -> list[dict]:
         if db is not None:
             query = db.query(KnowledgeDocument).filter(KnowledgeDocument.filename == filename)
             if user_id is not None:
@@ -367,7 +365,7 @@ class KnowledgeBase:
             if d["metadata"].get("filename") == filename
         ]
 
-    def stats(self, db=None, user_id: Optional[int] = None) -> Dict:
+    def stats(self, db=None, user_id: int | None = None) -> dict:
         self._ensure_loaded(db)
         if db is not None and user_id is not None:
             docs = db.query(KnowledgeDocument).filter(KnowledgeDocument.user_id == user_id).all()

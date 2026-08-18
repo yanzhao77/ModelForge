@@ -3,7 +3,6 @@ import os
 import sys
 import tempfile
 
-import pytest
 from fastapi.testclient import TestClient
 
 # Ensure backend is importable

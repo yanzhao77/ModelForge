@@ -1,7 +1,7 @@
 """Singleton wiring for the 3.0 Agent Runtime (injected at app startup)."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from repositories.run_repository import SQLAlchemyRunStore
 from runtime.events import EventBus
@@ -9,7 +9,7 @@ from runtime.metrics import MetricsRegistry
 from runtime.runtime import AgentRuntime, default_provider_factory
 from services.agent_store import DBAgentStore
 
-_runtime: Optional[AgentRuntime] = None
+_runtime: AgentRuntime | None = None
 
 
 def init_agent_runtime(runtime: AgentRuntime) -> None:
@@ -17,7 +17,7 @@ def init_agent_runtime(runtime: AgentRuntime) -> None:
     _runtime = runtime
 
 
-def get_agent_runtime() -> Optional[AgentRuntime]:
+def get_agent_runtime() -> AgentRuntime | None:
     return _runtime
 
 

@@ -6,10 +6,19 @@ a user_id column for data isolation.
 """
 import datetime
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, ForeignKey, Index
-from sqlalchemy.orm import relationship
-
 from core.database import Base
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.orm import relationship
 
 
 class User(Base):

@@ -1,6 +1,7 @@
 """API Client for communicating with ModelForge backend (REST + SSE)."""
 import json
-from typing import Dict, Iterator, List, Optional
+from collections.abc import Iterator
+from typing import Dict
 
 import httpx
 
@@ -10,18 +11,18 @@ class ModelForgeClient:
 
     def __init__(self, base_url: str = "http://localhost:8000"):
         self.base_url = base_url.rstrip("/")
-        self._token: Optional[str] = None
-        self.username: Optional[str] = None
+        self._token: str | None = None
+        self.username: str | None = None
 
     # ---- auth state ----
 
-    def set_token(self, token: Optional[str]):
+    def set_token(self, token: str | None):
         self._token = token
 
     def has_token(self) -> bool:
         return bool(self._token)
 
-    def _headers(self) -> Dict:
+    def _headers(self) -> dict:
         headers = {"Content-Type": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
@@ -29,27 +30,27 @@ class ModelForgeClient:
 
     # ---- server info ----
 
-    def get_info(self) -> Dict:
+    def get_info(self) -> dict:
         return self._get("/")
 
-    def system_status(self) -> Dict:
+    def system_status(self) -> dict:
         return self._get("/api/v1/system/status")
 
     # ---- auth ----
 
-    def register(self, username: str, password: str, email: Optional[str] = None) -> Dict:
+    def register(self, username: str, password: str, email: str | None = None) -> dict:
         return self._post("/api/v1/auth/register", json={"username": username, "password": password, "email": email})
 
-    def login(self, username: str, password: str) -> Dict:
+    def login(self, username: str, password: str) -> dict:
         data = self._post("/api/v1/auth/login", json={"username": username, "password": password})
         self.set_token(data.get("token"))
         self.username = (data.get("user") or {}).get("username", username)
         return data
 
-    def me(self) -> Dict:
+    def me(self) -> dict:
         return self._get("/api/v1/auth/me")
 
-    def change_password(self, old_password: str, new_password: str) -> Dict:
+    def change_password(self, old_password: str, new_password: str) -> dict:
         return self._post(
             "/api/v1/auth/change-password",
             json={"old_password": old_password, "new_password": new_password},
@@ -57,132 +58,134 @@ class ModelForgeClient:
 
     # ---- models ----
 
-    def list_models(self) -> List[Dict]:
+    def list_models(self) -> list[dict]:
         return self._get("/api/v1/models")
 
-    def scan_models(self, path: Optional[str] = None) -> List[Dict]:
+    def scan_models(self, path: str | None = None) -> list[dict]:
         return self._post("/api/v1/models/scan", json={"path": path or None})
 
-    def install_model(self, name: str, provider: str, path: str, size: str = "") -> Dict:
+    def install_model(self, name: str, provider: str, path: str, size: str = "") -> dict:
         return self._post("/api/v1/models/install", json={"name": name, "provider": provider, "path": path, "size": size})
 
-    def remove_model(self, model_id: int) -> Dict:
+    def remove_model(self, model_id: int) -> dict:
         return self._delete(f"/api/v1/models/{model_id}")
 
-    def search_models(self, query: str = "", author: Optional[str] = None, limit: int = 20) -> List[Dict]:
+    def search_models(self, query: str = "", author: str | None = None, limit: int = 20) -> list[dict]:
         params = {"q": query, "limit": limit}
         if author:
             params["author"] = author
         return self._get("/api/v1/models/search", params=params)
 
-    def download_model(self, repo_id: str, filename: Optional[str] = None) -> Dict:
+    def download_model(self, repo_id: str, filename: str | None = None) -> dict:
         return self._post("/api/v1/models/download", json={"repo_id": repo_id, "filename": filename})
 
-    def download_status(self, task_id: str) -> Dict:
+    def download_status(self, task_id: str) -> dict:
         return self._get(f"/api/v1/models/download/{task_id}")
 
     # ---- runtime ----
 
-    def runtime_start(self, model: str) -> Dict:
+    def runtime_start(self, model: str) -> dict:
         return self._post("/api/v1/runtime/start", json={"model": model})
 
-    def runtime_chat(self, model: str, messages: list) -> Dict:
+    def runtime_chat(self, model: str, messages: list) -> dict:
         return self._post("/api/v1/runtime/chat", json={"model": model, "messages": messages})
 
-    def runtime_stop(self, model: str) -> Dict:
+    def runtime_stop(self, model: str) -> dict:
         return self._post("/api/v1/runtime/stop", json={"model": model})
 
-    def runtime_status(self) -> Dict:
+    def runtime_status(self) -> dict:
         return self._get("/api/v1/runtime/status")
 
     # ---- chat (JSON + SSE) ----
 
-    def chat(self, model: str, messages: list, session_id: Optional[int] = None) -> Dict:
+    def chat(self, model: str, messages: list, session_id: int | None = None) -> dict:
         return self._post(
             "/api/v1/chat",
             json={"model": model, "messages": messages, "session_id": session_id},
         )
 
     def stream_chat(
-        self, model: str, messages: list, session_id: Optional[int] = None
-    ) -> Iterator[Dict]:
+        self, model: str, messages: list, session_id: int | None = None
+    ) -> Iterator[dict]:
         """Yield SSE events: {type: delta|done|error, data: ...}."""
-        with httpx.Client(timeout=None) as client:
-            with client.stream(
-                "POST",
-                f"{self.base_url}/api/v1/chat/stream",
-                json={"model": model, "messages": messages, "session_id": session_id},
-                headers=self._headers(),
-            ) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    line = line.strip()
-                    if not line.startswith("data: "):
-                        continue
-                    try:
-                        event = json.loads(line[6:])
-                    except json.JSONDecodeError:
-                        continue
-                    yield event
-                    if event.get("type") in ("done", "error"):
-                        break
+        with httpx.Client(timeout=None) as client, client.stream(
+            "POST",
+            f"{self.base_url}/api/v1/chat/stream",
+            json={"model": model, "messages": messages, "session_id": session_id},
+            headers=self._headers(),
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                line = line.strip()
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    event = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
+                yield event
+                if event.get("type") in ("done", "error"):
+                    break
 
     # ---- sessions ----
 
-    def list_sessions(self) -> List[Dict]:
+    def list_sessions(self) -> list[dict]:
         return self._get("/api/v1/sessions")
 
-    def create_session(self, title: str = "新对话") -> Dict:
+    def create_session(self, title: str = "新对话") -> dict:
         return self._post("/api/v1/sessions", json={"title": title})
 
-    def get_session(self, session_id: int) -> Dict:
+    def get_session(self, session_id: int) -> dict:
         return self._get(f"/api/v1/sessions/{session_id}")
 
-    def rename_session(self, session_id: int, title: str) -> Dict:
+    def rename_session(self, session_id: int, title: str) -> dict:
         return self._patch(f"/api/v1/sessions/{session_id}", json={"title": title})
 
-    def delete_session(self, session_id: int) -> Dict:
+    def delete_session(self, session_id: int) -> dict:
         return self._delete(f"/api/v1/sessions/{session_id}")
 
-    def list_messages(self, session_id: int, limit: Optional[int] = None) -> List[Dict]:
+    def list_messages(self, session_id: int, limit: int | None = None) -> list[dict]:
         params = {}
         if limit:
             params["limit"] = limit
         return self._get(f"/api/v1/sessions/{session_id}/messages", params=params)
 
-    def clear_messages(self, session_id: int) -> Dict:
+    def clear_messages(self, session_id: int) -> dict:
         return self._delete(f"/api/v1/sessions/{session_id}/messages")
 
-    def auto_title(self, session_id: int) -> Dict:
+    def auto_title(self, session_id: int) -> dict:
         return self._post(f"/api/v1/sessions/{session_id}/title")
 
     # ---- memories ----
 
-    def list_memories(self, memory_type: Optional[str] = None) -> List[Dict]:
+    def list_memories(self, memory_type: str | None = None) -> list[dict]:
         params = {"memory_type": memory_type} if memory_type else {}
         return self._get("/api/v1/memories", params=params)
 
-    def create_memory(self, memory_type: str, key: str, value: str) -> Dict:
+    def create_memory(self, memory_type: str, key: str, value: str) -> dict:
         return self._post("/api/v1/memories", json={"memory_type": memory_type, "key": key, "value": value})
 
-    def search_memories(self, q: str) -> List[Dict]:
+    def search_memories(self, q: str) -> list[dict]:
         return self._get("/api/v1/memories/search", params={"q": q})
 
-    def delete_memory(self, memory_id: int) -> Dict:
+    def delete_memory(self, memory_id: int) -> dict:
         return self._delete(f"/api/v1/memories/{memory_id}")
 
     # ---- agents / knowledge (basic) ----
 
-    def create_agent(self, name: str, model: str, tools: List[str]) -> Dict:
+    def create_agent(self, name: str, model: str, tools: list[str]) -> dict:
         return self._post("/api/v1/agent/create", json={"name": name, "model": model, "tools": tools})
 
-    def list_agents(self) -> List[Dict]:
+    def list_agents(self) -> list[dict]:
         return self._get("/api/v1/agent/list")
 
-    def agent_chat(self, name: str, message: str) -> Dict:
+    def delete_agent(self, name: str) -> Dict:
+        return self._delete(f"/api/v1/agent/{name}")
+
+    def agent_chat(self, name: str, message: str) -> dict:
         return self._post(f"/api/v1/agent/{name}/chat", json={"message": message})
 
-    def knowledge_upload(self, filepath: str) -> Dict:
+    def knowledge_upload(self, filepath: str) -> dict:
         with open(filepath, "rb") as f:
             files = {"file": (filepath.split("/")[-1], f, "application/octet-stream")}
             with httpx.Client(timeout=120.0) as client:
@@ -192,19 +195,19 @@ class ModelForgeClient:
                 resp.raise_for_status()
                 return resp.json()
 
-    def knowledge_query(self, question: str, top_k: int = 5) -> Dict:
+    def knowledge_query(self, question: str, top_k: int = 5) -> dict:
         return self._post("/api/v1/knowledge/query", json={"question": question, "top_k": top_k})
 
 
     # ---- agent runs (3.0) ----
 
-    def create_agent_run(self, agent_id: str, input_text: str, session_id: Optional[int] = None, metadata: Optional[dict] = None, execute: bool = True) -> Dict:
+    def create_agent_run(self, agent_id: str, input_text: str, session_id: int | None = None, metadata: dict | None = None, execute: bool = True) -> dict:
         return self._post("/api/v1/agent/runs", json={
             "agent_id": agent_id, "input": input_text,
             "session_id": session_id, "metadata": metadata, "execute": execute,
         })
 
-    def list_agent_runs(self, agent_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50) -> List[Dict]:
+    def list_agent_runs(self, agent_id: str | None = None, status: str | None = None, limit: int = 50) -> list[dict]:
         params = {"limit": limit}
         if agent_id:
             params["agent_id"] = agent_id
@@ -212,61 +215,60 @@ class ModelForgeClient:
             params["status"] = status
         return self._get("/api/v1/agent/runs", params=params)
 
-    def get_agent_run(self, run_id: str) -> Dict:
+    def get_agent_run(self, run_id: str) -> dict:
         return self._get(f"/api/v1/agent/runs/{run_id}")
 
-    def cancel_agent_run(self, run_id: str) -> Dict:
+    def cancel_agent_run(self, run_id: str) -> dict:
         return self._post(f"/api/v1/agent/runs/{run_id}/cancel")
 
-    def approve_agent_run(self, run_id: str) -> Dict:
+    def approve_agent_run(self, run_id: str) -> dict:
         return self._post(f"/api/v1/agent/runs/{run_id}/approve")
 
-    def reject_agent_run(self, run_id: str) -> Dict:
+    def reject_agent_run(self, run_id: str) -> dict:
         return self._post(f"/api/v1/agent/runs/{run_id}/reject")
 
-    def get_agent_run_events(self, run_id: str, after_sequence: int = 0) -> List[Dict]:
+    def get_agent_run_events(self, run_id: str, after_sequence: int = 0) -> list[dict]:
         data = self._get(f"/api/v1/agent/runs/{run_id}/events", params={"after_sequence": after_sequence})
         return data.get("events", [])
 
-    def stream_agent_run(self, run_id: str, after_sequence: int = 0) -> Iterator[Dict]:
+    def stream_agent_run(self, run_id: str, after_sequence: int = 0) -> Iterator[dict]:
         """Yield SSE events: {event_type, sequence, timestamp, payload} (spec 26)."""
-        with httpx.Client(timeout=None) as client:
-            with client.stream(
-                "GET",
-                f"{self.base_url}/api/v1/agent/runs/{run_id}/stream",
-                params={"after_sequence": after_sequence},
-                headers=self._headers(),
-            ) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if line.startswith(":") or line.startswith("event:"):
-                        continue
-                    if not line.startswith("data: "):
-                        continue
-                    try:
-                        event = json.loads(line[6:])
-                    except json.JSONDecodeError:
-                        continue
-                    yield event
+        with httpx.Client(timeout=None) as client, client.stream(
+            "GET",
+            f"{self.base_url}/api/v1/agent/runs/{run_id}/stream",
+            params={"after_sequence": after_sequence},
+            headers=self._headers(),
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith(":") or line.startswith("event:"):
+                    continue
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    event = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
+                yield event
 
-    def list_agent_tools(self) -> List[Dict]:
+    def list_agent_tools(self) -> list[dict]:
         data = self._get("/api/v1/agent/tools")
         return data.get("tools", [])
 
-    def agent_metrics(self) -> Dict:
+    def agent_metrics(self) -> dict:
         return self._get("/api/v1/agent/metrics")
 
-    def register_mcp_server(self, name: str, endpoint: str) -> Dict:
+    def register_mcp_server(self, name: str, endpoint: str) -> dict:
         return self._post("/api/v1/agent/mcp/servers", json={"name": name, "endpoint": endpoint})
 
-    def list_mcp_servers(self) -> List[Dict]:
+    def list_mcp_servers(self) -> list[dict]:
         data = self._get("/api/v1/agent/mcp/servers")
         return data.get("servers", [])
 
-    def create_agent_config(self, name: str, model: str, tools: List[str], system_prompt: Optional[str] = None, policy: Optional[dict] = None, runtime_config: Optional[dict] = None) -> Dict:
+    def create_agent_config(self, name: str, model: str, tools: list[str], system_prompt: str | None = None, policy: dict | None = None, runtime_config: dict | None = None) -> dict:
         return self._post("/api/v1/agent/create", json={
             "name": name, "model": model, "tools": tools,
             "system_prompt": system_prompt, "policy": policy, "runtime_config": runtime_config,
@@ -274,7 +276,7 @@ class ModelForgeClient:
 
     # ---- datasets ----
 
-    def upload_dataset(self, filepath: str, name: Optional[str] = None) -> Dict:
+    def upload_dataset(self, filepath: str, name: str | None = None) -> dict:
         with open(filepath, "rb") as f:
             files = {"file": (filepath.split("/")[-1], f, "application/octet-stream")}
             data = {"name": name} if name else None
@@ -286,90 +288,89 @@ class ModelForgeClient:
                 resp.raise_for_status()
                 return resp.json()
 
-    def list_datasets(self) -> List[Dict]:
+    def list_datasets(self) -> list[dict]:
         return self._get("/api/v1/datasets")
 
-    def get_dataset(self, dataset_id: int) -> Dict:
+    def get_dataset(self, dataset_id: int) -> dict:
         return self._get(f"/api/v1/datasets/{dataset_id}")
 
-    def validate_dataset(self, dataset_id: int) -> Dict:
+    def validate_dataset(self, dataset_id: int) -> dict:
         return self._post(f"/api/v1/datasets/{dataset_id}/validate")
 
-    def delete_dataset(self, dataset_id: int) -> Dict:
+    def delete_dataset(self, dataset_id: int) -> dict:
         return self._delete(f"/api/v1/datasets/{dataset_id}")
 
     # ---- training ----
 
-    def train_templates(self) -> Dict:
+    def train_templates(self) -> dict:
         return self._get("/api/v1/train/templates")
 
-    def train_start(self, config: dict) -> Dict:
+    def train_start(self, config: dict) -> dict:
         return self._post("/api/v1/train/start", json=config)
 
-    def train_status(self, task_id: str) -> Dict:
+    def train_status(self, task_id: str) -> dict:
         return self._get(f"/api/v1/train/status/{task_id}")
 
-    def train_tasks(self) -> List[Dict]:
+    def train_tasks(self) -> list[dict]:
         return self._get("/api/v1/train/tasks")
 
-    def train_stop(self, task_id: str) -> Dict:
+    def train_stop(self, task_id: str) -> dict:
         return self._post(f"/api/v1/train/stop/{task_id}")
 
-    def train_register_model(self, task_id: str) -> Dict:
+    def train_register_model(self, task_id: str) -> dict:
         return self._post(f"/api/v1/train/{task_id}/register-model")
 
-    def train_stream(self, task_id: str) -> Iterator[Dict]:
+    def train_stream(self, task_id: str) -> Iterator[dict]:
         """Yield training SSE events: {type: log|progress|done, data: ...}."""
-        with httpx.Client(timeout=None) as client:
-            with client.stream(
-                "GET",
-                f"{self.base_url}/api/v1/train/stream/{task_id}",
-                headers=self._headers(),
-            ) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    line = line.strip()
-                    if not line.startswith("data: "):
-                        continue
-                    try:
-                        event = json.loads(line[6:])
-                    except json.JSONDecodeError:
-                        continue
-                    yield event
-                    if event.get("type") == "done":
-                        break
+        with httpx.Client(timeout=None) as client, client.stream(
+            "GET",
+            f"{self.base_url}/api/v1/train/stream/{task_id}",
+            headers=self._headers(),
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                line = line.strip()
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    event = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
+                yield event
+                if event.get("type") == "done":
+                    break
 
     # ---- knowledge ----
 
-    def knowledge_documents(self) -> List[Dict]:
+    def knowledge_documents(self) -> list[dict]:
         return self._get("/api/v1/knowledge/documents")
 
-    def knowledge_delete(self, filename: str) -> Dict:
+    def knowledge_delete(self, filename: str) -> dict:
         return self._delete(f"/api/v1/knowledge/documents/{filename}")
 
-    def knowledge_chunks(self, filename: str) -> List[Dict]:
+    def knowledge_chunks(self, filename: str) -> list[dict]:
         return self._get(f"/api/v1/knowledge/documents/{filename}/chunks")
 
-    def knowledge_answer(self, model: str, question: str, top_k: int = 3) -> Dict:
+    def knowledge_answer(self, model: str, question: str, top_k: int = 3) -> dict:
         return self._post(
             "/api/v1/knowledge/answer",
             json={"question": question, "top_k": top_k, "model": model},
         )
 
     # ---- global task center / onboarding ----
-    def list_tasks(self) -> List[Dict]:
+    def list_tasks(self) -> list[dict]:
         return self._get("/api/v1/tasks").get("tasks", [])
 
-    def task_summary(self) -> Dict:
+    def task_summary(self) -> dict:
         return self._get("/api/v1/tasks/summary")
 
-    def get_task(self, task_id: str) -> Dict:
+    def get_task(self, task_id: str) -> dict:
         return self._get(f"/api/v1/tasks/{task_id}")
 
-    def cancel_task(self, task_id: str) -> Dict:
+    def cancel_task(self, task_id: str) -> dict:
         return self._post(f"/api/v1/tasks/{task_id}/cancel")
 
-    def onboarding_state(self) -> Dict:
+    def onboarding_state(self) -> dict:
         return self._get("/api/v1/tasks/onboarding/state")
 
     def stream_tasks(self, after_id: int = 0):
@@ -382,7 +383,7 @@ class ModelForgeClient:
                 headers=headers, params={"after_id": max(0, after_id)},
             ) as response:
                 response.raise_for_status()
-                event: Dict = {}
+                event: dict = {}
                 for line in response.iter_lines():
                     if not line:
                         if event.get("data"):
@@ -402,25 +403,25 @@ class ModelForgeClient:
 
     # ---- HTTP helpers ----
 
-    def _get(self, path: str, **kwargs) -> Dict:
+    def _get(self, path: str, **kwargs) -> dict:
         with httpx.Client(timeout=30.0) as client:
             resp = client.get(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
             resp.raise_for_status()
             return resp.json()
 
-    def _post(self, path: str, **kwargs) -> Dict:
+    def _post(self, path: str, **kwargs) -> dict:
         with httpx.Client(timeout=120.0) as client:
             resp = client.post(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
             resp.raise_for_status()
             return resp.json()
 
-    def _patch(self, path: str, **kwargs) -> Dict:
+    def _patch(self, path: str, **kwargs) -> dict:
         with httpx.Client(timeout=30.0) as client:
             resp = client.patch(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
             resp.raise_for_status()
             return resp.json()
 
-    def _delete(self, path: str, **kwargs) -> Dict:
+    def _delete(self, path: str, **kwargs) -> dict:
         with httpx.Client(timeout=30.0) as client:
             resp = client.delete(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
             resp.raise_for_status()

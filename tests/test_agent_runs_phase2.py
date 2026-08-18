@@ -1,5 +1,4 @@
 """Phase 2: Agent Run tests - lifecycle, persistence, cancellation, API (spec 65)."""
-import asyncio
 import os
 import sys
 import tempfile
@@ -14,10 +13,10 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
 from runtime.cancellation import CancellationToken
-from runtime.run_context import RunContext
 from runtime.execution import ExecutionEngine
-from runtime.models import MockProvider, ModelResult
-from runtime.types import AgentConfig, RunRecord, RunStatus
+from runtime.models import MockProvider
+from runtime.run_context import RunContext
+from runtime.types import AgentConfig
 
 
 class FakeToolRunner:
@@ -148,9 +147,9 @@ class TestAgentRuntime:
     @pytest.fixture(autouse=True)
     def _runtime(self):
         # import models FIRST so init_db() creates all tables
+        from core.database import init_db
         from models.records import AgentRun  # noqa: F401
         from repositories.run_repository import SQLAlchemyRunStore
-        from core.database import init_db
         init_db()
         from runtime.events import EventBus
         from runtime.runtime import AgentRuntime
@@ -326,6 +325,7 @@ class TestAgentRunApi:
 
     def test_metrics_api(self, client):
         from unittest.mock import patch
+
         from core.config import settings
         h = self._login(client, "apiboth")
         with patch.object(settings, "runtime_admin_usernames", "apiboth"):

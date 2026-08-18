@@ -1,14 +1,12 @@
 """Memory API routes."""
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session as DBSession
 
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
+from pydantic import BaseModel
 from services.memory_store import MemoryStore
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -21,13 +19,13 @@ class MemoryCreate(BaseModel):
 
 
 class MemoryUpdate(BaseModel):
-    importance: Optional[float] = None
-    value: Optional[str] = None
+    importance: float | None = None
+    value: str | None = None
 
 
 @router.get("")
 def list_memories(
-    memory_type: Optional[str] = None, limit: Optional[int] = None,
+    memory_type: str | None = None, limit: int | None = None,
     db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     memories = MemoryStore.get_user_memories(db, user.id, memory_type, limit)

@@ -1,5 +1,4 @@
 """Phase 3: Event System tests - sequence, persistence, SSE stream + resume (spec 66)."""
-import asyncio
 import json
 import os
 import sys
@@ -13,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from runtime.events import AgentEvent, EventBus, EventType
+from runtime.events import EventBus, EventType
 from runtime.models import MockProvider
 from runtime.types import AgentConfig, RunStatus
 
@@ -50,9 +49,9 @@ class TestEventBus:
 
     @pytest.mark.asyncio
     async def test_event_persistence_via_store(self):
-        from repositories.event_repository import SQLAlchemyEventStore
         from core.database import init_db
         from models.records import AgentEventRecord  # noqa: F401
+        from repositories.event_repository import SQLAlchemyEventStore
         init_db()
         store = SQLAlchemyEventStore()
         bus = EventBus(store=store)
@@ -77,10 +76,10 @@ class TestEventBus:
 class TestRuntimeEvents:
     @pytest.fixture()
     def runtime(self):
-        from models.records import AgentRun  # noqa: F401
         from core.database import init_db
-        from repositories.run_repository import SQLAlchemyRunStore
+        from models.records import AgentRun  # noqa: F401
         from repositories.event_repository import SQLAlchemyEventStore
+        from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus
         from runtime.runtime import AgentRuntime
         from services.agent_store import DBAgentStore

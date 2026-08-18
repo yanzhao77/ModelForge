@@ -1,33 +1,31 @@
 """Training API routes: start/status/stream/stop/register/templates/tasks."""
 import asyncio
 import json
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from sqlalchemy.orm import Session as DBSession
 
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from models.records import User
-from services.training import TrainingService, get_log_tail
+from pydantic import BaseModel
 from services.task_service import project_legacy_tasks
+from services.training import TrainingService, get_log_tail
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/train", tags=["train"])
 
 
 class TrainStartRequest(BaseModel):
-    dataset_id: Optional[int] = None
-    dataset_path: Optional[str] = None
+    dataset_id: int | None = None
+    dataset_path: str | None = None
     base_model: str
     method: str = "lora"  # full | lora
     epochs: int = 3
     learning_rate: float = 2e-5
     batch_size: int = 2
-    lora_r: Optional[int] = 8
-    lora_alpha: Optional[int] = 32
-    target_modules: Optional[list] = None
+    lora_r: int | None = 8
+    lora_alpha: int | None = 32
+    target_modules: list | None = None
     output_dir: str = "./outputs"
 
 

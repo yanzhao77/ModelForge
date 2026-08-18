@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..logging import get_logger, log_run
 
@@ -17,7 +17,7 @@ class PluginContext:
         self,
         scope: Any,
         name: str,
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
         event_bus: Any = None,
         logger: Any = None,
     ):
@@ -33,7 +33,7 @@ class PluginContext:
         return self.scope.scope_id
 
     # ---- event publishing (reuse single EventBus, spec 7) ----
-    async def publish(self, event_type: str, payload: Optional[Dict[str, Any]] = None, correlation_id: Optional[str] = None) -> Any:
+    async def publish(self, event_type: str, payload: dict[str, Any] | None = None, correlation_id: str | None = None) -> Any:
         if self.event_bus is None:
             return None
         self._published += 1
@@ -49,14 +49,14 @@ class PluginContext:
         return self._published
 
     # ---- scoped tool registration ----
-    def register_tool(self, tool: Any, aliases: Optional[list] = None) -> Any:
+    def register_tool(self, tool: Any, aliases: list | None = None) -> Any:
         return self.scope.mount_tool(tool, aliases=aliases)
 
     # ---- structured logging ----
     def log(self, level: int, message: str, **fields: Any) -> None:
         log_run(self._logger, level, message, agent_id=self.scope_id, **fields)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "scope_id": self.scope_id,

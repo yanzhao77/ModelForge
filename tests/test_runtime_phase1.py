@@ -6,17 +6,21 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
 import pytest
-
-from runtime.errors import (
-    AgentNotFoundError, PolicyDeniedError, RunCancelledError, RunTimeoutError,
-    RuntimeError, ToolDeniedError, ERROR_CODES,
-)
 from runtime.cancellation import CancellationToken
+from runtime.errors import (
+    ERROR_CODES,
+    AgentNotFoundError,
+    PolicyDeniedError,
+    RunCancelledError,
+    RuntimeError,
+    RunTimeoutError,
+    ToolDeniedError,
+)
+from runtime.logging import get_logger, log_run
+from runtime.metrics import MetricsRegistry
+from runtime.run_context import RunContext, ToolExecutionContext
 from runtime.state import AgentState
 from runtime.types import RunRecord, RunStatus
-from runtime.run_context import RunContext, ToolExecutionContext
-from runtime.metrics import MetricsRegistry
-from runtime.logging import get_logger, log_run
 
 
 class TestErrors:
@@ -128,7 +132,6 @@ class TestRunContext:
         ctx.check_timeout()  # no raise
 
     def test_defaults_from_settings(self):
-        from core.config import settings
         ctx = RunContext(run_id="r", agent_id="a")
         assert ctx.max_iterations == 20
         assert ctx.max_tool_calls == 50

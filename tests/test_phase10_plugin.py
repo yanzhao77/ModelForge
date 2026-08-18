@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from core.plugin_base import Plugin, ModelPlugin, ToolPlugin, RuntimePlugin
+from core.plugin_base import ModelPlugin, Plugin, RuntimePlugin, ToolPlugin
 from services.plugin_manager import PluginManager
 
 

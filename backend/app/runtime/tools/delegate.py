@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict
+from typing import Any
 
 from ..tools.base import Tool, ToolResult
 
@@ -25,7 +25,7 @@ class DelegateTool(Tool):
         self._runtime = runtime
         self.aliases = []
 
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -35,7 +35,7 @@ class DelegateTool(Tool):
             "required": ["agent_id", "task"],
         }
 
-    async def execute(self, arguments: Dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(self, arguments: dict[str, Any], context: Any = None) -> ToolResult:
         agent_id = str(arguments.get("agent_id", ""))
         task = str(arguments.get("task", ""))
         if not agent_id:

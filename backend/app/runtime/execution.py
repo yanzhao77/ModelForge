@@ -2,17 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
-from .cancellation import CancellationToken
-from .run_context import RunContext, ToolExecutionContext
 from .errors import (
-    AgentLoopLimitError, AgentToolCallLimitError, RunCancelledError,
-    RunTimeoutError, RuntimeError, ToolDeniedError, ToolNotFoundError,
+    AgentLoopLimitError,
+    AgentToolCallLimitError,
+    RunCancelledError,
+    RuntimeError,
+    RunTimeoutError,
+    ToolDeniedError,
+    ToolNotFoundError,
     ToolTimeoutError,
 )
 from .logging import get_logger, log_run
 from .models.base import ModelProvider
+from .run_context import RunContext, ToolExecutionContext
 from .state import AgentState
 
 
@@ -29,11 +33,11 @@ class ExecutionEngine:
     def __init__(
         self,
         *,
-        event_bus: Optional[Any] = None,
-        tool_runner: Optional[Any] = None,
-        context_builder: Optional[Any] = None,
-        metrics: Optional[Any] = None,
-        logger: Optional[Any] = None,
+        event_bus: Any | None = None,
+        tool_runner: Any | None = None,
+        context_builder: Any | None = None,
+        metrics: Any | None = None,
+        logger: Any | None = None,
     ):
         self.event_bus = event_bus
         self.tool_runner = tool_runner
@@ -46,7 +50,7 @@ class ExecutionEngine:
         self,
         ctx: RunContext,
         provider: ModelProvider,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run the loop; never raises - returns an outcome dict (spec 20)."""
         state = AgentState(run_id=ctx.run_id)
         # system prompt is assembled by the ContextEngine when one is configured;
@@ -55,10 +59,10 @@ class ExecutionEngine:
             state.messages.append({"role": "system", "content": ctx.system_prompt})
         state.messages.append({"role": "user", "content": ctx.input_text or ""})
 
-        token_usage: Dict[str, int] = {}
+        token_usage: dict[str, int] = {}
         final_output = ""
         outcome_status = "COMPLETED"
-        error: Optional[str] = None
+        error: str | None = None
         started = time.monotonic()
 
         try:
@@ -208,7 +212,7 @@ class ExecutionEngine:
             ctx.cancellation.check()
         ctx.check_timeout()
 
-    def _tool_schemas(self, ctx: RunContext) -> Optional[list]:
+    def _tool_schemas(self, ctx: RunContext) -> list | None:
         if self.tool_runner is None or not ctx.tools:
             return None
         schemas = []
@@ -242,7 +246,7 @@ class ExecutionEngine:
             return False
         return await waiter(ctx, tool_name)
 
-    async def _emit(self, ctx: RunContext, event_type: str, payload: Dict[str, Any]) -> None:
+    async def _emit(self, ctx: RunContext, event_type: str, payload: dict[str, Any]) -> None:
         if self.event_bus is not None:
             await self.event_bus.publish(
                 ctx.run_id, event_type, payload=payload, session_id=ctx.session_id,

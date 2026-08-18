@@ -8,9 +8,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from runtime.plugins import PluginManifest, PluginManager
+from runtime.plugins import PluginManager, PluginManifest
 from runtime.plugins.manager import PLUGIN_LIFECYCLE_EVENTS
-
 
 PLUGIN_ENTRY = """
 from runtime.tools import Tool, ToolResult
@@ -41,8 +40,8 @@ def make_plugin_dir():
 
 
 def make_runtime(plugins_dir=None):
-    from models.records import AgentRun  # noqa: F401
     from core.database import init_db
+    from models.records import AgentRun  # noqa: F401
     from repositories.event_repository import SQLAlchemyEventStore
     from repositories.run_repository import SQLAlchemyRunStore
     from runtime.events import EventBus

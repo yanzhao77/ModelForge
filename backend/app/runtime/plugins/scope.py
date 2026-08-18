@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .context import PluginContext
 
-from ..logging import get_logger, log_run
+from ..logging import get_logger
 
 
 class PluginScope:
@@ -19,7 +19,7 @@ class PluginScope:
     def __init__(
         self,
         scope_id: str,
-        name: Optional[str] = None,
+        name: str | None = None,
         tool_registry: Any = None,
         event_bus: Any = None,
         logger: Any = None,
@@ -29,11 +29,11 @@ class PluginScope:
         self._tool_registry = tool_registry
         self._event_bus = event_bus
         self._logger = logger or get_logger()
-        self._owned_tools: Dict[str, Any] = {}
+        self._owned_tools: dict[str, Any] = {}
         self._mounted = False
 
     # ---- tool ownership ----
-    def mount_tool(self, tool: Any, aliases: Optional[List[str]] = None) -> Any:
+    def mount_tool(self, tool: Any, aliases: list[str] | None = None) -> Any:
         if self._tool_registry is None:
             raise RuntimeError("scope has no tool registry")
         # annotate ownership for capability discovery (3.x-P6)
@@ -45,7 +45,7 @@ class PluginScope:
         self._mounted = True
         return tool
 
-    def tools(self) -> Dict[str, Any]:
+    def tools(self) -> dict[str, Any]:
         return dict(self._owned_tools)
 
     def unmount(self) -> None:
@@ -60,7 +60,7 @@ class PluginScope:
     def mounted(self) -> bool:
         return self._mounted
 
-    def context(self, plugin_name: str, config: Optional[Dict[str, Any]] = None) -> "PluginContext":
+    def context(self, plugin_name: str, config: dict[str, Any] | None = None) -> PluginContext:
         from .context import PluginContext
         return PluginContext(
             scope=self,
@@ -70,7 +70,7 @@ class PluginScope:
             logger=self._logger,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "scope_id": self.scope_id,
             "name": self.name,

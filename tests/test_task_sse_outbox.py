@@ -10,8 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
-from core.database import SessionLocal
 from api.tasks import stream_tasks
+from core.database import SessionLocal
 from main import app
 from models.records import TaskOutbox
 

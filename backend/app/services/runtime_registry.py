@@ -1,5 +1,4 @@
 """Runtime registry: lazy per-backend runtime instances with LRU-ish eviction."""
-from typing import Dict, Optional
 
 from core.config import settings
 from services.ollama_runtime import OllamaRuntime
@@ -15,10 +14,10 @@ class RuntimeRegistry:
     MAX_RUNTIMES = 3
 
     def __init__(self):
-        self._runtimes: Dict[str, object] = {}
+        self._runtimes: dict[str, object] = {}
         self._default = "ollama"
 
-    def get(self, name: Optional[str] = None) -> object:
+    def get(self, name: str | None = None) -> object:
         name = name or self._default
         if name not in self._runtimes:
             if len(self._runtimes) >= self.MAX_RUNTIMES:
@@ -38,16 +37,16 @@ class RuntimeRegistry:
             return OpenAIRuntime()
         raise ValueError(f"Unknown runtime: {name}")
 
-    async def load(self, model_name: str, **kwargs) -> Dict:
+    async def load(self, model_name: str, **kwargs) -> dict:
         return await self.get().load(model_name, **kwargs)
 
-    async def chat(self, model_name: str, messages: list, **kwargs) -> Dict:
+    async def chat(self, model_name: str, messages: list, **kwargs) -> dict:
         return await self.get().chat(model_name, messages, **kwargs)
 
-    async def stop(self, model_name: str, **kwargs) -> Dict:
+    async def stop(self, model_name: str, **kwargs) -> dict:
         return await self.get().stop(model_name, **kwargs)
 
-    def status(self) -> Dict:
+    def status(self) -> dict:
         return {
             "default": self._default,
             "runtimes": {k: type(v).__name__ for k, v in self._runtimes.items()},

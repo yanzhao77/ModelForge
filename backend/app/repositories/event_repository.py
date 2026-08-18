@@ -1,9 +1,9 @@
 """EventStore port adapter backed by SQLAlchemy (agent_events table, spec 30)."""
 from __future__ import annotations
 
+import builtins
 import datetime
 import json
-from typing import List
 
 from core.database import SessionLocal
 from models.records import AgentEventRecord
@@ -37,7 +37,7 @@ class SQLAlchemyEventStore:
             ))
             db.commit()
 
-    def list(self, run_id: str, after_sequence: int = 0, limit: int = 1000) -> List[AgentEvent]:
+    def list(self, run_id: str, after_sequence: int = 0, limit: int = 1000) -> builtins.list[AgentEvent]:
         with SessionLocal() as db:
             rows = (
                 db.query(AgentEventRecord)

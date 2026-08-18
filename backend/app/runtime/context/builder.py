@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..run_context import RunContext
 
@@ -18,7 +18,7 @@ class ContextBuilder:
         memory_provider: Any = None,
         knowledge_provider: Any = None,
         history_provider: Any = None,
-        contributors: Optional[list] = None,
+        contributors: list | None = None,
     ):
         self.memory_provider = memory_provider
         self.knowledge_provider = knowledge_provider
@@ -28,12 +28,12 @@ class ContextBuilder:
     async def build(
         self,
         ctx: RunContext,
-        working_messages: List[Dict[str, Any]],
+        working_messages: list[dict[str, Any]],
         iteration: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return the prompt message list for the current LLM call."""
         system = ctx.system_prompt or "You are a helpful AI agent running tasks for the user."
-        extras: List[str] = []
+        extras: list[str] = []
 
         # memory retrieval (spec 17)
         memories = await self._retrieve_memories(ctx)
@@ -57,7 +57,7 @@ class ContextBuilder:
         if extras:
             system = system + "\n\n" + "\n".join(extras)
 
-        prompt: List[Dict[str, Any]] = [{"role": "system", "content": system}]
+        prompt: list[dict[str, Any]] = [{"role": "system", "content": system}]
 
         # session history (spec 5: Session is long-term context)
         if self.history_provider is not None and ctx.session_id is not None:
@@ -70,7 +70,7 @@ class ContextBuilder:
         prompt.extend(working_messages)
         return self._trim(prompt, ctx.max_context_tokens)
 
-    def _collect_contributions(self, ctx: RunContext) -> List[Dict[str, Any]]:
+    def _collect_contributions(self, ctx: RunContext) -> list[dict[str, Any]]:
         """Merge run-level contributions (from skill plugins / agent plugins) with
         builder-registered contributors, sorted by priority."""
         items = list(getattr(ctx, "contributions", None) or [])
@@ -82,7 +82,7 @@ class ContextBuilder:
                 continue
         return sorted(items, key=lambda x: int(x.get("priority", 50)))
 
-    async def _retrieve_memories(self, ctx: RunContext) -> List[str]:
+    async def _retrieve_memories(self, ctx: RunContext) -> list[str]:
         if self.memory_provider is None or ctx.user_id is None:
             return []
         if not ctx.memory_config:
@@ -95,7 +95,7 @@ class ContextBuilder:
         except Exception:
             return []
 
-    async def _retrieve_knowledge(self, ctx: RunContext) -> List[Dict[str, Any]]:
+    async def _retrieve_knowledge(self, ctx: RunContext) -> list[dict[str, Any]]:
         if self.knowledge_provider is None:
             return []
         if not ctx.knowledge_sources:
@@ -106,15 +106,15 @@ class ContextBuilder:
             return []
 
     @staticmethod
-    def _rough_tokens(msg: Dict[str, Any]) -> int:
+    def _rough_tokens(msg: dict[str, Any]) -> int:
         text = str(msg.get("content", "") or "")
         return max(1, len(text) // 4)
 
     def _trim(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         budget: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Context budget (spec 16): keep system + recent messages, drop oldest.
 
         Tool results and recent turns are preserved; only mid-history is dropped.

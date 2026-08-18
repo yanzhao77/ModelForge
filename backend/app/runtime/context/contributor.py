@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
@@ -16,11 +16,11 @@ class ContextSegment:
     section: str = "system"
     priority: int = 50
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"content": self.content, "section": self.section, "priority": self.priority}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ContextSegment":
+    def from_dict(cls, data: dict[str, Any]) -> ContextSegment:
         return cls(
             content=data.get("content", ""),
             section=data.get("section", "system"),
@@ -36,6 +36,6 @@ class ContextContributor(Protocol):
 
     name: str
 
-    def contribute(self, ctx: Any) -> List[ContextSegment]:
+    def contribute(self, ctx: Any) -> list[ContextSegment]:
         """Return segments to inject into the system context."""
         ...

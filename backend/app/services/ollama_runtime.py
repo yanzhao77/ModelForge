@@ -1,6 +1,6 @@
 """Ollama Runtime Engine implementation."""
 import json
-from typing import AsyncIterator, Dict, Optional
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -13,7 +13,7 @@ class OllamaRuntime(RuntimeEngine):
     def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url.rstrip("/")
 
-    async def load(self, model_name: str, **kwargs) -> Dict:
+    async def load(self, model_name: str, **kwargs) -> dict:
         """Ensure a model is available in Ollama (pull if needed)."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             # Check if model exists
@@ -32,7 +32,7 @@ class OllamaRuntime(RuntimeEngine):
 
             return {"status": "loaded", "model": model_name}
 
-    async def chat(self, model_name: str, messages: list, **kwargs) -> Dict:
+    async def chat(self, model_name: str, messages: list, **kwargs) -> dict:
         """Send a chat request to Ollama."""
         async with httpx.AsyncClient(timeout=120.0) as client:
             payload = {
@@ -72,6 +72,6 @@ class OllamaRuntime(RuntimeEngine):
                     if data.get("done"):
                         break
 
-    async def stop(self, model_name: str) -> Dict:
+    async def stop(self, model_name: str) -> dict:
         """Unload a model from memory (Ollama handles this implicitly)."""
         return {"status": "stopped", "model": model_name}

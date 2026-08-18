@@ -7,8 +7,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, "client", "pyside6"))
 
-from PySide6.QtCore import QCoreApplication
 from components.task_store import TaskStore
+from components.task_stream_worker import normalize_task_event
+from PySide6.QtCore import QCoreApplication
 
 
 class FakeApi:
@@ -46,3 +47,20 @@ def test_task_store_applies_cursor_events_idempotently_and_rebuilds_summary():
     assert store.tasks["task-1"]["status"] == "FAILED"
     assert store.last_event_id == 13
     app.processEvents()
+
+
+def test_task_stream_event_is_normalized_for_task_store_contract():
+    raw = {"id": "21", "event": "task.updated", "payload": task(version=4)}
+
+    normalized = normalize_task_event(raw)
+
+    assert normalized == {
+        "event_id": 21,
+        "event_type": "task.updated",
+        "payload": {"task": task(version=4)},
+    }
+
+
+def test_task_stream_event_rejects_missing_cursor_or_payload():
+    assert normalize_task_event({"payload": task()}) is None
+    assert normalize_task_event({"id": "7", "payload": "not-a-task"}) is None

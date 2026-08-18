@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .types import AgentEvent
 
@@ -17,12 +18,12 @@ class EventBus:
     writer (store) so clients can reconnect and resume (spec 30 / 31).
     """
 
-    def __init__(self, store: Optional[Any] = None):
+    def __init__(self, store: Any | None = None):
         self._store = store
-        self._subscribers: List[Subscriber] = []
-        self._sequences: Dict[str, int] = {}
+        self._subscribers: list[Subscriber] = []
+        self._sequences: dict[str, int] = {}
         self._queue = asyncio.Queue()
-        self._writer_task: Optional[asyncio.Task] = None
+        self._writer_task: asyncio.Task | None = None
         self._started = False
         self._write_failures = 0
 
@@ -64,9 +65,9 @@ class EventBus:
         run_id: str,
         event_type: str,
         *,
-        payload: Optional[Dict[str, Any]] = None,
-        session_id: Optional[int] = None,
-        correlation_id: Optional[str] = None,
+        payload: dict[str, Any] | None = None,
+        session_id: int | None = None,
+        correlation_id: str | None = None,
     ) -> AgentEvent:
         seq = self._sequences.get(run_id, 0) + 1
         self._sequences[run_id] = seq

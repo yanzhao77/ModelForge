@@ -11,7 +11,6 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
 from core.database import Base
-from models.records import ModelRecord
 from services.model_manager import ModelManager
 
 

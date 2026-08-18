@@ -2,14 +2,12 @@
 import asyncio
 import time
 import uuid
-from pathlib import Path
-from typing import Dict, Optional
 
 from core.config import settings
 
 
 class DownloadTask:
-    def __init__(self, repo_id: str, filename: Optional[str] = None):
+    def __init__(self, repo_id: str, filename: str | None = None):
         self.task_id = uuid.uuid4().hex[:12]
         self.repo_id = repo_id
         self.filename = filename
@@ -20,7 +18,7 @@ class DownloadTask:
         self.error = None
         self.created_at = time.time()
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "task_id": self.task_id,
             "repo_id": self.repo_id,
@@ -37,10 +35,10 @@ class Downloader:
     """In-memory download task registry. Persistence can be added later."""
 
     def __init__(self):
-        self._tasks: Dict[str, DownloadTask] = {}
+        self._tasks: dict[str, DownloadTask] = {}
         self._semaphore = asyncio.Semaphore(2)
 
-    def start(self, repo_id: str, filename: Optional[str] = None) -> DownloadTask:
+    def start(self, repo_id: str, filename: str | None = None) -> DownloadTask:
         task = DownloadTask(repo_id, filename)
         self._tasks[task.task_id] = task
         asyncio.get_event_loop().create_task(self._run(task))
@@ -73,13 +71,13 @@ class Downloader:
                 task.error = str(e)
                 task.message = "下载失败"
 
-    def get(self, task_id: str) -> Optional[DownloadTask]:
+    def get(self, task_id: str) -> DownloadTask | None:
         return self._tasks.get(task_id)
 
     def list(self) -> list:
         return [t.to_dict() for t in sorted(self._tasks.values(), key=lambda x: -x.created_at)]
 
-    def search_hf(self, query: str = "", author: Optional[str] = None, limit: int = 20) -> list:
+    def search_hf(self, query: str = "", author: str | None = None, limit: int = 20) -> list:
         """Search HuggingFace for models (GGUF-friendly)."""
         from services.hf_provider import HFProvider
         provider = HFProvider()

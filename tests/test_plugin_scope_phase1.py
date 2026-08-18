@@ -1,5 +1,4 @@
 """3.x-P1 tests: PluginScope + PluginContext (audit §16.4 scope mechanism)."""
-import asyncio
 import os
 import sys
 
@@ -21,8 +20,8 @@ class WeatherTool(Tool):
 
 class TestPluginScope:
     def _runtime(self):
-        from models.records import AgentRun  # noqa: F401
         from core.database import init_db
+        from models.records import AgentRun  # noqa: F401
         from repositories.event_repository import SQLAlchemyEventStore
         from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus

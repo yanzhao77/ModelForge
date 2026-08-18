@@ -17,9 +17,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app
 
 from runtime.errors import ToolDeniedError
 from runtime.policy import Policy
-from runtime.tools import ToolExecutor, ToolRegistry, ToolResult
-from runtime.tools.builtin import register_builtin_tools
 from runtime.run_context import ToolExecutionContext
+from runtime.tools import ToolExecutor, ToolRegistry
+from runtime.tools.builtin import register_builtin_tools
 
 
 def make_tctx(policy=None):
@@ -43,7 +43,6 @@ class TestExecutorPolicyEnforcement:
         ctx = make_tctx(policy=Policy(network_access=True))
         # network allowed by policy; the tool hits the network via searcher -
         # use a tool that fails fast but does NOT get denied by policy
-        from services.searcher import cached_search
         try:
             out = await ex.run("web.search", {"query": "xyzzy_nonexistent_zz"}, ctx)
             assert isinstance(out, str)
@@ -60,14 +59,14 @@ class TestExecutorPolicyEnforcement:
 
     @pytest.mark.asyncio
     async def test_engine_still_works_with_double_gate(self):
-        from runtime.models import MockProvider
-        from runtime.types import AgentConfig
-        from services.agent_store import DBAgentStore
+        from core.database import init_db
+        from models.records import AgentRun  # noqa: F401
         from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus
+        from runtime.models import MockProvider
         from runtime.runtime import AgentRuntime
-        from models.records import AgentRun  # noqa: F401
-        from core.database import init_db
+        from runtime.types import AgentConfig
+        from services.agent_store import DBAgentStore
         init_db()
         registry = register_builtin_tools(ToolRegistry())
         rt = AgentRuntime(
@@ -116,7 +115,7 @@ class TestTwoOnePolicyGuard:
         engine = AgentEngine()
         engine.create_agent("p0legacy", "m", ["web_search"])
         # LangChain tool name = wrapped function name (tool_web_search)
-        result = engine.chat("p0legacy", "search", llm=_ToolLLM("tool_web_search", {"query": "x"}),
+        engine.chat("p0legacy", "search", llm=_ToolLLM("tool_web_search", {"query": "x"}),
                              policy=Policy(), tool_registry=register_builtin_tools(ToolRegistry()))
         # default policy denies network; the tool result carries the denial
         from langchain_core.messages import ToolMessage
@@ -150,13 +149,13 @@ class TestTwoOnePolicyGuard:
 class TestBookkeepingPruning:
     @pytest.mark.asyncio
     async def test_run_state_pruned_after_terminal(self):
-        from models.records import AgentRun  # noqa: F401
         from core.database import init_db
-        from repositories.run_repository import SQLAlchemyRunStore
+        from models.records import AgentRun  # noqa: F401
         from repositories.event_repository import SQLAlchemyEventStore
+        from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus
-        from runtime.runtime import AgentRuntime
         from runtime.models import MockProvider
+        from runtime.runtime import AgentRuntime
         from runtime.types import AgentConfig
         from services.agent_store import DBAgentStore
         init_db()
@@ -181,7 +180,7 @@ class TestBookkeepingPruning:
     def test_metrics_durations_capped(self):
         from runtime.metrics import MetricsRegistry
         m = MetricsRegistry()
-        for i in range(m.MAX_DURATION_SAMPLES + 500):
+        for _i in range(m.MAX_DURATION_SAMPLES + 500):
             m.record("tool_call_duration", 0.001)
         assert len(m._durations["tool_call_duration"]) == m.MAX_DURATION_SAMPLES
 

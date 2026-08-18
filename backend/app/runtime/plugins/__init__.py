@@ -5,8 +5,8 @@ the single EventBus.
 """
 
 from .context import PluginContext
-from .manager import PluginManager, PLUGIN_LIFECYCLE_EVENTS
+from .manager import PLUGIN_LIFECYCLE_EVENTS, PluginManager
 from .manifest import PluginManifest
 from .scope import PluginScope
 
-__all__ = ["PluginContext", "PluginManager", "PluginManifest", "PluginScope", "PLUGIN_LIFECYCLE_EVENTS"]
+__all__ = ["PLUGIN_LIFECYCLE_EVENTS", "PluginContext", "PluginManager", "PluginManifest", "PluginScope"]

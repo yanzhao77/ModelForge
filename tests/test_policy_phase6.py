@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app
 
 from runtime.models import MockProvider
 from runtime.policy import Policy, PolicyDecision, PolicyEngine
-from runtime.tools import PermissionLevel
 from runtime.tools.builtin import register_builtin_tools
 from runtime.tools.registry import ToolRegistry
 
@@ -80,14 +79,14 @@ class TestPolicy:
 
 class TestPolicyRuntime:
     def _runtime(self, agent_policy=None, provider_script=None, agent_tools=None):
-        from models.records import AgentRun  # noqa: F401
         from core.database import init_db
+        from models.records import AgentRun  # noqa: F401
         from repositories.event_repository import SQLAlchemyEventStore
         from repositories.run_repository import SQLAlchemyRunStore
         from runtime.events import EventBus
+        from runtime.models import MockProvider
         from runtime.runtime import AgentRuntime
         from runtime.tools import ToolExecutor
-        from runtime.models import MockProvider
         from runtime.types import AgentConfig
         from services.agent_store import DBAgentStore
         init_db()
@@ -199,7 +198,6 @@ class TestPolicyRuntime:
         from fastapi.testclient import TestClient
         from main import app
         from services.agent_runtime_service import get_agent_runtime
-        from runtime.types import AgentConfig
         with TestClient(app) as c:
             rt = get_agent_runtime()
             rt.provider_factory = lambda m: MockProvider(script=[

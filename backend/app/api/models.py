@@ -1,21 +1,19 @@
 """Model management API routes."""
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session as DBSession
 
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
+from pydantic import BaseModel
 from services.downloader import downloader
 from services.model_manager import ModelManager
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/models", tags=["models"])
 
 
 class ScanRequest(BaseModel):
-    path: Optional[str] = None
+    path: str | None = None
 
 
 class InstallRequest(BaseModel):
@@ -23,13 +21,13 @@ class InstallRequest(BaseModel):
     provider: str = "local"
     path: str
     size: str = ""
-    format: Optional[str] = None
-    quant: Optional[str] = None
+    format: str | None = None
+    quant: str | None = None
 
 
 class DownloadRequest(BaseModel):
     repo_id: str
-    filename: Optional[str] = None
+    filename: str | None = None
 
 
 def _manager(db: DBSession) -> ModelManager:
@@ -66,7 +64,7 @@ def install_model(
 
 @router.get("/search")
 def search_hf_models(
-    q: str = "", author: Optional[str] = None, limit: int = 20,
+    q: str = "", author: str | None = None, limit: int = 20,
     user: User = Depends(get_current_user),
 ):
     try:

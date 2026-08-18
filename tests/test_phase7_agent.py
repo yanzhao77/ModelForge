@@ -3,13 +3,13 @@ import os
 import sys
 import tempfile
 from unittest.mock import patch
-from core.config import settings
 
+from core.config import settings
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from services.agent_tools import tool_file_read, tool_code_search, tool_command_execute
 from services.agent_engine import AgentEngine
+from services.agent_tools import tool_code_search, tool_command_execute, tool_file_read
 
 
 class TestAgentTools:

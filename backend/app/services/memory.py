@@ -1,9 +1,8 @@
 ﻿"""Memory System - short-term conversation and long-term vector memory."""
 import time
 import uuid
-from typing import List, Dict, Optional
 
-from .knowledge_base import SimpleEmbedder, InMemoryVectorStore
+from .knowledge_base import InMemoryVectorStore, SimpleEmbedder
 
 
 class ConversationMemory:
@@ -11,7 +10,7 @@ class ConversationMemory:
 
     def __init__(self, max_messages: int = 50):
         self.max_messages = max_messages
-        self._store: Dict[str, List[Dict]] = {}
+        self._store: dict[str, list[dict]] = {}
 
     def add(self, session_id: str, role: str, content: str):
         """Add a message to the conversation."""
@@ -25,7 +24,7 @@ class ConversationMemory:
         if len(self._store[session_id]) > self.max_messages:
             self._store[session_id] = self._store[session_id][-self.max_messages:]
 
-    def get(self, session_id: str, limit: Optional[int] = None) -> List[Dict]:
+    def get(self, session_id: str, limit: int | None = None) -> list[dict]:
         """Get recent messages for a session."""
         messages = self._store.get(session_id, [])
         if limit:
@@ -57,7 +56,7 @@ class LongTermMemory:
         self.store = InMemoryVectorStore()
         self.embedder = SimpleEmbedder()
 
-    def remember(self, session_id: str, content: str, metadata: Optional[Dict] = None):
+    def remember(self, session_id: str, content: str, metadata: dict | None = None):
         """Store a fact or piece of knowledge."""
         old_texts = [v["text"] for v in self.store.documents]
         all_texts = old_texts + [content]
@@ -69,12 +68,12 @@ class LongTermMemory:
         doc_id = f"mem_{session_id}_{uuid.uuid4().hex[:8]}"
         self.store.add(doc_id, content, metadata or {}, new_vector)
 
-    def recall(self, query: str, top_k: int = 5) -> List[Dict]:
+    def recall(self, query: str, top_k: int = 5) -> list[dict]:
         """Retrieve relevant memories by semantic search."""
         query_vector = self.embedder.embed(query)
         return self.store.search(query_vector, top_k=top_k)
 
-    def stats(self) -> Dict:
+    def stats(self) -> dict:
         """Get memory statistics."""
         return {
             "total_memories": len(self.store.documents),
@@ -93,7 +92,7 @@ class MemoryManager:
         """Add a message to short-term memory."""
         self.conversation.add(session_id, role, content)
 
-    def get_conversation(self, session_id: str, limit: int = 10) -> List[Dict]:
+    def get_conversation(self, session_id: str, limit: int = 10) -> list[dict]:
         """Get recent conversation history."""
         return self.conversation.get(session_id, limit=limit)
 
@@ -101,7 +100,7 @@ class MemoryManager:
         """Store knowledge in long-term memory."""
         self.long_term.remember(session_id, content)
 
-    def recall(self, query: str, top_k: int = 5) -> List[Dict]:
+    def recall(self, query: str, top_k: int = 5) -> list[dict]:
         """Recall knowledge from long-term memory."""
         return self.long_term.recall(query, top_k)
 
@@ -109,7 +108,7 @@ class MemoryManager:
         """Clear short-term memory for a session."""
         self.conversation.clear(session_id)
 
-    def stats(self) -> Dict:
+    def stats(self) -> dict:
         return {
             "short_term_sessions": len(self.conversation._store),
             "long_term": self.long_term.stats(),

@@ -1,13 +1,9 @@
 """Model Manager - manages AI model lifecycle (scan, list, info, install, remove)."""
-import os
-import datetime
 from pathlib import Path
-from typing import List, Optional, Dict
-
-from sqlalchemy.orm import Session
 
 from core.config import load_config
 from models.records import ModelRecord
+from sqlalchemy.orm import Session
 
 
 class ModelManager:
@@ -22,14 +18,14 @@ class ModelManager:
         self.config = load_config()
         self.model_path = Path(self.config.model_path).resolve()
 
-    def scan(self, path: Optional[str] = None, user_id: Optional[int] = None) -> List[ModelRecord]:
+    def scan(self, path: str | None = None, user_id: int | None = None) -> list[ModelRecord]:
         """Scan a directory for model files and register them in the database.
 
         Recognizes common model file extensions: .gguf, .bin, .safetensors, .pt, .pth
         and directories containing model config files.
         """
         scan_path = Path(path).resolve() if path else self.model_path
-        discovered: List[ModelRecord] = []
+        discovered: list[ModelRecord] = []
 
         if not scan_path.exists():
             return discovered
@@ -47,7 +43,7 @@ class ModelManager:
         self.db.commit()
         return discovered
 
-    def list(self, user_id: Optional[int] = None) -> List[ModelRecord]:
+    def list(self, user_id: int | None = None) -> list[ModelRecord]:
         """List all registered models."""
         query = self.db.query(ModelRecord)
         if user_id is not None:
@@ -56,13 +52,13 @@ class ModelManager:
             )
         return query.order_by(ModelRecord.created_time.desc()).all()
 
-    def info(self, model_id: int) -> Optional[ModelRecord]:
+    def info(self, model_id: int) -> ModelRecord | None:
         """Get detailed info about a specific model."""
         return self.db.query(ModelRecord).filter_by(id=model_id).first()
 
     def install(
         self, name: str, provider: str, path: str, size: str = "",
-        user_id: Optional[int] = None, model_format: Optional[str] = None, quant: Optional[str] = None,
+        user_id: int | None = None, model_format: str | None = None, quant: str | None = None,
     ) -> ModelRecord:
         """Register an installed model."""
         query = self.db.query(ModelRecord).filter_by(name=name)
@@ -95,7 +91,7 @@ class ModelManager:
         self.db.commit()
         return existing
 
-    def remove(self, model_id: int, user_id: Optional[int] = None) -> bool:
+    def remove(self, model_id: int, user_id: int | None = None) -> bool:
         """Remove a model from the database (does not delete files)."""
         query = self.db.query(ModelRecord).filter_by(id=model_id)
         if user_id is not None:
@@ -110,7 +106,7 @@ class ModelManager:
         return True
 
     def _register_file_model(
-        self, filepath: Path, user_id: Optional[int] = None
+        self, filepath: Path, user_id: int | None = None
     ) -> ModelRecord:
         """Register a single model file."""
         name = filepath.stem
@@ -139,7 +135,7 @@ class ModelManager:
         return record
 
     def _register_dir_model(
-        self, dirpath: Path, user_id: Optional[int] = None
+        self, dirpath: Path, user_id: int | None = None
     ) -> ModelRecord:
         """Register a model directory (contains config.json or similar)."""
         name = dirpath.name

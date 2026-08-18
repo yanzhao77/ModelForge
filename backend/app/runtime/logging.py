@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 
 def get_logger(name: str = "modelforge.runtime") -> logging.Logger:
@@ -14,9 +14,9 @@ def log_run(
     level: int,
     message: str,
     *,
-    run_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
-    session_id: Optional[int] = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    session_id: int | None = None,
     **fields: Any,
 ) -> None:
     """Structured log line; every runtime log carries run_id (spec 48)."""

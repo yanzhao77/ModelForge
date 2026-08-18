@@ -4,13 +4,14 @@ Builds a real LangGraph StateGraph: agent(node) -> tools(node) -> agent ...
 until the LLM stops requesting tool calls. An llm_callback shim keeps the
 simple test path working without a live LLM.
 """
-from typing import Annotated, Any, Callable, Dict, List, Optional, TypedDict
+from collections.abc import Callable
+from typing import Annotated, Any, TypedDict
 
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import tool as langchain_tool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.tools import tool as langchain_tool
 
 from .agent_tools import AGENT_TOOLS
 
@@ -34,7 +35,7 @@ class _CallbackLLM:
         return AIMessage(content=text)
 
 
-def _make_langchain_tools(tool_names: List[str], policy=None, tool_registry=None) -> List:
+def _make_langchain_tools(tool_names: list[str], policy=None, tool_registry=None) -> list:
     """Convert named tools to LangChain tool objects.
 
     When a runtime Policy is supplied (3.x hardening, audit R2), each tool is
@@ -70,13 +71,13 @@ class AgentEngine:
     """Manages AI agents with tool-calling via LangGraph."""
 
     def __init__(self):
-        self.agents: Dict[str, Dict] = {}
+        self.agents: dict[str, dict] = {}
 
     def create_agent(
-        self, name: str, model_name: str, tools: Optional[List[str]] = None,
-        plugins: Optional[List[str]] = None,
-        memory_config: Optional[Dict] = None, system_prompt: Optional[str] = None,
-    ) -> Dict:
+        self, name: str, model_name: str, tools: list[str] | None = None,
+        plugins: list[str] | None = None,
+        memory_config: dict | None = None, system_prompt: str | None = None,
+    ) -> dict:
         """Create and register a new agent."""
         agent_info = {
             "name": name,
@@ -92,9 +93,9 @@ class AgentEngine:
 
     def chat(
         self, name: str, user_message: str,
-        llm_callback: Optional[Callable] = None, llm: Any = None,
+        llm_callback: Callable | None = None, llm: Any = None,
         policy: Any = None, tool_registry: Any = None,
-    ) -> Dict:
+    ) -> dict:
         """Run a chat turn with the agent.
 
         Pass either a LangChain-compatible `llm` (real deployment) or the
@@ -132,7 +133,7 @@ class AgentEngine:
             "model": agent["model"],
         }
 
-    def _build_graph(self, agent: Dict, llm: Any, policy: Any = None, tool_registry: Any = None):
+    def _build_graph(self, agent: dict, llm: Any, policy: Any = None, tool_registry: Any = None):
         """Build the LangGraph StateGraph with agent + tool nodes."""
         tools = _make_langchain_tools(agent["tools"], policy=policy, tool_registry=tool_registry)
         llm_with_tools = llm.bind_tools(tools) if tools else llm
@@ -164,13 +165,13 @@ class AgentEngine:
             graph.add_conditional_edges("agent", should_continue, {END: END})
         return graph.compile()
 
-    def list_agents(self) -> List[Dict]:
+    def list_agents(self) -> list[dict]:
         return [
             {"name": a["name"], "model": a["model"], "tools": a["tools"], "plugins": a.get("plugins") or []}
             for a in self.agents.values()
         ]
 
-    def get_agent(self, name: str) -> Optional[Dict]:
+    def get_agent(self, name: str) -> dict | None:
         return self.agents.get(name)
 
     def delete_agent(self, name: str) -> bool:

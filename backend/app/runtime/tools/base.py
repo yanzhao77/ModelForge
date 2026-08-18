@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class PermissionLevel:
@@ -22,15 +22,15 @@ class ToolResult:
 
     success: bool
     output: Any = None
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def ok(cls, output: Any, **metadata: Any) -> "ToolResult":
+    def ok(cls, output: Any, **metadata: Any) -> ToolResult:
         return cls(success=True, output=output, metadata=metadata)
 
     @classmethod
-    def err(cls, error: str, **metadata: Any) -> "ToolResult":
+    def err(cls, error: str, **metadata: Any) -> ToolResult:
         return cls(success=False, error=error, metadata=metadata)
 
     def to_text(self) -> str:
@@ -38,7 +38,7 @@ class ToolResult:
             return str(self.output) if self.output is not None else "(no output)"
         return f"Error: {self.error}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
             "output": self.output,
@@ -58,19 +58,19 @@ class Tool(ABC):
     name: str = ""
     description: str = ""
     version: str = "1.0.0"
-    permissions: List[str] = []
+    permissions: list[str] = []
     timeout: float = 60.0
     retry_count: int = 0
     retry_delay: float = 1.0
-    retryable_errors: List[str] = []
+    retryable_errors: list[str] = []
     source: str = "builtin"
-    metadata: Dict[str, Any] = {}
-    aliases: List[str] = []
+    metadata: dict[str, Any] = {}
+    aliases: list[str] = []
 
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {"type": "object", "properties": {}}
 
-    def schema(self) -> Dict[str, Any]:
+    def schema(self) -> dict[str, Any]:
         """OpenAI-compatible tool schema (spec 9: def schema())."""
         return {
             "type": "function",
@@ -81,7 +81,7 @@ class Tool(ABC):
             },
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
@@ -102,7 +102,7 @@ class Tool(ABC):
     @abstractmethod
     async def execute(
         self,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         context: Any,
     ) -> ToolResult:
         """Execute the tool with validated arguments (spec 9)."""

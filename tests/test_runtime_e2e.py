@@ -23,8 +23,8 @@ from runtime.types import AgentConfig
 
 
 def build_runtime(provider_script=None, provider_factory=None, agent_cfg=None):
-    from models.records import AgentRun  # noqa: F401
     from core.database import init_db
+    from models.records import AgentRun  # noqa: F401
     from repositories.event_repository import SQLAlchemyEventStore
     from repositories.run_repository import SQLAlchemyRunStore
     from runtime.events import EventBus
@@ -118,7 +118,6 @@ class TestE2E:
 
     @pytest.mark.asyncio
     async def test_tool_timeout_in_run(self):
-        from runtime.tools import ToolRegistry as TR
         rt = build_runtime(
             provider_script=[
                 MockProvider.tool_call("slow.tool", {}),

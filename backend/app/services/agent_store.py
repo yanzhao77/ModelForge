@@ -1,8 +1,9 @@
 """AgentStore adapter: AgentEngine (in-memory, 2.1 compat) + agents table (3.0 persistence)."""
 from __future__ import annotations
 
+import builtins
 import json
-from typing import Any, List, Optional
+from typing import Any
 
 from core.database import SessionLocal
 from models.records import AgentRecord
@@ -43,7 +44,7 @@ class DBAgentStore:
             status=row.status or "active",
         )
 
-    def get(self, name: str, user_id: Optional[int] = None) -> Optional[AgentConfig]:
+    def get(self, name: str, user_id: int | None = None) -> AgentConfig | None:
         # DB row first: it carries the full 3.0 config (policy, runtime_config,
         # knowledge_config). The in-memory engine entry is the fallback.
         with SessionLocal() as db:
@@ -85,8 +86,8 @@ class DBAgentStore:
             db.commit()
         return config
 
-    def list(self, user_id: Optional[int] = None) -> List[AgentConfig]:
-        out: List[AgentConfig] = []
+    def list(self, user_id: int | None = None) -> builtins.list[AgentConfig]:
+        out: list[AgentConfig] = []
         seen = set()
         if user_id is None and self._engine is not None:
             for a in self._engine.list_agents():
@@ -103,7 +104,7 @@ class DBAgentStore:
                 out.append(self._from_row(row))
         return out
 
-    def delete(self, name: str, user_id: Optional[int] = None) -> bool:
+    def delete(self, name: str, user_id: int | None = None) -> bool:
         deleted = False
         with SessionLocal() as db:
             query = db.query(AgentRecord).filter(AgentRecord.name == name)

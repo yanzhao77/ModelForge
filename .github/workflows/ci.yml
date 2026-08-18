@@ -19,7 +19,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt -r requirements-gui.txt
       - name: Lint (ruff)
-        run: ruff check backend/app client/pyside6 --ignore E501,F401
+        run: ruff check backend/app client/pyside6 tests
       - name: Security dependency audit
         run: pip-audit -r requirements.txt
       - name: Run full test suite with coverage
@@ -43,7 +43,7 @@ jobs:
         run: |
           set -e
           CONTAINER="modelforge-ci-${{ github.run_id }}-${{ github.run_attempt }}"
-          docker run -d --name "$CONTAINER" -p 8000:8000             -e JWT_SECRET="ci-only-jwt-secret-that-is-at-least-thirty-two-characters"             modelforge:ci
+          docker run -d --name "$CONTAINER" -p 8000:8000             -e JWT_SECRET="ci-only-jwt-secret-that-is-at-least-thirty-two-characters"                        -e CORS_ALLOW_ORIGINS="https://console.example.test"             modelforge:ci
           trap 'docker logs "$CONTAINER" || true; docker rm -f "$CONTAINER" || true' EXIT
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/healthz; then exit 0; fi

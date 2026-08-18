@@ -1,25 +1,23 @@
 """Session and message API routes."""
-from typing import List, Optional
-
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session as DBSession
 
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
+from pydantic import BaseModel
 from services.session_service import SessionService
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 class SessionCreate(BaseModel):
     title: str = "新对话"
-    model_id: Optional[int] = None
+    model_id: int | None = None
 
 
 class SessionUpdate(BaseModel):
-    title: Optional[str] = None
+    title: str | None = None
 
 
 class MessageCreate(BaseModel):
@@ -99,7 +97,7 @@ def delete_session(
 
 @router.get("/{session_id}/messages")
 def list_messages(
-    session_id: int, limit: Optional[int] = None, offset: Optional[int] = 0,
+    session_id: int, limit: int | None = None, offset: int | None = 0,
     db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     _session_or_404(db, session_id, user.id)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import builtins
+from typing import Any
 
 from .adapter import MCPToolAdapter
 
@@ -13,7 +14,7 @@ class MCPRegistry:
     """
 
     def __init__(self):
-        self._servers: Dict[str, Any] = {}
+        self._servers: dict[str, Any] = {}
 
     def register(self, client: Any) -> Any:
         self._servers[client.name] = client
@@ -22,10 +23,10 @@ class MCPRegistry:
     def unregister(self, name: str) -> bool:
         return self._servers.pop(name, None) is not None
 
-    def get(self, name: str) -> Optional[Any]:
+    def get(self, name: str) -> Any | None:
         return self._servers.get(name)
 
-    def list(self) -> List[Dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         out = []
         for s in self._servers.values():
             entry = {"name": s.name, "endpoint": s.endpoint, "server_info": s.server_info}
@@ -34,7 +35,7 @@ class MCPRegistry:
             out.append(entry)
         return out
 
-    def names(self) -> List[str]:
+    def names(self) -> builtins.list[str]:
         return list(self._servers.keys())
 
     def sync_tools(self, tool_registry: Any) -> int:

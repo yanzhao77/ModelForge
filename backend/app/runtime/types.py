@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class RunStatus(str, Enum):
@@ -32,23 +32,23 @@ class RunRecord:
 
     run_id: str
     agent_id: str
-    user_id: Optional[int] = None
-    session_id: Optional[int] = None
-    parent_run_id: Optional[str] = None
+    user_id: int | None = None
+    session_id: int | None = None
+    parent_run_id: str | None = None
     status: str = RunStatus.PENDING.value
-    input: Optional[str] = None
-    output: Optional[str] = None
-    model: Optional[str] = None
-    error: Optional[str] = None
-    token_usage: Dict[str, Any] = field(default_factory=dict)
+    input: str | None = None
+    output: str | None = None
+    model: str | None = None
+    error: str | None = None
+    token_usage: dict[str, Any] = field(default_factory=dict)
     tool_call_count: int = 0
     iteration_count: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    started_at: Optional[datetime.datetime] = None
-    finished_at: Optional[datetime.datetime] = None
-    created_at: Optional[datetime.datetime] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    started_at: datetime.datetime | None = None
+    finished_at: datetime.datetime | None = None
+    created_at: datetime.datetime | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
             "agent_id": self.agent_id,
@@ -69,7 +69,7 @@ class RunRecord:
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RunRecord":
+    def from_dict(cls, data: dict[str, Any]) -> RunRecord:
         def _dt(v):
             if isinstance(v, datetime.datetime):
                 return v
@@ -106,18 +106,18 @@ class AgentConfig:
 
     name: str
     model: str
-    user_id: Optional[int] = None
-    tools: List[str] = field(default_factory=list)
-    plugins: List[str] = field(default_factory=list)
-    system_prompt: Optional[str] = None
-    description: Optional[str] = None
-    memory_config: Optional[Dict[str, Any]] = None
-    knowledge_config: Optional[Dict[str, Any]] = None
-    policy: Optional[Dict[str, Any]] = None
-    runtime_config: Optional[Dict[str, Any]] = None
+    user_id: int | None = None
+    tools: list[str] = field(default_factory=list)
+    plugins: list[str] = field(default_factory=list)
+    system_prompt: str | None = None
+    description: str | None = None
+    memory_config: dict[str, Any] | None = None
+    knowledge_config: dict[str, Any] | None = None
+    policy: dict[str, Any] | None = None
+    runtime_config: dict[str, Any] | None = None
     status: str = "active"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "model": self.model,
@@ -134,7 +134,7 @@ class AgentConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AgentConfig":
+    def from_dict(cls, data: dict[str, Any]) -> AgentConfig:
         return cls(
             name=data["name"],
             model=data.get("model", ""),

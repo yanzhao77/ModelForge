@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
@@ -19,24 +19,24 @@ class MCPClient:
         self,
         name: str,
         endpoint: str,
-        headers: Optional[Dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
         timeout: float = 30.0,
     ):
         self.name = name
         self.endpoint = endpoint
         self.headers = headers or {}
         self.timeout = timeout
-        self.server_info: Dict[str, Any] = {}
-        self.tools: List[Dict[str, Any]] = []
+        self.server_info: dict[str, Any] = {}
+        self.tools: list[dict[str, Any]] = []
         self._transport: Any = None
 
-    def with_transport(self, transport: Any) -> "MCPClient":
+    def with_transport(self, transport: Any) -> MCPClient:
         """Inject an httpx transport (tests / custom transports)."""
         self._transport = transport
         return self
 
-    async def _rpc(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {"jsonrpc": "2.0", "id": uuid.uuid4().hex, "method": method}
+    async def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"jsonrpc": "2.0", "id": uuid.uuid4().hex, "method": method}
         if params is not None:
             payload["params"] = params
         async with httpx.AsyncClient(
@@ -49,7 +49,7 @@ class MCPClient:
             raise RuntimeError(data["error"].get("message", "MCP RPC error"))
         return data.get("result") or {}
 
-    async def initialize(self) -> Dict[str, Any]:
+    async def initialize(self) -> dict[str, Any]:
         result = await self._rpc("initialize", {
             "protocolVersion": self.PROTOCOL_VERSION,
             "capabilities": {},
@@ -58,12 +58,12 @@ class MCPClient:
         self.server_info = result.get("serverInfo") or {}
         return result
 
-    async def list_tools(self) -> List[Dict[str, Any]]:
+    async def list_tools(self) -> list[dict[str, Any]]:
         result = await self._rpc("tools/list")
         self.tools = result.get("tools") or []
         return self.tools
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any]) -> str:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         result = await self._rpc("tools/call", {"name": name, "arguments": arguments or {}})
         texts = [
             c.get("text", "")

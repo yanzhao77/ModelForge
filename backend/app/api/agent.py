@@ -1,9 +1,7 @@
 """Agent API routes: 2.1 agent management + 3.0 Agent Run API (spec 25)."""
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.security import get_current_user, get_runtime_admin
+from fastapi import APIRouter, Depends, HTTPException, Query
 from models.records import User
 from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
@@ -139,8 +137,8 @@ async def create_run(
 
 @router.get("/runs")
 async def list_runs(
-    agent_id: Optional[str] = None,
-    status: Optional[str] = None,
+    agent_id: str | None = None,
+    status: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: User = Depends(get_current_user),
@@ -231,6 +229,7 @@ async def run_stream(
 ):
     """SSE run stream: replay persisted events then live events (spec 26 / 31)."""
     import json
+
     from fastapi.responses import StreamingResponse
     rt = _get_runtime()
     try:

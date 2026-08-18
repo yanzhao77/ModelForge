@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
-
 from core.config import settings
+
 from .base import ModelProvider, ModelResult, ToolCall
 
 
@@ -14,7 +14,7 @@ class OllamaProvider(ModelProvider):
 
     name = "ollama"
 
-    def __init__(self, model_name: str, base_url: Optional[str] = None):
+    def __init__(self, model_name: str, base_url: str | None = None):
         self.model_name = model_name
         self.base_url = (base_url or settings.ollama_base_url).rstrip("/")
 
@@ -23,12 +23,12 @@ class OllamaProvider(ModelProvider):
 
     async def chat(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         *,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        timeout: Optional[float] = None,
+        tools: list[dict[str, Any]] | None = None,
+        timeout: float | None = None,
     ) -> ModelResult:
-        payload: Dict[str, Any] = {"model": self.model_name, "messages": messages, "stream": False}
+        payload: dict[str, Any] = {"model": self.model_name, "messages": messages, "stream": False}
         if tools:
             payload["tools"] = tools
         async with httpx.AsyncClient(timeout=timeout or 120.0) as client:

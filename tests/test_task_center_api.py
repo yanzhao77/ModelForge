@@ -120,3 +120,60 @@ def test_failed_retryable_task_creates_auditable_queued_child(client):
     client.post(f"/api/v1/tasks/{non_retryable['task_id']}/transition", headers=headers, json={"status": "FAILED"})
     blocked = client.post(f"/api/v1/tasks/{non_retryable['task_id']}/retry", headers=headers)
     assert blocked.status_code == 400
+
+
+def test_retry_dispatch_failure_is_auditable_and_exposes_logs(client):
+    headers = auth(client, "retrydispatch")
+    failed = create_task(
+        client,
+        headers,
+        task_type="model_download",
+        source="download",
+        title="缺失下载参数",
+        metadata={},
+    )
+    transition = client.post(
+        f"/api/v1/tasks/{failed['task_id']}/transition",
+        headers=headers,
+        json={"status": "FAILED", "error_message": "network unavailable"},
+    )
+    assert transition.status_code == 200, transition.text
+
+    retried = client.post(f"/api/v1/tasks/{failed['task_id']}/retry", headers=headers)
+    assert retried.status_code == 200, retried.text
+    retry_payload = retried.json()
+    assert retry_payload["status"] == "FAILED"
+    assert retry_payload["error_code"] == "RETRY_DISPATCH_FAILED"
+    assert "repo_id" in retry_payload["error_message"]
+
+    logs = client.get(f"/api/v1/tasks/{retry_payload['task_id']}/logs", headers=headers)
+    assert logs.status_code == 200, logs.text
+    assert logs.json() == {"source": "downloader", "lines": []}
+    events = client.get(f"/api/v1/tasks/{retry_payload['task_id']}/events", headers=headers).json()["events"]
+    assert [event["event_type"] for event in events] == ["task.created", "task.updated"]
+
+
+def test_batch_retry_returns_per_task_success_and_failure(client):
+    headers = auth(client, "batchretry")
+    retryable = create_task(client, headers, title="允许批量重试", retryable=True)
+    blocked = create_task(client, headers, title="不可批量重试", retryable=False)
+    for task in (retryable, blocked):
+        response = client.post(
+            f"/api/v1/tasks/{task['task_id']}/transition",
+            headers=headers,
+            json={"status": "FAILED", "error_message": "executor failed"},
+        )
+        assert response.status_code == 200, response.text
+
+    result = client.post(
+        "/api/v1/tasks/retry-batch",
+        headers=headers,
+        json={"task_ids": [retryable["task_id"], retryable["task_id"], blocked["task_id"], "not-owned"]},
+    )
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert len(payload["tasks"]) == 1
+    assert payload["tasks"][0]["parent_task_id"] == retryable["task_id"]
+    failures = {item["task_id"]: item["code"] for item in payload["failures"]}
+    assert failures[blocked["task_id"]] == "TASK_NOT_RETRYABLE"
+    assert failures["not-owned"] == "TASK_NOT_FOUND"

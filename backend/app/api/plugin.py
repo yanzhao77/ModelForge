@@ -1,5 +1,4 @@
 """Plugin API routes."""
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
@@ -15,7 +14,7 @@ def set_plugin_manager(pm):
 
 
 @router.get("")
-async def list_plugins(type: Optional[str] = None):
+async def list_plugins(type: str | None = None):
     """List all plugins, optionally filtered by type."""
     if _plugin_manager is None:
         raise HTTPException(status_code=503, detail="Plugin manager not initialized")
@@ -58,13 +57,13 @@ def _runtime_pm():
 
 
 @router.get("/discover")
-async def discover_plugins(directory: Optional[str] = None):
+async def discover_plugins(directory: str | None = None):
     """Discover plugin manifests on the filesystem (audit §16.9)."""
     return {"plugins": _runtime_pm().discover(directory)}
 
 
 @router.get("/capabilities")
-async def capabilities(scope: Optional[str] = None):
+async def capabilities(scope: str | None = None):
     """Capability index of loaded tools/skills/agent extensions (3.x-P6)."""
     from services.agent_runtime_service import get_agent_runtime
     rt = get_agent_runtime()

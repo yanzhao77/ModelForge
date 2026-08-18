@@ -1,15 +1,14 @@
 ﻿"""Phase 5: Runtime Engine tests."""
 import os
 import sys
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import httpx
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from services.runtime import RuntimeEngine
 from services.ollama_runtime import OllamaRuntime
+from services.runtime import RuntimeEngine
 
 
 class TestRuntimeInterface:
