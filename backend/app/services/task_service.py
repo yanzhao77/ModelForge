@@ -4,12 +4,11 @@ from __future__ import annotations
 import json
 import uuid
 from collections import Counter
-from datetime import datetime
-from typing import Any, Optional
-
-from sqlalchemy.orm import Session
+from datetime import UTC, datetime
+from typing import Any
 
 from models.records import TaskEvent, TaskOutbox, TaskRecord
+from sqlalchemy.orm import Session
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED", "PARTIAL"}
 NON_TERMINAL = {"QUEUED", "SCHEDULED", "RUNNING", "WAITING_INPUT", "CANCEL_REQUESTED", "RETRYING"}
@@ -81,7 +80,7 @@ def project_legacy_tasks(db: Session, user_id: int) -> list[TaskRecord]:
     return projected
 
 
-def _dump(value: Any) -> Optional[str]:
+def _dump(value: Any) -> str | None:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")) if value is not None else None
 
 
@@ -174,7 +173,7 @@ class TaskService:
             raise TaskConflict("TASK_VERSION_CONFLICT")
         if status != task.status and status not in TRANSITIONS.get(task.status, set()):
             raise TaskConflict(f"Illegal transition: {task.status} -> {status}")
-        now = datetime.utcnow()
+        now = datetime.now(UTC).replace(tzinfo=None)
         if status != task.status:
             task.status = status
             task.version += 1
@@ -232,16 +231,40 @@ class TaskService:
             )
         if task.user_id != user_id:
             raise TaskConflict("TASK_OWNERSHIP_CONFLICT")
-        if task.status == "QUEUED" and status == "QUEUED":
-            return task
+
+        # A projection runs on read-path refreshes. Only material source changes
+        # may create an immutable TaskEvent/TaskOutbox record; otherwise every
+        # 15-second desktop snapshot becomes an event-amplification loop.
         if task.status == "CANCEL_REQUESTED" and status == "RUNNING":
             return task
-        if task.status != status or progress_percent is not None or summary is not None:
-            if status == "QUEUED" and task.status != "QUEUED":
-                status = task.status
-            self.transition(
-                db, task, status, summary=summary, progress_percent=progress_percent,
-            )
+        projected_status = task.status if status == "QUEUED" and task.status != "QUEUED" else status
+        projected_progress = max(0, min(100, progress_percent)) if progress_percent is not None else None
+        projected_meta = _dump(metadata or {})
+        fields_changed = {
+            "title": task.title != title,
+            "summary": task.summary != summary,
+            "progress": task.progress_percent != projected_progress,
+            "cancelable": bool(task.cancelable) != bool(cancelable),
+            "retryable": bool(task.retryable) != bool(retryable),
+            "metadata": task.meta != projected_meta,
+        }
+        status_changed = task.status != projected_status
+        if not status_changed and not any(fields_changed.values()):
+            return task
+
+        # Fields not accepted by transition() are applied before the single event
+        # write. transition() then snapshots the fully projected task state.
+        task.title = title
+        task.summary = summary
+        task.cancelable = bool(cancelable)
+        task.retryable = bool(retryable)
+        task.meta = projected_meta
+        self.transition(
+            db,
+            task,
+            projected_status,
+            progress_percent=projected_progress if fields_changed["progress"] else None,
+        )
         return task
 
     def list(self, db: Session, user_id: int, *, status: str | None = None, task_type: str | None = None, limit: int = 100, offset: int = 0):

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 from core.database import SessionLocal
 from main import app
-from models.records import AgentRun, TrainTask
+from models.records import AgentRun, TaskEvent, TaskOutbox, TaskRecord, TrainTask
 
 
 @pytest.fixture
@@ -80,3 +80,56 @@ def test_projection_preserves_cancellation_request_against_stale_running_source(
     refreshed = client.get("/api/v1/tasks", headers=headers).json()["tasks"]
     task = next(item for item in refreshed if item["source_task_id"] == train_id)
     assert task["status"] == "CANCEL_REQUESTED"
+
+
+def test_unchanged_legacy_projection_does_not_amplify_events_or_outbox(client):
+    headers, user_id = auth_with_user(client, "projectiondiff")
+    train_id = uuid.uuid4().hex[:12]
+    db = SessionLocal()
+    try:
+        db.add(TrainTask(
+            task_id=train_id, user_id=user_id, base_model="qwen-test", method="lora",
+            config="{}", status="running", progress=25, total_epochs=4, current_epoch=1,
+            output_dir="/tmp/out", log_path="/tmp/log",
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    assert client.get("/api/v1/tasks", headers=headers).status_code == 200
+    db = SessionLocal()
+    try:
+        task = db.query(TaskRecord).filter_by(user_id=user_id, source_task_id=train_id).one()
+        baseline_version = task.version
+        baseline_events = db.query(TaskEvent).filter_by(user_id=user_id).count()
+        baseline_outbox = db.query(TaskOutbox).filter_by(user_id=user_id).count()
+    finally:
+        db.close()
+
+    for _ in range(4):
+        assert client.get("/api/v1/tasks", headers=headers).status_code == 200
+
+    db = SessionLocal()
+    try:
+        task = db.query(TaskRecord).filter_by(user_id=user_id, source_task_id=train_id).one()
+        assert task.version == baseline_version
+        assert db.query(TaskEvent).filter_by(user_id=user_id).count() == baseline_events
+        assert db.query(TaskOutbox).filter_by(user_id=user_id).count() == baseline_outbox
+
+        source = db.query(TrainTask).filter_by(task_id=train_id, user_id=user_id).one()
+        source.progress = 50
+        source.current_epoch = 2
+        db.commit()
+    finally:
+        db.close()
+
+    assert client.get("/api/v1/tasks", headers=headers).status_code == 200
+    db = SessionLocal()
+    try:
+        task = db.query(TaskRecord).filter_by(user_id=user_id, source_task_id=train_id).one()
+        assert task.progress_percent == 50
+        assert task.version == baseline_version
+        assert db.query(TaskEvent).filter_by(user_id=user_id).count() == baseline_events + 1
+        assert db.query(TaskOutbox).filter_by(user_id=user_id).count() == baseline_outbox + 1
+    finally:
+        db.close()
