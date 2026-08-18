@@ -6,6 +6,7 @@ shows "Generating...".
 """
 import json
 
+from components.api_worker import AsyncApiMixin
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QFrame,
@@ -62,18 +63,19 @@ class ToolCallCard(QFrame):
             lay.addWidget(out_label)
 
 
-class RunTimeline(QWidget):
+class RunTimeline(QWidget, AsyncApiMixin):
     """Renders the event stream of one run as a timeline (spec 26 / 50)."""
 
     def __init__(self, api, parent=None):
-        super().__init__(parent)
+        QWidget.__init__(self, parent)
+        self._init_async_api()
         self.api = api
         self.run_id = None
         self.worker = None
+        self._approval_pending = False
         self.approve_btn = None
         self.reject_btn = None
         self._init_ui()
-
     def _init_ui(self):
         lay = QVBoxLayout(self)
         self.view = QTextBrowser()
@@ -157,15 +159,39 @@ class RunTimeline(QWidget):
         self.view.append(str(card))
 
     def approve(self):
-        if self.run_id:
-            try:
-                self.api.approve_agent_run(self.run_id)
-            except Exception as e:
-                self.view.append(f"<span style='color:#D32F2F'>[错误] {e}</span>")
+        self._submit_approval(True)
 
     def reject(self):
-        if self.run_id:
-            try:
-                self.api.reject_agent_run(self.run_id)
-            except Exception as e:
-                self.view.append(f"<span style='color:#D32F2F'>[错误] {e}</span>")
+        self._submit_approval(False)
+
+    def _submit_approval(self, approved: bool):
+        if not self.run_id or self._approval_pending:
+            return
+        run_id = self.run_id
+        self._approval_pending = True
+        self.approve_btn.setEnabled(False)
+        self.reject_btn.setEnabled(False)
+        action = "批准" if approved else "拒绝"
+        self.view.append(f"<span style='color:#1565C0'>[正在{action}] Run #{run_id[:8]}</span>")
+        operation = self.api.approve_agent_run if approved else self.api.reject_agent_run
+        self._run_api(
+            lambda: operation(run_id),
+            lambda _result: self._approval_finished(run_id, action),
+            lambda error: self._approval_failed(run_id, action, error),
+        )
+
+    def _approval_finished(self, run_id: str, action: str):
+        self._approval_pending = False
+        if run_id != self.run_id:
+            return
+        self.view.append(f"<span style='color:#2E7D32'>[已{action}] 等待服务事件确认</span>")
+        self.approve_btn.setVisible(False)
+        self.reject_btn.setVisible(False)
+
+    def _approval_failed(self, run_id: str, action: str, error: str):
+        self._approval_pending = False
+        if run_id != self.run_id:
+            return
+        self.view.append(f"<span style='color:#D32F2F'>[{action}失败] {error}</span>")
+        self.approve_btn.setEnabled(True)
+        self.reject_btn.setEnabled(True)

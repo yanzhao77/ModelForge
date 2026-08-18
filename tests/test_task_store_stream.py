@@ -64,3 +64,29 @@ def test_task_stream_event_is_normalized_for_task_store_contract():
 def test_task_stream_event_rejects_missing_cursor_or_payload():
     assert normalize_task_event({"payload": task()}) is None
     assert normalize_task_event({"id": "7", "payload": "not-a-task"}) is None
+
+
+def test_task_store_applies_batch_retry_result_and_emits_summary():
+    app = QCoreApplication.instance() or QCoreApplication([])
+    store = TaskStore(FakeApi())
+    store.refresh = lambda: None
+    received = []
+    store.batch_retried.connect(received.append)
+    result = {
+        "tasks": [task(task_id="retry-task-1", status="QUEUED", version=1)],
+        "failures": [{"task_id": "task-2", "code": "TASK_NOT_RETRYABLE", "message": "任务不可重试"}],
+    }
+    store._apply_batch_retry(result)
+    assert store.tasks["retry-task-1"]["status"] == "QUEUED"
+    assert received == [result]
+    app.processEvents()
+
+
+
+
+def test_task_center_only_marks_failures_with_remaining_retry_budget():
+    from components.task_center import TaskCenterDock
+
+    assert TaskCenterDock._can_retry({"status": "FAILED", "retryable": True, "attempt": 1, "max_attempts": 3})
+    assert not TaskCenterDock._can_retry({"status": "FAILED", "retryable": True, "attempt": 3, "max_attempts": 3})
+    assert not TaskCenterDock._can_retry({"status": "RUNNING", "retryable": True, "attempt": 1, "max_attempts": 3})

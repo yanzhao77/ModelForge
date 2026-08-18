@@ -6,6 +6,27 @@ from typing import Dict
 import httpx
 
 
+class ApiClientError(RuntimeError):
+    """Base error displayed safely by desktop UI boundaries."""
+
+
+class AuthenticationError(ApiClientError):
+    """The current session is missing, expired, or rejected by the service."""
+
+
+class AuthorizationError(ApiClientError):
+    """The signed-in account lacks permission for the requested operation."""
+
+
+class ValidationError(ApiClientError):
+    """The service rejected user-supplied input."""
+
+
+class ServiceUnavailableError(ApiClientError):
+    """The service is unreachable or cannot process the request."""
+
+
+
 class ModelForgeClient:
     """HTTP client for the ModelForge REST API with Bearer-token auth."""
 
@@ -114,7 +135,7 @@ class ModelForgeClient:
             json={"model": model, "messages": messages, "session_id": session_id},
             headers=self._headers(),
         ) as resp:
-            resp.raise_for_status()
+            self._raise_for_status(resp)
             for line in resp.iter_lines():
                 line = line.strip()
                 if not line.startswith("data: "):
@@ -192,7 +213,7 @@ class ModelForgeClient:
                 resp = client.post(
                     f"{self.base_url}/api/v1/knowledge/upload", files=files, headers=self._headers()
                 )
-                resp.raise_for_status()
+                self._raise_for_status(resp)
                 return resp.json()
 
     def knowledge_query(self, question: str, top_k: int = 5) -> dict:
@@ -239,7 +260,7 @@ class ModelForgeClient:
             params={"after_sequence": after_sequence},
             headers=self._headers(),
         ) as resp:
-            resp.raise_for_status()
+            self._raise_for_status(resp)
             for line in resp.iter_lines():
                 line = line.strip()
                 if not line:
@@ -285,7 +306,7 @@ class ModelForgeClient:
                     f"{self.base_url}/api/v1/datasets/upload",
                     files=files, data=data, headers=self._headers(),
                 )
-                resp.raise_for_status()
+                self._raise_for_status(resp)
                 return resp.json()
 
     def list_datasets(self) -> list[dict]:
@@ -327,7 +348,7 @@ class ModelForgeClient:
             f"{self.base_url}/api/v1/train/stream/{task_id}",
             headers=self._headers(),
         ) as resp:
-            resp.raise_for_status()
+            self._raise_for_status(resp)
             for line in resp.iter_lines():
                 line = line.strip()
                 if not line.startswith("data: "):
@@ -370,6 +391,18 @@ class ModelForgeClient:
     def cancel_task(self, task_id: str) -> dict:
         return self._post(f"/api/v1/tasks/{task_id}/cancel")
 
+    def retry_task(self, task_id: str) -> dict:
+        return self._post(f"/api/v1/tasks/{task_id}/retry")
+
+    def retry_tasks_batch(self, task_ids: list[str]) -> dict:
+        return self._post("/api/v1/tasks/retry-batch", json={"task_ids": task_ids})
+
+    def task_events(self, task_id: str, limit: int = 200) -> list[dict]:
+        return self._get(f"/api/v1/tasks/{task_id}/events", params={"limit": limit}).get("events", [])
+
+    def task_logs(self, task_id: str, limit: int = 200) -> dict:
+        return self._get(f"/api/v1/tasks/{task_id}/logs", params={"limit": limit})
+
     def onboarding_state(self) -> dict:
         return self._get("/api/v1/tasks/onboarding/state")
 
@@ -382,7 +415,7 @@ class ModelForgeClient:
                 "GET", f"{self.base_url}/api/v1/tasks/stream",
                 headers=headers, params={"after_id": max(0, after_id)},
             ) as response:
-                response.raise_for_status()
+                self._raise_for_status(response)
                 event: dict = {}
                 for line in response.iter_lines():
                     if not line:
@@ -401,28 +434,51 @@ class ModelForgeClient:
                     key, _, value = line.partition(":")
                     event[key] = value.lstrip()
 
+    def _raise_for_status(self, response) -> None:
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            status = error.response.status_code
+            try:
+                body = error.response.json()
+                detail = body.get("detail") or body.get("message") or str(error)
+            except (TypeError, ValueError):
+                detail = error.response.text or str(error)
+            message = str(detail)
+            if status == 401:
+                self.set_token(None)
+                self.username = None
+                raise AuthenticationError(f"会话已失效，请重新登录：{message}") from error
+            if status == 403:
+                raise AuthorizationError(f"当前账号无权执行此操作：{message}") from error
+            if status in {400, 404, 409, 422}:
+                raise ValidationError(f"请求未被服务接受：{message}") from error
+            raise ServiceUnavailableError(f"服务请求失败（HTTP {status}）：{message}") from error
+        except httpx.HTTPError as error:
+            raise ServiceUnavailableError(f"无法连接 ModelForge 服务：{error}") from error
+
     # ---- HTTP helpers ----
 
     def _get(self, path: str, **kwargs) -> dict:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.get(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
-            resp.raise_for_status()
-            return resp.json()
+        return self._request_json("get", path, timeout=30.0, **kwargs)
 
     def _post(self, path: str, **kwargs) -> dict:
-        with httpx.Client(timeout=120.0) as client:
-            resp = client.post(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
-            resp.raise_for_status()
-            return resp.json()
+        return self._request_json("post", path, timeout=120.0, **kwargs)
 
     def _patch(self, path: str, **kwargs) -> dict:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.patch(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
-            resp.raise_for_status()
-            return resp.json()
+        return self._request_json("patch", path, timeout=30.0, **kwargs)
 
     def _delete(self, path: str, **kwargs) -> dict:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.delete(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
-            resp.raise_for_status()
-            return resp.json()
+        return self._request_json("delete", path, timeout=30.0, **kwargs)
+
+    def _request_json(self, method: str, path: str, timeout: float, **kwargs) -> dict:
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                request = getattr(client, method)
+                response = request(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
+                self._raise_for_status(response)
+                return response.json()
+        except ApiClientError:
+            raise
+        except httpx.HTTPError as error:
+            raise ServiceUnavailableError(f"无法连接 ModelForge 服务：{error}") from error

@@ -217,17 +217,17 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.refresh_runs()
 
     def cancel_run(self):
-        if not self.current_run_id:
+        run_id = self.current_run_id
+        if not run_id:
             QMessageBox.information(self, "提示", "请先选择需要取消的 Run。")
             return
         self._set_run_busy(True)
-        self.status.setText(f"正在请求取消 Run {self.current_run_id[:8]}…")
+        self.status.setText(f"正在请求取消 Run {run_id[:8]}…")
         self._run_api(
-            lambda: self.api.cancel_agent_run(self.current_run_id),
-            lambda _result: self._run_cancelled(),
+            lambda: self.api.cancel_agent_run(run_id),
+            self._run_cancelled,
             lambda error: self._run_action_failed("取消 Agent Run", error),
         )
-
     def _run_cancelled(self):
         self._set_run_busy(False)
         self.status.setText("取消请求已提交，正在刷新运行记录。")

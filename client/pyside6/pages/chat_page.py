@@ -3,7 +3,17 @@ from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class StreamWorker(QThread):

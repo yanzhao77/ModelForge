@@ -14,6 +14,7 @@ class TaskStore(QObject, AsyncApiMixin):
     changed = Signal()
     connection_changed = Signal(bool, str)
     stream_changed = Signal(bool, str)
+    batch_retried = Signal(object)
 
     def __init__(self, api, parent=None):
         QObject.__init__(self, parent)
@@ -125,6 +126,22 @@ class TaskStore(QObject, AsyncApiMixin):
 
     def cancel(self, task_id: str):
         self._run_api(lambda: self.api.cancel_task(task_id), self._apply_task, self._apply_error)
+
+    def retry(self, task_id: str):
+        self._run_api(lambda: self.api.retry_task(task_id), self._apply_task, self._apply_error)
+
+    def retry_many(self, task_ids: list[str]):
+        unique_ids = list(dict.fromkeys(task_ids))
+        if unique_ids:
+            self._run_api(lambda: self.api.retry_tasks_batch(unique_ids), self._apply_batch_retry, self._apply_error)
+
+    def _apply_batch_retry(self, result):
+        for task in result.get("tasks", []):
+            self.tasks[task["task_id"]] = task
+        self._rebuild_summary()
+        self.changed.emit()
+        self.batch_retried.emit(result)
+        self.refresh()
 
     def _apply_task(self, task):
         self.tasks[task["task_id"]] = task

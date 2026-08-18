@@ -39,6 +39,9 @@ class FakeApi:
         return {"server_connected": True, "ready_model_count": 0, "has_sent_message": False,
                 "has_completed_agent_run": False, "next_recommended_step": "select_model"}
 
+    def runtime_status(self):
+        return {"runtimes": {}}
+
     def list_sessions(self):
         return []
 
@@ -75,8 +78,9 @@ def main():
     window.show()
 
     def verify_and_quit():
-        assert window.tabs.count() == 6
+        assert window.tabs.count() == 7
         assert window.tabs.tabText(0) == "工作台"
+        assert window.tabs.tabText(1) == "模型与运行时"
         assert window.workspace_page.primary.text() == "准备模型"
         window._show_task_center()
         assert window.task_center.isVisible()

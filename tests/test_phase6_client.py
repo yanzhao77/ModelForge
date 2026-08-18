@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "client", "pyside6"))
 
-from api_client.client import ModelForgeClient
+from api_client.client import ModelForgeClient, ServiceUnavailableError
 
 
 class TestModelForgeClient:
@@ -79,5 +79,5 @@ class TestModelForgeClient:
     def test_get_info_error(self, mock_get):
         mock_get.side_effect = httpx.ConnectError("Connection refused")
         client = ModelForgeClient("http://localhost:19999")
-        with pytest.raises(httpx.ConnectError):
+        with pytest.raises(ServiceUnavailableError):
             client.get_info()
