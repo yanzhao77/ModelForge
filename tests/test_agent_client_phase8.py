@@ -109,8 +109,9 @@ class TestClientStructure:
         assert "Thinking..." not in src
         assert "Generating..." in src
 
-    def test_main_has_agent_tab(self):
+    def test_main_has_agent_workspace(self):
         path = os.path.join(self.BASE, "main.py")
         src = open(path, encoding="utf-8").read()
         assert "AgentPage" in src
-        assert "addTab(self.agent_page" in src
+        assert '"agents": self.agent_page' in src
+        assert "AGENT MATRIX" in src

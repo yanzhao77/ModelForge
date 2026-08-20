@@ -181,6 +181,33 @@ class AgentRecord(Base):
         }
 
 
+class RemoteProviderConfig(Base):
+    """Encrypted per-user credentials for OpenAI-compatible remote providers."""
+    __tablename__ = "remote_provider_configs"
+    __table_args__ = (Index("ix_remote_provider_user_name", "user_id", "name", unique=True),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    base_url = Column(String(512), nullable=False)
+    protocol = Column(String(32), nullable=False, default="responses")
+    default_model = Column(String(255), nullable=False)
+    key_ciphertext = Column(Text, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    def to_public_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "base_url": self.base_url,
+            "protocol": self.protocol,
+            "default_model": self.default_model,
+            "enabled": self.enabled,
+            "key_configured": bool(self.key_ciphertext),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
 class ApiKey(Base):
     """API key for the OpenAI-compatible endpoint."""
     __tablename__ = "api_keys"

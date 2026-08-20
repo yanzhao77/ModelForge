@@ -47,3 +47,14 @@ class AsyncApiMixin:
         worker.finished.connect(lambda: self._api_workers.discard(worker))
         worker.start()
         return worker
+
+    def shutdown_async_api(self, wait_ms: int = 2500) -> None:
+        """Stop or join owned one-shot workers before their Qt parent is destroyed."""
+        workers = list(self._api_workers)
+        for worker in workers:
+            worker.requestInterruption()
+        for worker in workers:
+            if worker.isRunning() and not worker.wait(wait_ms):
+                worker.terminate()
+                worker.wait(500)
+        self._api_workers.clear()

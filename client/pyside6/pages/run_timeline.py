@@ -195,3 +195,14 @@ class RunTimeline(QWidget, AsyncApiMixin):
         self.view.append(f"<span style='color:#D32F2F'>[{action}失败] {error}</span>")
         self.approve_btn.setEnabled(True)
         self.reject_btn.setEnabled(True)
+
+    def shutdown_stream(self) -> None:
+        """Join an active agent-run event stream before destruction."""
+        worker = self.worker
+        self.worker = None
+        if worker and worker.isRunning():
+            worker.requestInterruption()
+            if not worker.wait(2500):
+                worker.terminate()
+                worker.wait(500)
+        self.shutdown_async_api()

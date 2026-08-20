@@ -1,128 +1,146 @@
-"""登录/注册对话框（对接新版后端 /api/v1/auth/*）。"""
-from api_client.client import ModelForgeClient
+"""ModelForge workstation connection dialog."""
+from __future__ import annotations
+from i18n.ui_localizer import localize_tree
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
 
 class LoginDialog(QDialog):
-    """登录 + 注册对话框，成功后持有 token 并 accept。"""
+    """Connects a local desktop workstation to the existing API service."""
 
-    def __init__(self, api: ModelForgeClient, parent=None):
+    def __init__(self, api, parent=None):
         super().__init__(parent)
         self.api = api
-        self.setWindowTitle("ModelForge - 用户登录")
-        self.setFixedSize(420, 320)
+        self.setWindowTitle("ModelForge · 本地工作区登录")
+        self.setFixedSize(500, 490)
         self.setModal(True)
-        self.init_ui()
+        self._init_ui()
 
-    def init_ui(self):
-        layout = QVBoxLayout()
-        title = QLabel("欢迎使用 ModelForge")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 18px; font-weight: bold; margin: 8px;")
-        layout.addWidget(title)
+    def _init_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(34, 30, 34, 30)
+        root.setSpacing(14)
+        brand = QLabel("◈  MODEL FORGE")
+        brand.setAlignment(Qt.AlignCenter)
+        brand.setStyleSheet("font-size: 23px; font-weight: 800; letter-spacing: 3px;")
+        root.addWidget(brand)
+        subtitle = QLabel("本地 AI 工作区\n连接你的 ModelForge 服务")
+        subtitle.setProperty("role", "eyebrow")
+        subtitle.setAlignment(Qt.AlignCenter)
+        root.addWidget(subtitle)
+        self.backend = QLabel(f"●  BACKEND ENDPOINT  {self.api.base_url}")
+        self.backend.setProperty("status", "warning")
+        self.backend.setAlignment(Qt.AlignCenter)
+        root.addWidget(self.backend)
 
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self._create_login_tab(), "登录")
-        self.tabs.addTab(self._create_register_tab(), "注册")
-        layout.addWidget(self.tabs)
-        self.setLayout(layout)
+        switches = QHBoxLayout()
+        self.connect_button = QPushButton("登录")
+        self.connect_button.setCheckable(True)
+        self.connect_button.setChecked(True)
+        self.connect_button.setProperty("accent", True)
+        self.create_button = QPushButton("创建账号")
+        self.create_button.setCheckable(True)
+        self.connect_button.clicked.connect(lambda: self._show_page(0))
+        self.create_button.clicked.connect(lambda: self._show_page(1))
+        switches.addWidget(self.connect_button)
+        switches.addWidget(self.create_button)
+        root.addLayout(switches)
 
-    def _row(self, label: str, echo: bool = False) -> QLineEdit:
-        edit = QLineEdit()
-        if echo:
-            edit.setEchoMode(QLineEdit.Password)
-        return edit
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self._login_page())
+        self.stack.addWidget(self._register_page())
+        root.addWidget(self.stack, 1)
+        localize_tree(self)
 
-    def _create_login_tab(self) -> QWidget:
-        w = QWidget()
-        lay = QVBoxLayout()
-        self.login_user = QLineEdit()
-        self.login_user.setPlaceholderText("用户名")
-        self.login_pwd = QLineEdit()
-        self.login_pwd.setPlaceholderText("密码")
-        self.login_pwd.setEchoMode(QLineEdit.Password)
+    def _show_page(self, index: int) -> None:
+        self.stack.setCurrentIndex(index)
+        self.connect_button.setChecked(index == 0)
+        self.create_button.setChecked(index == 1)
+        self.connect_button.setProperty("accent", index == 0)
+        self.create_button.setProperty("accent", index == 1)
+        for button in (self.connect_button, self.create_button):
+            button.style().unpolish(button)
+            button.style().polish(button)
+
+    @staticmethod
+    def _field(placeholder: str, secret: bool = False) -> QLineEdit:
+        field = QLineEdit()
+        field.setPlaceholderText(placeholder)
+        if secret:
+            field.setEchoMode(QLineEdit.Password)
+        return field
+
+    def _login_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(10)
+        hint = QLabel("登录后继续")
+        hint.setProperty("role", "eyebrow")
+        layout.addWidget(hint)
+        self.login_user = self._field("WORKSTATION USERNAME")
+        self.login_pwd = self._field("ACCESS PASSWORD", True)
         self.login_pwd.returnPressed.connect(self.handle_login)
-        btn = QPushButton("登录")
-        btn.clicked.connect(self.handle_login)
-        lay.addWidget(QLabel("用户名:"))
-        lay.addWidget(self.login_user)
-        lay.addWidget(QLabel("密码:"))
-        lay.addWidget(self.login_pwd)
-        lay.addWidget(btn)
-        lay.addStretch()
-        w.setLayout(lay)
-        return w
+        layout.addWidget(self.login_user)
+        layout.addWidget(self.login_pwd)
+        action = QPushButton("登录工作区")
+        action.setProperty("accent", True)
+        action.clicked.connect(self.handle_login)
+        layout.addWidget(action)
+        layout.addStretch(1)
+        return page
 
-    def _create_register_tab(self) -> QWidget:
-        w = QWidget()
-        lay = QVBoxLayout()
-        self.reg_user = QLineEdit()
-        self.reg_user.setPlaceholderText("用户名（3-32 字符）")
-        self.reg_email = QLineEdit()
-        self.reg_email.setPlaceholderText("邮箱（可选）")
-        self.reg_pwd = QLineEdit()
-        self.reg_pwd.setPlaceholderText("密码（至少 6 位）")
-        self.reg_pwd.setEchoMode(QLineEdit.Password)
-        self.reg_pwd2 = QLineEdit()
-        self.reg_pwd2.setPlaceholderText("确认密码")
-        self.reg_pwd2.setEchoMode(QLineEdit.Password)
+    def _register_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(9)
+        hint = QLabel("创建本地工作区账号")
+        hint.setProperty("role", "eyebrow")
+        layout.addWidget(hint)
+        self.reg_user = self._field("USERNAME · 3–32 CHARACTERS")
+        self.reg_email = self._field("EMAIL · OPTIONAL")
+        self.reg_pwd = self._field("PASSWORD · AT LEAST 6 CHARACTERS", True)
+        self.reg_pwd2 = self._field("CONFIRM PASSWORD", True)
         self.reg_pwd2.returnPressed.connect(self.handle_register)
-        btn = QPushButton("注册")
-        btn.clicked.connect(self.handle_register)
-        lay.addWidget(QLabel("用户名:"))
-        lay.addWidget(self.reg_user)
-        lay.addWidget(QLabel("邮箱:"))
-        lay.addWidget(self.reg_email)
-        lay.addWidget(QLabel("密码:"))
-        lay.addWidget(self.reg_pwd)
-        lay.addWidget(QLabel("确认密码:"))
-        lay.addWidget(self.reg_pwd2)
-        lay.addWidget(btn)
-        lay.addStretch()
-        w.setLayout(lay)
-        return w
+        for field in (self.reg_user, self.reg_email, self.reg_pwd, self.reg_pwd2):
+            layout.addWidget(field)
+        action = QPushButton("创建账号")
+        action.setProperty("accent", True)
+        action.clicked.connect(self.handle_register)
+        layout.addWidget(action)
+        return page
 
-    def handle_login(self):
-        username = self.login_user.text().strip()
-        password = self.login_pwd.text()
+    def handle_login(self) -> None:
+        username, password = self.login_user.text().strip(), self.login_pwd.text()
         if not username or not password:
-            QMessageBox.warning(self, "提示", "请输入用户名和密码")
+            QMessageBox.warning(self, "Connection required", "Enter your workstation username and password.")
             return
         try:
             self.api.login(username, password)
-        except Exception as e:
-            QMessageBox.warning(self, "登录失败", str(e))
+        except Exception as error:
+            self.backend.setText(f"●  CONNECTION FAILED  ·  {error}")
+            self.backend.setProperty("status", "error")
+            self.backend.style().unpolish(self.backend)
+            self.backend.style().polish(self.backend)
             return
-        QMessageBox.information(self, "成功", f"欢迎回来，{username}！")
+        self.backend.setText("●  BACKEND AUTHENTICATED")
+        self.backend.setProperty("status", "online")
         self.accept()
 
-    def handle_register(self):
-        username = self.reg_user.text().strip()
-        email = self.reg_email.text().strip()
-        pwd = self.reg_pwd.text()
-        pwd2 = self.reg_pwd2.text()
-        if not username or not pwd:
-            QMessageBox.warning(self, "提示", "用户名和密码不能为空")
+    def handle_register(self) -> None:
+        username, email = self.reg_user.text().strip(), self.reg_email.text().strip()
+        password, confirmation = self.reg_pwd.text(), self.reg_pwd2.text()
+        if not username or not password:
+            QMessageBox.warning(self, "Account required", "Username and password are required.")
             return
-        if pwd != pwd2:
-            QMessageBox.warning(self, "提示", "两次密码不一致")
+        if password != confirmation:
+            QMessageBox.warning(self, "Password confirmation", "The supplied passwords do not match.")
             return
         try:
-            self.api.register(username, pwd, email or None)
-        except Exception as e:
-            QMessageBox.warning(self, "注册失败", str(e))
+            self.api.register(username, password, email or None)
+        except Exception as error:
+            QMessageBox.warning(self, "Account creation", str(error))
             return
-        QMessageBox.information(self, "成功", "注册成功，请登录")
-        self.tabs.setCurrentIndex(0)
         self.login_user.setText(username)
         self.login_pwd.setFocus()
+        self._show_page(0)

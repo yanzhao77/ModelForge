@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import MFSection, MFStatusBadge
+from components.example_library import open_examples
 from pages.run_timeline import RunTimeline
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -38,26 +40,36 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.refresh_runs()
 
     def _init_ui(self):
-        root = QHBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        header = QHBoxLayout()
+        header.addWidget(MFSection("智能体工作区", "智能体"))
+        header.addStretch(1)
+        self.matrix_status = MFStatusBadge("Syncing Agents", "warning")
+        header.addWidget(self.matrix_status)
+        examples = QPushButton("示例")
+        examples.clicked.connect(lambda: open_examples("agents", self, lambda example: self.task_input.setPlainText(example.template)))
+        header.addWidget(examples)
+        root.addLayout(header)
         splitter = QSplitter(Qt.Horizontal)
 
         left = QWidget()
         lay = QVBoxLayout(left)
-        lay.addWidget(QLabel("<b>Agents</b>"))
+        lay.addWidget(QLabel("智能体"))
         self.agent_list = QListWidget()
         self.agent_list.currentItemChanged.connect(lambda *_: self._on_agent_selected())
         lay.addWidget(self.agent_list, 1)
-        self.create_btn = QPushButton("+ 新建 Agent")
+        self.create_btn = QPushButton("新建智能体")
         self.create_btn.clicked.connect(self.create_agent)
         lay.addWidget(self.create_btn)
-        self.delete_btn = QPushButton("删除 Agent")
+        self.delete_btn = QPushButton("删除智能体")
         self.delete_btn.clicked.connect(self.delete_agent)
         lay.addWidget(self.delete_btn)
         splitter.addWidget(left)
 
         mid = QWidget()
         mlay = QVBoxLayout(mid)
-        mlay.addWidget(QLabel("<b>Runs</b>"))
+        mlay.addWidget(QLabel("最近运行"))
         self.runs_table = QTableWidget()
         self.runs_table.setColumnCount(4)
         self.runs_table.setHorizontalHeaderLabels(["Run", "Agent", "Status", "Output"])
@@ -70,13 +82,13 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.task_input.setPlaceholderText("给 Agent 的任务描述...")
         self.task_input.setMaximumHeight(70)
         mlay.addWidget(self.task_input)
-        self.run_btn = QPushButton("▶ 运行选中 Agent")
+        self.run_btn = QPushButton("运行智能体")
         self.run_btn.clicked.connect(self.run_agent)
         mlay.addWidget(self.run_btn)
-        self.cancel_btn = QPushButton("✖ 取消运行")
+        self.cancel_btn = QPushButton("取消运行")
         self.cancel_btn.clicked.connect(self.cancel_run)
         mlay.addWidget(self.cancel_btn)
-        self.refresh_btn = QPushButton("刷新 Runs")
+        self.refresh_btn = QPushButton("刷新")
         self.refresh_btn.clicked.connect(self.refresh_runs)
         mlay.addWidget(self.refresh_btn)
         self.status = QLabel("正在加载 Agent 与运行记录…")
@@ -86,12 +98,12 @@ class AgentPage(QWidget, AsyncApiMixin):
 
         right = QWidget()
         rlay = QVBoxLayout(right)
-        rlay.addWidget(QLabel("<b>Run Timeline</b>"))
+        rlay.addWidget(QLabel("活动记录"))
         self.timeline = RunTimeline(self.api)
         rlay.addWidget(self.timeline, 1)
         splitter.addWidget(right)
         splitter.setSizes([220, 380, 420])
-        root.addWidget(splitter)
+        root.addWidget(splitter, 1)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(lambda: self.refresh_runs(silent=True))
@@ -122,6 +134,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         self._agents_loading = False
         self._set_agent_busy(False)
         selected = self.selected_agent()
+        self.matrix_status.set_state(f"{len(agents)} Agents synced", "online")
         self.agent_list.clear()
         for agent in agents:
             item = QListWidgetItem(f"{agent.get('name', '?')}  ({agent.get('model', '')})")

@@ -7,6 +7,7 @@ import hmac
 from contextlib import asynccontextmanager
 
 from api import (
+    providers,
     agent,
     auth,
     chat,
@@ -90,6 +91,7 @@ for _router in (
     auth.router,
     datasets.router,
     models.router,
+    providers.router,
     runtime.router,
     chat.router,
     sessions.router,

@@ -30,7 +30,7 @@ class ServiceUnavailableError(ApiClientError):
 class ModelForgeClient:
     """HTTP client for the ModelForge REST API with Bearer-token auth."""
 
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
         self.base_url = base_url.rstrip("/")
         self._token: str | None = None
         self.username: str | None = None
@@ -82,6 +82,22 @@ class ModelForgeClient:
     def list_models(self) -> list[dict]:
         return self._get("/api/v1/models")
 
+    # ---- remote providers (API keys are write-only and never returned) ----
+    def list_remote_providers(self) -> list[dict]:
+        return self._get("/api/v1/providers").get("providers", [])
+
+    def save_remote_provider(self, name: str, base_url: str, protocol: str, default_model: str, api_key: str | None = None) -> dict:
+        payload = {"name": name, "base_url": base_url, "protocol": protocol, "default_model": default_model}
+        if api_key:
+            payload["api_key"] = api_key
+        return self._post("/api/v1/providers", json=payload)
+
+    def verify_remote_provider(self, provider_id: int) -> dict:
+        return self._post(f"/api/v1/providers/{provider_id}/verify")
+
+    def delete_remote_provider(self, provider_id: int) -> dict:
+        return self._delete(f"/api/v1/providers/{provider_id}")
+
     def scan_models(self, path: str | None = None) -> list[dict]:
         return self._post("/api/v1/models/scan", json={"path": path or None})
 
@@ -119,20 +135,20 @@ class ModelForgeClient:
 
     # ---- chat (JSON + SSE) ----
 
-    def chat(self, model: str, messages: list, session_id: int | None = None) -> dict:
+    def chat(self, model: str, messages: list, session_id: int | None = None, provider_id: int | None = None) -> dict:
         return self._post(
             "/api/v1/chat",
-            json={"model": model, "messages": messages, "session_id": session_id},
+            json={"model": model, "messages": messages, "session_id": session_id, "provider_id": provider_id},
         )
 
     def stream_chat(
-        self, model: str, messages: list, session_id: int | None = None
+        self, model: str, messages: list, session_id: int | None = None, provider_id: int | None = None
     ) -> Iterator[dict]:
         """Yield SSE events: {type: delta|done|error, data: ...}."""
         with httpx.Client(timeout=None) as client, client.stream(
             "POST",
             f"{self.base_url}/api/v1/chat/stream",
-            json={"model": model, "messages": messages, "session_id": session_id},
+            json={"model": model, "messages": messages, "session_id": session_id, "provider_id": provider_id},
             headers=self._headers(),
         ) as resp:
             self._raise_for_status(resp)

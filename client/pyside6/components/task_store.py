@@ -40,11 +40,14 @@ class TaskStore(QObject, AsyncApiMixin):
 
     def stop(self):
         self._timer.stop()
-        if self._stream and self._stream.isRunning():
-            self._stream.requestInterruption()
-            self._stream.wait(1200)
+        stream = self._stream
         self._stream = None
-
+        if stream and stream.isRunning():
+            stream.requestInterruption()
+            if not stream.wait(3000):
+                stream.terminate()
+                stream.wait(500)
+        self.shutdown_async_api()
     def active_tasks(self):
         terminal = {"SUCCEEDED", "FAILED", "CANCELLED", "PARTIAL"}
         return [task for task in self.tasks.values() if task.get("status") not in terminal]

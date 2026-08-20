@@ -2,6 +2,7 @@
 import importlib.util
 import os
 import sys
+import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -16,6 +17,7 @@ _desktop_main = importlib.util.module_from_spec(_spec)
 assert _spec and _spec.loader
 _spec.loader.exec_module(_desktop_main)
 MainWindow = _desktop_main.MainWindow
+RecoveryManager = _desktop_main.RecoveryManager
 
 
 class FakeApi:
@@ -74,17 +76,23 @@ class FakeApi:
 
 def main():
     app = QApplication.instance() or QApplication([])
-    window = MainWindow(FakeApi())
+    recovery_dir = tempfile.TemporaryDirectory()
+    theme_manager = _desktop_main.apply_theme(app)
+    from i18n import I18n
+    window = MainWindow(FakeApi(), RecoveryManager(data_dir=os.path.join(recovery_dir.name, "state")), I18n(), theme_manager)
     window.show()
 
     def verify_and_quit():
-        assert window.tabs.count() == 7
-        assert window.tabs.tabText(0) == "工作台"
-        assert window.tabs.tabText(1) == "模型与运行时"
-        assert window.workspace_page.primary.text() == "准备模型"
+        assert window.stack.count() >= 9
+        window._navigate_to("overview")
+        assert window.active_destination == "overview" and window.shell.topbar.page.text()
+        assert window.workspace_page.prompt.placeholderText() == "向 ModelForge 提问…"
+        window._navigate_to("activity")
+        assert window.stack.currentWidget() is window.activity_page
         window._show_task_center()
         assert window.task_center.isVisible()
         window.close()
+        recovery_dir.cleanup()
         app.quit()
 
     QTimer.singleShot(900, verify_and_quit)

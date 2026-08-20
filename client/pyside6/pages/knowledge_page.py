@@ -2,6 +2,8 @@
 
 from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import MFSection, MFStatusBadge
+from components.example_library import open_examples
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -32,21 +34,31 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         self.refresh()
 
     def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        header = QHBoxLayout()
+        header.addWidget(MFSection("知识工作区", "知识库"))
+        header.addStretch(1)
+        self.knowledge_status = MFStatusBadge("Document index", "online")
+        header.addWidget(self.knowledge_status)
+        layout.addLayout(header)
         splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(self._build_docs_panel())
         splitter.addWidget(self._build_qa_panel())
         splitter.setSizes([280, 320])
-        layout = QVBoxLayout(self)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
 
     def _build_docs_panel(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         top = QHBoxLayout()
-        for label, handler in (("上传文档...", self.upload), ("刷新", self.refresh), ("查看分块", self.show_chunks), ("删除", self.delete_selected)):
+        for label, handler in (("Add document", self.upload), ("Refresh", self.refresh), ("View chunks", self.show_chunks), ("Delete document", self.delete_selected)):
             button = QPushButton(label)
             button.clicked.connect(handler)
             top.addWidget(button)
+        examples = QPushButton("示例")
+        examples.clicked.connect(lambda: open_examples("knowledge", self, lambda example: self.question_input.setText(example.template)))
+        top.addWidget(examples)
         top.addStretch()
         layout.addLayout(top)
         self.doc_table = QTableWidget()
@@ -72,10 +84,10 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         self.question_input.setPlaceholderText("输入问题（回车先检索，再生成回答）...")
         self.question_input.returnPressed.connect(self.answer)
         query_row.addWidget(self.question_input, 1)
-        search_button = QPushButton("仅检索")
+        search_button = QPushButton("检索")
         search_button.clicked.connect(self.search_only)
         query_row.addWidget(search_button)
-        answer_button = QPushButton("RAG 问答")
+        answer_button = QPushButton("提问")
         answer_button.clicked.connect(self.answer)
         query_row.addWidget(answer_button)
         layout.addLayout(query_row)

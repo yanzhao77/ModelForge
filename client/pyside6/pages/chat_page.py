@@ -1,19 +1,11 @@
-"""Responsive chat page with background REST calls and dedicated SSE worker."""
+"""Conversation-first chat with local and remote OpenAI-compatible model selection."""
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
+from components.example_library import open_examples
+from components.mf.primitives import MFSection, MFStatusBadge
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 
 class StreamWorker(QThread):
@@ -21,17 +13,17 @@ class StreamWorker(QThread):
     done = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, api, model, messages, session_id):
+    def __init__(self, api, model, messages, session_id, provider_id=None):
         super().__init__()
-        self.api = api
-        self.model = model
-        self.messages = messages
-        self.session_id = session_id
+        self.api, self.model, self.messages = api, model, messages
+        self.session_id, self.provider_id = session_id, provider_id
 
     def run(self):
         full = ""
         try:
-            for event in self.api.stream_chat(self.model, self.messages, self.session_id):
+            for event in self.api.stream_chat(self.model, self.messages, self.session_id, self.provider_id):
+                if self.isInterruptionRequested():
+                    return
                 kind = event.get("type")
                 if kind == "delta":
                     content = event.get("data", "")
@@ -41,7 +33,7 @@ class StreamWorker(QThread):
                     self.done.emit(full)
                     return
                 elif kind == "error":
-                    self.failed.emit(event.get("data", "服务返回错误"))
+                    self.failed.emit(event.get("data", "模型服务返回错误。"))
                     return
             self.done.emit(full)
         except Exception as exc:
@@ -49,113 +41,153 @@ class StreamWorker(QThread):
 
 
 class ChatPage(QWidget, AsyncApiMixin):
-    """Streaming chat page whose REST operations never block Qt's event loop."""
+    """Streaming conversation workspace with a safe remote-provider selector."""
 
     def __init__(self, api, parent=None):
         QWidget.__init__(self, parent)
         self._init_async_api()
-        self.api = api
-        self.session_id = None
-        self.messages = []
-        self.worker = None
+        self.api, self.session_id, self.messages, self.worker = api, None, [], None
         self.session_refresher = None
         self._init_ui()
+        self._run_api(self.api.list_remote_providers, self._render_remote_providers, lambda _error: None)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        top = QHBoxLayout()
-        top.addWidget(QLabel("模型:"))
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        header = QHBoxLayout()
+        header.addWidget(MFSection("对话", "聊天"))
+        header.addStretch(1)
+        self.chat_status = MFStatusBadge("未选择模型", "warning")
+        header.addWidget(self.chat_status)
+        layout.addLayout(header)
+        model_row = QHBoxLayout()
         self.model_input = QLineEdit()
-        self.model_input.setPlaceholderText("模型名（Ollama 模型 或 已注册模型名）")
-        top.addWidget(self.model_input)
-        self.load_btn = QPushButton("加载")
+        self.model_input.setPlaceholderText("选择本地模型，或已配置的远程模型")
+        model_row.addWidget(self.model_input, 1)
+        self.provider_select = QComboBox()
+        self.provider_select.addItem("本地运行时", None)
+        self.provider_select.currentIndexChanged.connect(self._provider_changed)
+        model_row.addWidget(self.provider_select)
+        self.load_btn = QPushButton("使用模型")
         self.load_btn.clicked.connect(self.load_model)
-        top.addWidget(self.load_btn)
-        self.kb_check = QCheckBox("知识库(RAG)")
-        top.addWidget(self.kb_check)
-        top.addStretch()
-        layout.addLayout(top)
-
+        model_row.addWidget(self.load_btn)
+        self.kb_check = QCheckBox("使用知识库")
+        model_row.addWidget(self.kb_check)
+        layout.addLayout(model_row)
         self.display = QTextEdit()
         self.display.setReadOnly(True)
-        self.display.setStyleSheet("background-color: #fafafa; border: 1px solid #ddd; padding: 8px;")
+        self.display.setPlaceholderText("对话内容将显示在这里。")
         layout.addWidget(self.display, 1)
-
-        bottom = QHBoxLayout()
+        composer = QHBoxLayout()
         self.msg_input = QLineEdit()
-        self.msg_input.setPlaceholderText("输入消息，Enter 发送...")
+        self.msg_input.setPlaceholderText("向 ModelForge 发送消息…")
         self.msg_input.returnPressed.connect(self.send_message)
-        bottom.addWidget(self.msg_input)
+        composer.addWidget(self.msg_input, 1)
+        examples = QPushButton("示例")
+        examples.clicked.connect(lambda: open_examples("chat", self, lambda example: self.msg_input.setText(example.template)))
+        composer.addWidget(examples)
         self.send_btn = QPushButton("发送")
+        self.send_btn.setProperty("accent", True)
         self.send_btn.clicked.connect(self.send_message)
-        bottom.addWidget(self.send_btn)
-        layout.addLayout(bottom)
+        composer.addWidget(self.send_btn)
+        layout.addLayout(composer)
+
+    def _render_remote_providers(self, providers):
+        selected = self._provider_id()
+        self.provider_select.blockSignals(True)
+        self.provider_select.clear()
+        self.provider_select.addItem("本地运行时", None)
+        for provider in providers:
+            self.provider_select.addItem(f"{provider['name']} · {provider['default_model']}", provider)
+            if provider["id"] == selected:
+                self.provider_select.setCurrentIndex(self.provider_select.count() - 1)
+        self.provider_select.blockSignals(False)
+
+    def _provider(self):
+        value = self.provider_select.currentData()
+        return value if isinstance(value, dict) else None
+
+    def _provider_id(self):
+        provider = self._provider()
+        return provider.get("id") if provider else None
+
+    def _provider_changed(self, _index):
+        provider = self._provider()
+        if provider:
+            self.model_input.setText(provider["default_model"])
+            self.load_btn.setText("使用远程服务")
+            self.chat_status.set_state(f"{provider['name']} selected", "online")
+        else:
+            self.load_btn.setText("使用模型")
+            self.chat_status.set_state("未选择模型", "warning")
 
     def set_session(self, session_id):
         self.session_id = session_id
-        self.display.clear()
-        self.messages = []
-        self.display.append("[正在加载会话消息…]")
-        self._run_api(
-            lambda: self.api.list_messages(session_id),
-            lambda messages: self._render_session(session_id, messages),
-            self._session_load_failed,
-        )
+        self.display.clear(); self.messages = []
+        self.display.append("[Loading conversation…]")
+        self._run_api(lambda: self.api.list_messages(session_id), lambda messages: self._render_session(session_id, messages), self._session_load_failed)
 
     def _render_session(self, session_id, messages):
         if session_id != self.session_id:
             return
-        self.display.clear()
-        self.messages = []
+        self.display.clear(); self.messages = []
         for message in messages:
             self._append_msg(message["role"], message["content"])
             self.messages.append({"role": message["role"], "content": message["content"]})
 
     def _session_load_failed(self, error):
-        self.display.append(f"[加载消息失败] {error}")
+        self.display.append(f"[Unable to load conversation] {error}")
 
     def load_model(self):
         model = self.model_input.text().strip()
         if not model:
-            QMessageBox.warning(self, "提示", "请输入模型名")
+            QMessageBox.warning(self, "请选择模型", "请输入模型名称，或选择已配置的远程模型服务。")
+            return
+        provider = self._provider()
+        if provider:
+            self.chat_status.set_state(f"{provider['name']} · {model}", "online")
+            self.display.append("<p><b>Remote provider ready</b><br>Messages will be sent through the selected OpenAI-compatible provider.</p>")
             return
         self.load_btn.setEnabled(False)
-        self.display.append("<b style='color:#1565C0'>[系统]</b> 正在加载模型…<br>")
+        self.display.append("<p><b>Preparing local model…</b></p>")
         self._run_api(lambda: self.api.runtime_start(model), lambda _result: self._model_loaded(model), self._model_load_failed)
 
     def _model_loaded(self, model):
         self.load_btn.setEnabled(True)
-        self.display.append(f"<b style='color:#4CAF50'>[系统]</b> 模型已加载: {model}<br>")
+        self.chat_status.set_state(f"{model} ready", "online")
+        self.display.append("<p><b>Model ready</b><br>Start a conversation when you are ready.</p>")
 
     def _model_load_failed(self, error):
         self.load_btn.setEnabled(True)
-        QMessageBox.warning(self, "加载失败", error)
+        QMessageBox.warning(self, "无法加载模型", error)
 
     def _append_msg(self, role, content):
-        color = "#2196F3" if role == "user" else "#4CAF50"
-        name = "用户" if role == "user" else "助手"
-        self.display.append(f"<div style='margin:6px 0'><b style='color:{color}'>{name}:</b> {content}</div>")
+        name = "你" if role == "user" else "ModelForge"
+        self.display.append(f"<p><b>{name}</b><br>{content}</p>")
 
     def send_message(self):
-        text = self.msg_input.text().strip()
-        model = self.model_input.text().strip()
+        text, model = self.msg_input.text().strip(), self.model_input.text().strip()
         if not text:
             return
         if not model:
-            QMessageBox.warning(self, "提示", "请先填写模型名")
+            QMessageBox.warning(self, "请选择模型", "Enter a model name before sending a message.")
             return
         if self.worker and self.worker.isRunning():
             return
+        provider_id = self._provider_id()
+        if self.kb_check.isChecked() and provider_id:
+            QMessageBox.information(self, "知识库与远程模型", "知识库检索目前使用本地运行时。请关闭“使用知识库”，或选择本地模型。")
+            return
         self._append_msg("user", text)
         self.messages.append({"role": "user", "content": text})
-        self.msg_input.clear()
-        self.send_btn.setEnabled(False)
+        self.msg_input.clear(); self.send_btn.setEnabled(False)
         if self.kb_check.isChecked():
             self._run_api(lambda: self.api.knowledge_answer(model, text, top_k=3), self._show_kb_answer, self._show_kb_failure)
             return
-        self.display.append("<b style='color:#4CAF50'>助手:</b> ")
+        self.display.append("<p><b>ModelForge</b><br>")
         self.display.moveCursor(self.display.textCursor().End)
-        self.worker = StreamWorker(self.api, model, self.messages, self.session_id)
+        self.worker = StreamWorker(self.api, model, self.messages, self.session_id, provider_id)
         self.worker.delta.connect(self._on_delta)
         self.worker.done.connect(self._on_done)
         self.worker.failed.connect(self._on_failed)
@@ -163,31 +195,36 @@ class ChatPage(QWidget, AsyncApiMixin):
 
     def _show_kb_answer(self, result):
         answer = result.get("answer", "")
-        self.display.append(f"<b style='color:#4CAF50'>助手:</b> {answer}<br>")
+        self.display.append(f"<b>ModelForge</b><br>{answer}<br>")
         for source in result.get("sources", []):
-            self.display.append(f"<span style='color:#888'>[来源: {source.get('source')} @{source.get('score', 0)}]</span><br>")
+            self.display.append(f"<span>[Source: {source.get('source')} @ {source.get('score', 0)}]</span><br>")
         self.messages.append({"role": "assistant", "content": answer})
         self.send_btn.setEnabled(True)
 
     def _show_kb_failure(self, error):
-        self.display.append(f"<b style='color:#FF5722'>[错误]</b> {error}<br>")
+        self.display.append(f"<b>Unable to answer</b><br>{error}<br>")
         self.send_btn.setEnabled(True)
 
     def _on_delta(self, chunk):
-        cursor = self.display.textCursor()
-        cursor.movePosition(cursor.End)
-        self.display.setTextCursor(cursor)
-        self.display.insertPlainText(chunk)
-        scrollbar = self.display.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        cursor = self.display.textCursor(); cursor.movePosition(cursor.End)
+        self.display.setTextCursor(cursor); self.display.insertPlainText(chunk)
+        self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum())
 
     def _on_done(self, full):
-        self.display.append("<br>")
+        self.display.append("</p>")
         self.messages.append({"role": "assistant", "content": full})
         self.send_btn.setEnabled(True)
         if self.session_id:
             self._run_api(lambda: self.api.auto_title(self.session_id), lambda _result: self.session_refresher() if self.session_refresher else None, lambda _error: None)
 
     def _on_failed(self, error):
-        self.display.append(f"<b style='color:#FF5722'>[错误]</b> {error}<br>")
+        self.display.append(f"<br><b>Unable to respond</b><br>{error}</p>")
         self.send_btn.setEnabled(True)
+
+    def shutdown_stream(self) -> None:
+        worker = self.worker; self.worker = None
+        if worker and worker.isRunning():
+            worker.requestInterruption()
+            if not worker.wait(2500):
+                worker.terminate(); worker.wait(500)
+        self.shutdown_async_api()

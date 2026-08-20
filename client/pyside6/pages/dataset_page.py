@@ -3,6 +3,8 @@ import json
 
 from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import MFSection, MFStatusBadge
+from components.example_library import open_examples
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -33,17 +35,27 @@ class DatasetPage(QWidget, AsyncApiMixin):
 
     def _init_ui(self):
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        header = QHBoxLayout()
+        header.addWidget(MFSection("数据工作区", "数据集"))
+        header.addStretch(1)
+        self.registry_status = MFStatusBadge("Syncing datasets", "warning")
+        header.addWidget(self.registry_status)
+        lay.addLayout(header)
         top = QHBoxLayout()
         self.name_input = QTextEdit()
         self.name_input.setFixedHeight(30)
         self.name_input.setPlaceholderText("数据集名称（可选）")
         top.addWidget(self.name_input, 1)
-        upload_btn = QPushButton("上传数据集...")
+        upload_btn = QPushButton("添加数据集")
         upload_btn.clicked.connect(self.upload)
         top.addWidget(upload_btn)
         refresh_btn = QPushButton("刷新")
         refresh_btn.clicked.connect(self.refresh)
         top.addWidget(refresh_btn)
+        examples = QPushButton("示例")
+        examples.clicked.connect(lambda: open_examples("datasets", self))
+        top.addWidget(examples)
         lay.addLayout(top)
 
         self.table = QTableWidget()
@@ -55,7 +67,7 @@ class DatasetPage(QWidget, AsyncApiMixin):
         lay.addWidget(self.table, 1)
 
         ops = QHBoxLayout()
-        for label, handler in (("预览", self.preview), ("训练预检", self.validate), ("删除选中", self.delete_selected)):
+        for label, handler in (("PREVIEW", self.preview), ("Training preflight", self.validate), ("Delete selected", self.delete_selected)):
             button = QPushButton(label)
             button.clicked.connect(handler)
             ops.addWidget(button)
@@ -79,8 +91,10 @@ class DatasetPage(QWidget, AsyncApiMixin):
                 self.table.setItem(row, col, QTableWidgetItem(text))
             self.table.item(row, 0).setData(Qt.UserRole, dataset.get("id"))
         self.hint.setText(f"已加载 {len(datasets)} 个数据集")
+        self.registry_status.set_state(f"{len(datasets)} datasets synced", "online")
 
     def _show_load_error(self, error):
+        self.registry_status.set_state("Datasets unavailable", "error")
         self.hint.setText(f"加载失败: {error}")
 
     def upload(self):

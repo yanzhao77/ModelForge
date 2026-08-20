@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from components.api_worker import AsyncApiMixin
+from components.example_library import open_examples
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -96,10 +97,13 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         self.refresh_btn = QPushButton("刷新")
         self.refresh_btn.clicked.connect(self.store.refresh)
         actions.addWidget(self.refresh_btn)
+        examples_btn = QPushButton("示例")
+        examples_btn.clicked.connect(lambda: open_examples("tasks", self))
+        actions.addWidget(examples_btn)
         self.retry_btn = QPushButton("重试")
         self.retry_btn.clicked.connect(self._retry_selected)
         actions.addWidget(self.retry_btn)
-        self.batch_retry_btn = QPushButton("Batch retry")
+        self.batch_retry_btn = QPushButton("批量重试")
         self.batch_retry_btn.clicked.connect(self._retry_checked)
         self.batch_retry_btn.setEnabled(False)
         actions.addWidget(self.batch_retry_btn)

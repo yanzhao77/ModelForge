@@ -2,6 +2,8 @@
 
 from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import MFSection, MFStatusBadge
+from components.example_library import open_examples
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -42,15 +44,25 @@ class TrainingPage(QWidget, AsyncApiMixin):
         self.refresh_all()
 
     def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        header = QHBoxLayout()
+        header.addWidget(MFSection("模型训练", "训练"))
+        header.addStretch(1)
+        self.training_status = MFStatusBadge("Tasks updating", "online")
+        header.addWidget(self.training_status)
+        examples = QPushButton("示例")
+        examples.clicked.connect(lambda: open_examples("training", self))
+        header.addWidget(examples)
+        layout.addLayout(header)
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self._build_config_panel())
         splitter.addWidget(self._build_task_panel())
         splitter.setSizes([420, 520])
-        layout = QVBoxLayout(self)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
 
     def _build_config_panel(self):
-        box = QGroupBox("训练配置")
+        box = QGroupBox("Training configuration")
         form = QFormLayout(box)
         self.base_model = QComboBox()
         self.base_model.setEditable(True)
@@ -93,7 +105,7 @@ class TrainingPage(QWidget, AsyncApiMixin):
         self.task_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.task_table.itemSelectionChanged.connect(self._on_task_selected)
         layout.addWidget(self.task_table, 1)
-        detail = QGroupBox("任务详情")
+        detail = QGroupBox("Run detail")
         detail_layout = QVBoxLayout(detail)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -104,10 +116,10 @@ class TrainingPage(QWidget, AsyncApiMixin):
         self.log_view.setReadOnly(True)
         detail_layout.addWidget(self.log_view, 1)
         operations = QHBoxLayout()
-        stop_button = QPushButton("停止")
+        stop_button = QPushButton("停止运行")
         stop_button.clicked.connect(self.stop_task)
         operations.addWidget(stop_button)
-        register_button = QPushButton("注册到模型列表")
+        register_button = QPushButton("注册模型")
         register_button.clicked.connect(self.register_model)
         operations.addWidget(register_button)
         operations.addStretch()

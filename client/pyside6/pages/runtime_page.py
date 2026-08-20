@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import MFSection, MFStatusBadge
+from components.example_library import open_examples
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QComboBox,
@@ -33,10 +35,17 @@ class RuntimePage(QWidget, AsyncApiMixin):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        title = QLabel("模型与运行时")
-        title.setStyleSheet("font-size: 24px; font-weight: 600;")
-        layout.addWidget(title)
-        subtitle = QLabel("选择模型后启动或停止本地运行时；实际授权和状态均以服务端响应为准。")
+        header = QHBoxLayout()
+        header.addWidget(MFSection("推理服务", "运行时"))
+        header.addStretch(1)
+        self.connection = MFStatusBadge("RUNTIME CHECKING", "warning")
+        header.addWidget(self.connection)
+        examples = QPushButton("示例")
+        examples.clicked.connect(lambda: open_examples("runtime", self))
+        header.addWidget(examples)
+        layout.addLayout(header)
+        subtitle = QLabel("模型生命周期、权限响应和运行时诊断均来自已连接服务。")
+        subtitle.setProperty("role", "muted")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
@@ -95,11 +104,13 @@ class RuntimePage(QWidget, AsyncApiMixin):
             self.model_combo.setCurrentText(current)
         self.model_combo.blockSignals(False)
         self.status.setText(f"已同步 {len(models)} 个模型；运行时状态已刷新。")
+        self.connection.set_state("RUNTIME SYNCHRONIZED", "online")
         self.output.setPlainText(json.dumps(runtime, ensure_ascii=False, indent=2))
 
     def _refresh_failed(self, error):
         self._set_busy(False)
         self.status.setText(f"同步运行时状态失败：{error}")
+        self.connection.set_state("RUNTIME UNAVAILABLE", "error")
         self.output.setPlainText("无法读取运行时状态。请检查后端连接后重试。")
 
     def start_runtime(self):
