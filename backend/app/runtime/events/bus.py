@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -51,7 +52,9 @@ class EventBus:
             if event is None:
                 break
             try:
-                await self._store.append(event)
+                result = self._store.append(event)
+                if inspect.isawaitable(result):
+                    await result
             except Exception as e:
                 # audit P0-4: persistence failures must be visible, not silent
                 self._write_failures += 1
@@ -123,6 +126,8 @@ class EventBus:
         while not self._queue.empty():
             event = self._queue.get_nowait()
             try:
-                await self._store.append(event)
+                result = self._store.append(event)
+                if inspect.isawaitable(result):
+                    await result
             except Exception:
                 self._write_failures += 1

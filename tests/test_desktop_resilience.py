@@ -7,11 +7,13 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, "client", "pyside6"))
 
+from components import desktop_update
 from components.desktop_update import GitHubReleaseUpdater
 from components.recovery import RecoveryManager
 
 
-def test_release_selection_requires_macos_installer_and_checksum(tmp_path):
+def test_release_selection_requires_macos_installer_and_checksum(tmp_path, monkeypatch):
+    monkeypatch.setattr(desktop_update.platform, "system", lambda: "Darwin")
     updater = GitHubReleaseUpdater("owner/repo", "0.1.0", update_dir=tmp_path)
     assets = [
         {"name": "ModelForge-macOS-universal2.dmg", "browser_download_url": "https://example.test/ModelForge-macOS-universal2.dmg"},
