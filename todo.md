@@ -86,7 +86,12 @@
 - [x] 核对标签、提交基线、发布资产、SHA-256、测试说明与 GitHub 当前 Release 状态。
 - [x] 生成发布校验报告、最终 Release Notes 与人工安装 smoke 清单。
 - [x] 复核发布就绪门槛，并向用户呈现待上传资产和已知限制。
-- [ ] 获得用户明确确认后创建 GitHub Pre-release 并上传资产。
+- [x] 获得用户明确确认后创建 GitHub Pre-release 并上传资产。
+
+### 发布结果（2026-08-21）
+
+- 已创建 [ModelForge v0.1.1-beta.1 Pre-release](https://github.com/yanzhao77/ModelForge/releases/tag/v0.1.1-beta.1)，标签指向 `dd570e79d82dc13679af55e0e1af473f4d53df61`。
+- 已上传 `ModelForge-macOS-0.1.1-beta.1.zip`（45,756,603 bytes，SHA-256 `981b8622bf9a31a4bf0b2d8ae6b08754544b9d834eb320f55a58fe1864557718`）和 `checksums.txt`；GitHub 资产摘要与本地校验一致。
 
 ## 顺序开发执行
 
