@@ -1,0 +1,151 @@
+"""Explicit schedule management workspace; opening it never runs an Agent."""
+from __future__ import annotations
+
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from components.api_worker import ApiWorker
+
+
+class AutomationPage(QWidget):
+    """List persistent schedule drafts and require explicit enable/run actions."""
+
+    navigate_requested = Signal(str)
+
+    def __init__(self, api, parent=None):
+        super().__init__(parent)
+        self.api = api
+        self._jobs: list[dict] = []
+        layout = QVBoxLayout(self)
+        header = QHBoxLayout()
+        title = QLabel("自动化")
+        title.setObjectName("pageTitle")
+        header.addWidget(title)
+        header.addStretch(1)
+        self.refresh_button = QPushButton("刷新")
+        self.refresh_button.clicked.connect(self.refresh)
+        header.addWidget(self.refresh_button)
+        self.new_button = QPushButton("新建计划草稿")
+        self.new_button.clicked.connect(self._create_draft)
+        header.addWidget(self.new_button)
+        layout.addLayout(header)
+        self.hint = QLabel("计划默认是草稿。只有点击“启用”后才会在设定时间创建 Agent Run。")
+        self.hint.setWordWrap(True)
+        layout.addWidget(self.hint)
+        self.list = QListWidget()
+        self.list.currentRowChanged.connect(self._render_detail)
+        layout.addWidget(self.list, 1)
+        self.detail = QLabel("选择一个计划查看详情。")
+        self.detail.setWordWrap(True)
+        layout.addWidget(self.detail)
+        actions = QHBoxLayout()
+        self.enable_button = QPushButton("启用")
+        self.enable_button.clicked.connect(lambda: self._change_state(True))
+        actions.addWidget(self.enable_button)
+        self.pause_button = QPushButton("暂停")
+        self.pause_button.clicked.connect(lambda: self._change_state(False))
+        actions.addWidget(self.pause_button)
+        self.run_button = QPushButton("立即运行")
+        self.run_button.clicked.connect(self._run_now)
+        actions.addWidget(self.run_button)
+        self.delete_button = QPushButton("删除计划")
+        self.delete_button.clicked.connect(self._delete)
+        actions.addWidget(self.delete_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        self.refresh()
+
+    def _selected(self) -> dict | None:
+        row = self.list.currentRow()
+        return self._jobs[row] if 0 <= row < len(self._jobs) else None
+
+    def refresh(self):
+        self.refresh_button.setEnabled(False)
+        worker = ApiWorker(self.api.list_schedules)
+        worker.succeeded.connect(self._loaded)
+        worker.failed.connect(self._failed)
+        worker.finished.connect(lambda: self.refresh_button.setEnabled(True))
+        worker.start()
+        self._worker = worker
+
+    def _loaded(self, jobs):
+        self._jobs = jobs or []
+        self.list.clear()
+        for job in self._jobs:
+            state = "已启用" if job.get("enabled") else "草稿/暂停"
+            kind = "一次" if job.get("schedule_kind") == "once" else "间隔"
+            self.list.addItem(QListWidgetItem(f"{job.get('name', '未命名')} · {state} · {kind}"))
+        self._render_detail(self.list.currentRow())
+
+    def _failed(self, message):
+        self.detail.setText(f"无法加载计划：{message}")
+
+    def _render_detail(self, _row):
+        job = self._selected()
+        if not job:
+            self.detail.setText("暂无计划。先创建草稿，再显式启用。")
+            return
+        spec = job.get("run_spec") or {}
+        self.detail.setText(
+            f"Agent：{spec.get('agent_id', '—')}\n"
+            f"状态：{'已启用' if job.get('enabled') else '草稿/已暂停'}\n"
+            f"下次执行：{job.get('next_run_at') or '启用后计算'}\n"
+            f"并发策略：{job.get('concurrency_policy', 'skip')}\n"
+            f"失败次数：{job.get('failure_count', 0)}/{job.get('max_failures', 3)}"
+        )
+
+    def _create_draft(self):
+        agent_id, ok = QInputDialog.getText(self, "新建计划草稿", "Agent 名称")
+        if not ok or not agent_id.strip():
+            return
+        interval, ok = QInputDialog.getInt(self, "计划频率", "间隔秒数（至少 60 秒）", 3600, 60, 604800)
+        if not ok:
+            return
+        payload = {"name": f"{agent_id.strip()} 每 {interval} 秒", "agent_id": agent_id.strip(), "schedule_kind": "interval", "interval_seconds": interval, "input": ""}
+        self._call(lambda: self.api.create_schedule(payload), "计划草稿已保存。尚未启用。")
+
+    def _change_state(self, enabled: bool):
+        job = self._selected()
+        if not job:
+            return
+        action = "启用" if enabled else "暂停"
+        if QMessageBox.question(self, f"确认{action}", f"{action}“{job.get('name')}”吗？") != QMessageBox.Yes:
+            return
+        callback = self.api.enable_schedule if enabled else self.api.pause_schedule
+        self._call(lambda: callback(job["id"]), f"计划已{action}。")
+
+    def _run_now(self):
+        job = self._selected()
+        if not job:
+            return
+        if QMessageBox.question(self, "确认立即运行", "这会创建一个新的 Agent Run。是否继续？") != QMessageBox.Yes:
+            return
+        self._call(lambda: self.api.run_schedule_now(job["id"]), "已创建新的 Agent Run。")
+
+    def _delete(self):
+        job = self._selected()
+        if not job:
+            return
+        if QMessageBox.question(self, "确认删除", "删除计划不会删除历史执行记录。是否继续？") != QMessageBox.Yes:
+            return
+        self._call(lambda: self.api.delete_schedule(job["id"]), "计划已删除。")
+
+    def _call(self, action, success):
+        worker = ApiWorker(action)
+        worker.succeeded.connect(lambda _result: (QMessageBox.information(self, "自动化", success), self.refresh()))
+        worker.failed.connect(lambda message: QMessageBox.warning(self, "自动化", str(message)))
+        worker.start()
+        self._worker = worker

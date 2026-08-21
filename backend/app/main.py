@@ -22,6 +22,7 @@ from api import (
     system,
     tasks,
     train,
+    workspaces,
 )
 from core.config import settings
 from core.database import init_db
@@ -102,6 +103,7 @@ for _router in (
     train.router,
     system.router,
     tasks.router,
+    workspaces.router,
 ):
     app.include_router(_router, prefix="/api/v1")
 

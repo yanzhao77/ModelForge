@@ -17,7 +17,7 @@ from theme.tokens import SIDEBAR_WIDTH, TOPBAR_HEIGHT
 
 class NavigationRail(QFrame):
     destination_requested = Signal(str)
-    ORDER = ("overview", "chat", "models", "datasets", "training", "knowledge", "agents", "separator", "tasks", "runtime", "separator", "settings")
+    ORDER = ("overview", "chat", "models", "datasets", "training", "knowledge", "agents", "automation", "control", "separator", "tasks", "runtime", "separator", "settings")
 
     def __init__(self, translator, parent=None):
         super().__init__(parent)

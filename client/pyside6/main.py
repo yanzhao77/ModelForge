@@ -18,8 +18,10 @@ from components.task_store import TaskStore
 from i18n import I18n
 from i18n.ui_localizer import localize_tree
 from pages.activity_page import ActivityPage
+from pages.automation_page import AutomationPage
 from pages.agent_page import AgentPage
 from pages.chat_page import ChatPage
+from pages.control_center_page import ControlCenterPage
 from pages.dataset_page import DatasetPage
 from pages.knowledge_page import KnowledgePage
 from pages.login_dialog import LoginDialog
@@ -126,6 +128,8 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.knowledge_page = KnowledgePage(self.api)
         self.agent_page = AgentPage(self.api, self.readiness_store)
         self.activity_page = ActivityPage(self.task_store)
+        self.control_center_page = ControlCenterPage(self.api)
+        self.automation_page = AutomationPage(self.api)
         self.settings_page = SettingsPage(
             self.api,
             APP_VERSION,
@@ -143,6 +147,8 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             "agents": self.agent_page,
             "runtime": self.runtime_page,
             "activity": self.activity_page,
+            "control": self.control_center_page,
+            "automation": self.automation_page,
             "settings": self.settings_page,
         }
         for page in dict.fromkeys(self._pages.values()):
@@ -182,7 +188,9 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 "training",
                 "knowledge",
                 "agents",
-                "tasks",
+                "automation",
+                "control",
+                "activity",
                 "runtime",
                 "settings",
             )

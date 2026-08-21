@@ -1,13 +1,17 @@
 """Agent API routes: 2.1 agent management + 3.0 Agent Run API (spec 25)."""
 
-from core.database import get_db
+from core.database import SessionLocal, get_db
 from core.security import get_current_user, get_runtime_admin
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models.records import User
+from models.records import AgentDefinitionVersion, AgentTemplate
 from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
 from services.model_readiness_service import ModelReadinessService
+from services.schedule_service import ScheduleService
 from sqlalchemy.orm import Session as DBSession
+import json
+import uuid
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -88,7 +92,45 @@ async def create_agent(
         system_prompt=req.system_prompt,
     )
     result["model_target"] = target or {}
+    previous = db.query(AgentDefinitionVersion).filter(AgentDefinitionVersion.user_id == user.id, AgentDefinitionVersion.agent_name == req.name).count()
+    db.add(AgentDefinitionVersion(id=uuid.uuid4().hex, user_id=user.id, agent_name=req.name, version=previous + 1, snapshot_json=json.dumps(result, ensure_ascii=False), change_note="Initial definition"))
+    db.commit()
     return result
+
+
+@router.get("/templates")
+async def list_agent_templates(db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    return {"templates": [item.to_dict() for item in db.query(AgentTemplate).filter(AgentTemplate.user_id == user.id).order_by(AgentTemplate.updated_at.desc()).all()]}
+
+
+@router.post("/templates")
+async def create_agent_template(req: dict, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    name = str((req or {}).get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="template name required")
+    definition = dict((req or {}).get("definition") or {})
+    for key in ("api_key", "token", "authorization", "password"):
+        definition.pop(key, None)
+    item = AgentTemplate(id=uuid.uuid4().hex, user_id=user.id, name=name, description=(req or {}).get("description"), definition_json=json.dumps(definition, ensure_ascii=False))
+    db.add(item)
+    db.commit()
+    return item.to_dict()
+
+
+@router.delete("/templates/{template_id}")
+async def delete_agent_template(template_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    item = db.query(AgentTemplate).filter(AgentTemplate.id == template_id, AgentTemplate.user_id == user.id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    db.delete(item)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/{name}/versions")
+async def agent_versions(name: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    items = db.query(AgentDefinitionVersion).filter(AgentDefinitionVersion.user_id == user.id, AgentDefinitionVersion.agent_name == name).order_by(AgentDefinitionVersion.version.desc()).all()
+    return {"agent_name": name, "versions": [item.to_dict() for item in items]}
 
 @router.post("/{name}/chat")
 async def agent_chat(name: str, req: dict, user: User = Depends(get_current_user)):
@@ -303,46 +345,123 @@ async def list_tools(user: User = Depends(get_current_user)):
     return {"tools": _get_runtime().list_tools()}
 
 
-@router.post("/schedules")
-async def create_schedule(req: dict, user: User = Depends(get_current_user)):
-    """Schedule an agent run once or on an interval (spec 38 / 72)."""
-    agent_id = (req or {}).get("agent_id")
-    input_text = (req or {}).get("input", "")
-    if not agent_id:
-        raise HTTPException(status_code=400, detail="agent_id required")
-    run_spec = {"agent_id": agent_id, "input": input_text, "session_id": (req or {}).get("session_id")}
-    delay = (req or {}).get("delay_seconds")
-    interval = (req or {}).get("interval_seconds")
-    rt = _get_runtime()
-    if rt.get_agent(agent_id, user_id=user.id) is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    run_spec["user_id"] = user.id
+async def _persistent_schedule_trigger(schedule_id: str, run_spec: dict) -> None:
+    """Create a scheduled run and write an audit record in a fresh DB session."""
+    db = SessionLocal()
     try:
-        if delay is not None:
-            job_id = rt.schedule_once(float(delay), run_spec, user_id=user.id)
-            kind = "once"
-        elif interval is not None:
-            job_id = rt.schedule_interval(float(interval), run_spec, user_id=user.id)
-            kind = "interval"
-        else:
-            raise HTTPException(status_code=400, detail="delay_seconds or interval_seconds required")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"job_id": job_id, "type": kind, "agent_id": agent_id}
+        service = ScheduleService(db)
+        job = service.owned(int(run_spec.get("user_id") or 0), schedule_id)
+        if job is None or not job.enabled:
+            return
+        rt = _get_runtime()
+        run = rt.create_run(
+            agent_id=run_spec.get("agent_id", ""),
+            input_text=run_spec.get("input", ""),
+            user_id=job.user_id,
+            session_id=run_spec.get("session_id"),
+            metadata={**(run_spec.get("metadata") or {}), "schedule_id": schedule_id},
+            execute=True,
+        )
+        service.record_execution(job, run.run_id, "triggered")
+    except Exception as exc:
+        job = ScheduleService(db).owned(int(run_spec.get("user_id") or 0), schedule_id)
+        if job is not None:
+            ScheduleService(db).record_execution(job, None, "failed", error=exc)
+    finally:
+        db.close()
+
+
+@router.post("/schedules")
+async def create_schedule(
+    req: dict,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create a disabled schedule draft; ``enabled=true`` is an explicit opt-in."""
+    payload = dict(req or {})
+    if "schedule_kind" not in payload:
+        payload["schedule_kind"] = "once" if payload.get("delay_seconds") is not None else "interval"
+    agent_id = payload.get("agent_id")
+    rt = _get_runtime()
+    if not agent_id or rt.get_agent(agent_id, user_id=user.id) is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    try:
+        job = ScheduleService(db).create_draft(user.id, payload)
+        if payload.get("enabled") is True:
+            callback = lambda spec: _persistent_schedule_trigger(job.id, spec)
+            job = ScheduleService(db).enable(job, rt, callback)
+        return job.to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.get("/schedules")
-async def list_schedules(user: User = Depends(get_current_user)):
-    return {"schedules": _get_runtime().list_schedules(user_id=user.id)}
+async def list_schedules(db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    return {"schedules": [item.to_dict() for item in ScheduleService(db).list(user.id)]}
+
+
+@router.patch("/schedules/{schedule_id}")
+async def update_schedule(schedule_id: str, req: dict, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    job = ScheduleService(db).owned(user.id, schedule_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    try:
+        return ScheduleService(db).update_draft(job, req or {}).to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/schedules/{schedule_id}/enable")
+async def enable_schedule(schedule_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    service = ScheduleService(db)
+    job = service.owned(user.id, schedule_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    callback = lambda spec: _persistent_schedule_trigger(job.id, spec)
+    try:
+        return service.enable(job, _get_runtime(), callback).to_dict()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/schedules/{schedule_id}/pause")
+async def pause_schedule(schedule_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    service = ScheduleService(db)
+    job = service.owned(user.id, schedule_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return service.pause(job, _get_runtime()).to_dict()
+
+
+@router.post("/schedules/{schedule_id}/run-now")
+async def run_schedule_now(schedule_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    service = ScheduleService(db)
+    job = service.owned(user.id, schedule_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    spec = __import__("json").loads(job.run_spec or "{}")
+    rt = _get_runtime()
+    run = rt.create_run(spec.get("agent_id", ""), spec.get("input", ""), user.id, spec.get("session_id"), {**(spec.get("metadata") or {}), "schedule_id": job.id, "trigger_kind": "manual"}, execute=True)
+    service.record_execution(job, run.run_id, "triggered", trigger_kind="manual")
+    return {"schedule_id": job.id, "run_id": run.run_id, "status": run.status}
+
+
+@router.get("/schedules/{schedule_id}/executions")
+async def schedule_executions(schedule_id: str, limit: int = Query(100, ge=1, le=500), db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    service = ScheduleService(db)
+    job = service.owned(user.id, schedule_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"schedule_id": job.id, "executions": [item.to_dict() for item in service.executions(job, limit)]}
 
 
 @router.delete("/schedules/{job_id}")
-async def cancel_schedule(job_id: str, user: User = Depends(get_current_user)):
-    ok = _get_runtime().cancel_schedule(job_id, user_id=user.id)
-    if not ok:
-        raise HTTPException(status_code=404, detail=f"Schedule {job_id} not found")
+async def cancel_schedule(job_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    service = ScheduleService(db)
+    job = service.owned(user.id, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    service.delete(job, _get_runtime())
     return {"ok": True}
 
 

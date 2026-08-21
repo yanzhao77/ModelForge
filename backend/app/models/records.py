@@ -216,6 +216,60 @@ class RemoteProviderConfig(Base):
         }
 
 
+class AgentTemplate(Base):
+    """User-owned, credential-free Agent definition template."""
+
+    __tablename__ = "agent_templates"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    description = Column(Text, nullable=True)
+    definition_json = Column(Text, nullable=False, default="{}")
+    version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        import json as _json
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "definition": _json.loads(self.definition_json or "{}"),
+            "version": self.version,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AgentDefinitionVersion(Base):
+    """Immutable snapshot used to explain a historical Agent Run."""
+
+    __tablename__ = "agent_definition_versions"
+    __table_args__ = (Index("ix_agent_definition_version", "user_id", "agent_name", "version", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    agent_name = Column(String(255), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    snapshot_json = Column(Text, nullable=False, default="{}")
+    change_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        import json as _json
+
+        return {
+            "id": self.id,
+            "agent_name": self.agent_name,
+            "version": self.version,
+            "snapshot": _json.loads(self.snapshot_json or "{}"),
+            "change_note": self.change_note,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class UserModelPreference(Base):
     """One explicit default model target per user, without provider credentials."""
 
@@ -602,3 +656,147 @@ class TaskOutbox(Base):
     dispatched_at = Column(DateTime, nullable=True, index=True)
     attempts = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
+
+
+class ScheduledJob(Base):
+    """User-owned, persistent Agent Run schedule definition."""
+
+    __tablename__ = "scheduled_jobs"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    enabled = Column(Boolean, nullable=False, default=False, index=True)
+    schedule_kind = Column(String(24), nullable=False)  # once / interval
+    delay_seconds = Column(Float, nullable=True)
+    interval_seconds = Column(Float, nullable=True)
+    timezone = Column(String(64), nullable=False, default="UTC")
+    run_spec = Column(Text, nullable=False, default="{}")
+    concurrency_policy = Column(String(24), nullable=False, default="skip")
+    max_failures = Column(Integer, nullable=False, default=3)
+    failure_count = Column(Integer, nullable=False, default=0)
+    runtime_job_id = Column(String(64), nullable=True, index=True)
+    next_run_at = Column(DateTime, nullable=True, index=True)
+    last_run_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        import json as _json
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "enabled": bool(self.enabled),
+            "schedule_kind": self.schedule_kind,
+            "delay_seconds": self.delay_seconds,
+            "interval_seconds": self.interval_seconds,
+            "timezone": self.timezone,
+            "run_spec": _json.loads(self.run_spec or "{}"),
+            "concurrency_policy": self.concurrency_policy,
+            "max_failures": self.max_failures,
+            "failure_count": self.failure_count,
+            "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
+            "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ScheduleExecution(Base):
+    """Audit link between a persistent schedule and an Agent Run."""
+
+    __tablename__ = "schedule_executions"
+
+    id = Column(String(64), primary_key=True)
+    schedule_id = Column(String(64), ForeignKey("scheduled_jobs.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    agent_run_id = Column(String(64), nullable=True, index=True)
+    trigger_kind = Column(String(24), nullable=False, default="schedule")
+    outcome = Column(String(32), nullable=False, default="triggered")
+    error_code = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    triggered_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "schedule_id": self.schedule_id,
+            "agent_run_id": self.agent_run_id,
+            "trigger_kind": self.trigger_kind,
+            "outcome": self.outcome,
+            "error_code": self.error_code,
+            "error_message": self.error_message,
+            "triggered_at": self.triggered_at.isoformat() if self.triggered_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
+
+
+class RunArtifact(Base):
+    """User-owned, redacted output package linked to an existing source record."""
+
+    __tablename__ = "run_artifacts"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    source_kind = Column(String(48), nullable=False, index=True)
+    source_id = Column(String(128), nullable=False, index=True)
+    artifact_type = Column(String(48), nullable=False)
+    title = Column(String(255), nullable=False)
+    content_json = Column(Text, nullable=True)
+    content_text = Column(Text, nullable=True)
+    redacted = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+
+class KnowledgeCollection(Base):
+    __tablename__ = "knowledge_collections"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    description = Column(Text, nullable=True)
+    tags_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class KnowledgeCollectionDocument(Base):
+    __tablename__ = "knowledge_collection_documents"
+    __table_args__ = (Index("ix_collection_document", "collection_id", "document_id", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    collection_id = Column(String(64), ForeignKey("knowledge_collections.id"), nullable=False, index=True)
+    document_id = Column(Integer, ForeignKey("knowledge_documents.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class PluginProfile(Base):
+    __tablename__ = "plugin_profiles"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    profile_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class ModelMetricBucket(Base):
+    __tablename__ = "model_metric_buckets"
+    __table_args__ = (Index("ix_model_metric_user_bucket", "user_id", "model_ref", "bucket_start", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    model_ref = Column(String(255), nullable=False, index=True)
+    bucket_start = Column(DateTime, nullable=False, index=True)
+    request_count = Column(Integer, nullable=False, default=0)
+    success_count = Column(Integer, nullable=False, default=0)
+    error_4xx_count = Column(Integer, nullable=False, default=0)
+    error_429_count = Column(Integer, nullable=False, default=0)
+    error_5xx_count = Column(Integer, nullable=False, default=0)
+    timeout_count = Column(Integer, nullable=False, default=0)
+    latency_sum_ms = Column(Float, nullable=False, default=0.0)
+    input_tokens_estimate = Column(Integer, nullable=False, default=0)
+    output_tokens_estimate = Column(Integer, nullable=False, default=0)
+    cost_estimate = Column(Float, nullable=False, default=0.0)

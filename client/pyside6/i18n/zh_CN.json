@@ -11,6 +11,8 @@
   "nav.runtime": "运行时",
   "nav.settings": "设置",
   "nav.activity": "活动",
+  "nav.automation": "自动化",
+  "nav.control": "控制中心",
   "footer.connecting": "正在连接 ModelForge 服务…",
   "settings.title": "设置",
   "settings.general": "通用",

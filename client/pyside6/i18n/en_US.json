@@ -1,5 +1,5 @@
 {
-  "nav.overview": "Overview", "nav.home": "Home", "nav.chat": "Chat", "nav.models": "Models", "nav.datasets": "Datasets", "nav.training": "Training", "nav.knowledge": "Knowledge", "nav.agents": "Agents", "nav.tasks": "Tasks", "nav.runtime": "Runtime", "nav.settings": "Settings", "nav.activity": "Activity",
+  "nav.overview": "Overview", "nav.home": "Home", "nav.chat": "Chat", "nav.models": "Models", "nav.datasets": "Datasets", "nav.training": "Training", "nav.knowledge": "Knowledge", "nav.agents": "Agents", "nav.tasks": "Tasks", "nav.runtime": "Runtime", "nav.settings": "Settings", "nav.activity": "Activity", "nav.automation": "Automation", "nav.control": "Control Center",
   "settings.title": "Settings", "settings.general": "General", "settings.appearance": "Appearance", "settings.language": "Language", "settings.backend": "Service Connection", "settings.about": "About", "settings.theme": "Theme", "settings.display_language": "Display Language",
   "theme.light": "Light", "theme.dark": "Dark", "theme.system": "System",
   "action.refresh": "Refresh", "action.examples": "Examples", "action.manage": "Manage", "action.verify": "Verify Connection", "action.save": "Save", "action.delete": "Delete",

@@ -44,18 +44,18 @@ class Scheduler:
         self._seq += 1
         return f"{kind}_{self._seq}"
 
-    def schedule_once(self, delay: float, run_spec: dict[str, Any], user_id: int | None = None) -> str:
+    def schedule_once(self, delay: float, run_spec: dict[str, Any], user_id: int | None = None, callback: Callable | None = None) -> str:
         """Run once after `delay` seconds (spec 38)."""
         job_id = self._new_id("once")
-        self._jobs[job_id] = {"type": "once", "delay": delay, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None}
+        self._jobs[job_id] = {"type": "once", "delay": delay, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None, "callback": callback}
         loop = asyncio.get_running_loop()
         self._tasks[job_id] = loop.create_task(self._run_once(job_id, delay, run_spec))
         return job_id
 
-    def schedule_interval(self, interval: float, run_spec: dict[str, Any], user_id: int | None = None) -> str:
+    def schedule_interval(self, interval: float, run_spec: dict[str, Any], user_id: int | None = None, callback: Callable | None = None) -> str:
         """Run every `interval` seconds while started (spec 38 / 39)."""
         job_id = self._new_id("interval")
-        self._jobs[job_id] = {"type": "interval", "interval": interval, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None}
+        self._jobs[job_id] = {"type": "interval", "interval": interval, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None, "callback": callback}
         loop = asyncio.get_running_loop()
         self._tasks[job_id] = loop.create_task(self._run_interval(job_id, interval, run_spec))
         return job_id
@@ -103,11 +103,12 @@ class Scheduler:
             self._tasks.pop(job_id, None)
 
     async def _fire(self, job_id: str, run_spec: dict[str, Any]) -> None:
-        if self._trigger is None:
+        callback = self._jobs.get(job_id, {}).get("callback") or self._trigger
+        if callback is None:
             return
         if job_id in self._jobs:
             self._jobs[job_id]["triggered_at"] = datetime.datetime.utcnow().isoformat()
         try:
-            await self._trigger(run_spec)
+            await callback(run_spec)
         except Exception:
             pass

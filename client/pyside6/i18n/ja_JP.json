@@ -1,5 +1,5 @@
 {
-  "nav.overview": "概要", "nav.home": "ホーム", "nav.chat": "チャット", "nav.models": "モデル", "nav.datasets": "データセット", "nav.training": "トレーニング", "nav.knowledge": "ナレッジ", "nav.agents": "エージェント", "nav.tasks": "タスク", "nav.runtime": "ランタイム", "nav.settings": "設定", "nav.activity": "アクティビティ",
+  "nav.overview": "概要", "nav.home": "ホーム", "nav.chat": "チャット", "nav.models": "モデル", "nav.datasets": "データセット", "nav.training": "トレーニング", "nav.knowledge": "ナレッジ", "nav.agents": "エージェント", "nav.tasks": "タスク", "nav.runtime": "ランタイム", "nav.settings": "設定", "nav.activity": "アクティビティ", "nav.automation": "自動化", "nav.control": "コントロールセンター",
   "settings.title": "設定", "settings.general": "一般", "settings.appearance": "外観", "settings.language": "言語", "settings.backend": "サービス接続", "settings.about": "について", "settings.theme": "テーマ", "settings.display_language": "表示言語",
   "theme.light": "ライト", "theme.dark": "ダーク", "theme.system": "システム",
   "action.refresh": "更新", "action.examples": "例", "action.manage": "管理", "action.verify": "接続を検証", "action.save": "保存", "action.delete": "削除",

@@ -538,15 +538,15 @@ class AgentRuntime:
             execute=True,
         )
 
-    def schedule_once(self, delay: float, run_spec: dict[str, Any], user_id: int | None = None) -> str:
+    def schedule_once(self, delay: float, run_spec: dict[str, Any], user_id: int | None = None, callback=None) -> str:
         if self.scheduler is None:
             raise RuntimeError("scheduler not configured")
-        return self.scheduler.schedule_once(delay, run_spec, user_id=user_id)
+        return self.scheduler.schedule_once(delay, run_spec, user_id=user_id, callback=callback)
 
-    def schedule_interval(self, interval: float, run_spec: dict[str, Any], user_id: int | None = None) -> str:
+    def schedule_interval(self, interval: float, run_spec: dict[str, Any], user_id: int | None = None, callback=None) -> str:
         if self.scheduler is None:
             raise RuntimeError("scheduler not configured")
-        return self.scheduler.schedule_interval(interval, run_spec, user_id=user_id)
+        return self.scheduler.schedule_interval(interval, run_spec, user_id=user_id, callback=callback)
 
     def cancel_schedule(self, job_id: str, user_id: int | None = None) -> bool:
         if self.scheduler is None:

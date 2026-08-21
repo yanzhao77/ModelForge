@@ -219,6 +219,58 @@ class ModelForgeClient:
     def search_memories(self, q: str) -> list[dict]:
         return self._get("/api/v1/memories/search", params={"q": q})
 
+    # ---- automation schedules ----
+
+    def list_schedules(self) -> list[dict]:
+        return self._get("/api/v1/agent/schedules").get("schedules", [])
+
+    def create_schedule(self, payload: dict) -> dict:
+        return self._post("/api/v1/agent/schedules", json=payload)
+
+    def update_schedule(self, schedule_id: str, payload: dict) -> dict:
+        return self._patch(f"/api/v1/agent/schedules/{schedule_id}", json=payload)
+
+    def enable_schedule(self, schedule_id: str) -> dict:
+        return self._post(f"/api/v1/agent/schedules/{schedule_id}/enable")
+
+    def pause_schedule(self, schedule_id: str) -> dict:
+        return self._post(f"/api/v1/agent/schedules/{schedule_id}/pause")
+
+    def run_schedule_now(self, schedule_id: str) -> dict:
+        return self._post(f"/api/v1/agent/schedules/{schedule_id}/run-now")
+
+    def delete_schedule(self, schedule_id: str) -> dict:
+        return self._delete(f"/api/v1/agent/schedules/{schedule_id}")
+
+    def schedule_executions(self, schedule_id: str) -> list[dict]:
+        return self._get(f"/api/v1/agent/schedules/{schedule_id}/executions").get("executions", [])
+
+    # ---- workspace governance ----
+
+    def list_artifacts(self) -> list[dict]:
+        return self._get("/api/v1/workspaces/artifacts").get("artifacts", [])
+
+    def capture_run_artifact(self, run_id: str) -> dict:
+        return self._post(f"/api/v1/workspaces/artifacts/from-run/{run_id}")
+
+    def delete_artifact(self, artifact_id: str) -> dict:
+        return self._delete(f"/api/v1/workspaces/artifacts/{artifact_id}")
+
+    def list_knowledge_collections(self) -> list[dict]:
+        return self._get("/api/v1/workspaces/collections").get("collections", [])
+
+    def create_knowledge_collection(self, name: str, description: str = "", tags: list[str] | None = None) -> dict:
+        return self._post("/api/v1/workspaces/collections", json={"name": name, "description": description, "tags": tags or []})
+
+    def list_plugin_profiles(self) -> list[dict]:
+        return self._get("/api/v1/workspaces/plugin-profiles").get("profiles", [])
+
+    def create_plugin_profile(self, name: str, plugins: list[str] | None = None, mcp_servers: list[str] | None = None) -> dict:
+        return self._post("/api/v1/workspaces/plugin-profiles", json={"name": name, "plugins": plugins or [], "mcp_servers": mcp_servers or []})
+
+    def model_insights(self, days: int = 30) -> dict:
+        return self._get("/api/v1/workspaces/insights", params={"days": days})
+
     def delete_memory(self, memory_id: int) -> dict:
         return self._delete(f"/api/v1/memories/{memory_id}")
 
