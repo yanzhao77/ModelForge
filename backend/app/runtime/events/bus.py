@@ -49,9 +49,9 @@ class EventBus:
     async def _writer(self) -> None:
         while True:
             event = await self._queue.get()
-            if event is None:
-                break
             try:
+                if event is None:
+                    return
                 result = self._store.append(event)
                 if inspect.isawaitable(result):
                     await result
@@ -61,6 +61,8 @@ class EventBus:
                 logging.getLogger("modelforge.runtime.events").warning(
                     "event persistence failed", extra={"event": event.event_type, "run_id": event.run_id, "error": str(e)},
                 )
+            finally:
+                self._queue.task_done()
 
     # ---- publish / subscribe ----
     async def publish(
@@ -120,14 +122,8 @@ class EventBus:
         return self._sequences.get(run_id, 0)
 
     async def flush(self) -> None:
-        """Drain pending persistence writes (used by tests / shutdown)."""
+        """Wait until both queued and in-flight persistence writes are complete."""
         if self._store is None:
             return
-        while not self._queue.empty():
-            event = self._queue.get_nowait()
-            try:
-                result = self._store.append(event)
-                if inspect.isawaitable(result):
-                    await result
-            except Exception:
-                self._write_failures += 1
+        if self._writer_task is not None:
+            await self._queue.join()

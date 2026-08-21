@@ -3,7 +3,7 @@
 > 本地优先的 AI Agent Runtime Platform —— 从模型管理、微调训练到 **Agent Run / Event / Tool / Policy / MCP / Scheduler / Multi-Agent / Composable Plugin** 的一站式平台。
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-392%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-393%20passed-brightgreen)
 ![API](https://img.shields.io/badge/API-92%20routes-important)
 ![Desktop](https://img.shields.io/badge/Desktop-0.1.1--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
@@ -121,7 +121,7 @@ docker rm -f modelforge
 ## 测试
 
 ```bash
-pytest tests/ -q    # 392 个用例通过、3 个按环境跳过（单元 + API 集成 + 桌面离屏 + 数据集/训练/知识库 + Agent Runtime + Plugin）
+pytest tests/ -q    # 393 个用例通过、3 个按环境跳过（单元 + API 集成 + 桌面离屏 + 数据集/训练/知识库 + Agent Runtime + Plugin）
 ```
 
 ## 目录结构
@@ -139,7 +139,7 @@ ModelForge
 │   ├── services/           # 业务层（21+ 服务）
 │   └── plugins/            # SPI 插件包
 ├── client/pyside6/         # PySide6 多语言桌面客户端（概览/对话/模型/数据/训练/知识/智能体/任务/运行时/设置）
-├── tests/                  # pytest（392 通过、3 跳过）
+├── tests/                  # pytest（393 通过、3 跳过）
 ├── docs/                   # 技术报告/审计/插件架构/API 参考/开发计划
 ├── requirements*.txt       # base / dev / gui / ai 四层依赖
 └── config.yaml             # 配置文件（支持环境变量覆盖）
@@ -163,7 +163,7 @@ ModelForge
 
 ## 分支说明
 
-- **master**：当前版本。FastAPI + 瘦客户端 + 3.0 Agent Runtime + 3.x Composable Plugin，392 个测试通过、3 个环境相关测试跳过。
+- **master**：当前版本。FastAPI + 瘦客户端 + 3.0 Agent Runtime + 3.x Composable Plugin，393 个测试通过、3 个环境相关测试跳过。
 - **gui_old**：旧版 v2.0 PySide6 桌面端存档分支（登录/会话/记忆/GGUF 下载/本地推理/微调脚本），不再维护，仅作参考。
 
 ## 文档

@@ -65,6 +65,32 @@ class TestEventBus:
         assert store.list("r1", after_sequence=1) == [events[1]]
 
     @pytest.mark.asyncio
+    async def test_flush_waits_for_inflight_async_persistence(self):
+        import asyncio
+
+        class BlockingStore:
+            def __init__(self):
+                self.started = asyncio.Event()
+                self.release = asyncio.Event()
+                self.events = []
+
+            async def append(self, event):
+                self.started.set()
+                await self.release.wait()
+                self.events.append(event)
+
+        store = BlockingStore()
+        bus = EventBus(store=store)
+        await bus.publish("approval-run", "human.approval.granted")
+        await store.started.wait()
+        flush = asyncio.create_task(bus.flush())
+        await asyncio.sleep(0)
+        assert not flush.done()
+        store.release.set()
+        await flush
+        assert [event.event_type for event in store.events] == ["human.approval.granted"]
+
+    @pytest.mark.asyncio
     async def test_required_event_types_defined(self):
         for t in ("run.created", "run.started", "run.completed", "run.failed",
                   "run.cancelled", "model.request.started", "model.request.completed",
