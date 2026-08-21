@@ -28,6 +28,10 @@ class OpenAIRuntime(RuntimeEngine):
         return f"{self.base_url}/responses" if self.protocol == "responses" else f"{self.base_url}/chat/completions"
 
     @staticmethod
+    def _can_fallback(exc: httpx.HTTPStatusError, protocol: str) -> bool:
+        return protocol == "responses" and exc.response.status_code in {404, 405, 501}
+
+    @staticmethod
     def _responses_text(payload: dict[str, Any]) -> str:
         direct = payload.get("output_text")
         if isinstance(direct, str):
@@ -50,7 +54,16 @@ class OpenAIRuntime(RuntimeEngine):
         model = self._model(model_name)
         if not model:
             raise ValueError("Remote provider has no selected model.")
-        if self.protocol == "responses":
+        protocol = self.protocol
+        try:
+            return await self._chat_protocol(protocol, model, messages, **kwargs)
+        except httpx.HTTPStatusError as exc:
+            if not self._can_fallback(exc, protocol):
+                raise
+            return await self._chat_protocol("chat_completions", model, messages, **kwargs)
+
+    async def _chat_protocol(self, protocol: str, model: str, messages: list[dict], **kwargs) -> dict:
+        if protocol == "responses":
             payload: dict[str, Any] = {"model": model, "input": messages, "stream": False}
             if kwargs.get("temperature") is not None:
                 payload["temperature"] = kwargs["temperature"]
@@ -62,18 +75,30 @@ class OpenAIRuntime(RuntimeEngine):
                 if kwargs.get(key) is not None:
                     payload[key] = kwargs[key]
         async with httpx.AsyncClient(timeout=90.0, follow_redirects=False) as client:
-            response = await client.post(self._endpoint(), headers=self._headers, json=payload)
+            endpoint = f"{self.base_url}/responses" if protocol == "responses" else f"{self.base_url}/chat/completions"
+            response = await client.post(endpoint, headers=self._headers, json=payload)
         response.raise_for_status()
         data = response.json()
-        content = self._responses_text(data) if self.protocol == "responses" else ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
-        return {"model": model, "content": content or "", "raw": None, "remote": True, "protocol": self.protocol}
+        content = self._responses_text(data) if protocol == "responses" else ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+        return {"model": model, "content": content or "", "raw": None, "remote": True, "protocol": protocol}
 
     async def stream_chat(self, model_name: str, messages: list[dict], **kwargs) -> AsyncIterator[str]:
         model = self._model(model_name)
         if not model:
             raise ValueError("Remote provider has no selected model.")
+        protocol = self.protocol
+        try:
+            async for delta in self._stream_protocol(protocol, model, messages, **kwargs):
+                yield delta
+        except httpx.HTTPStatusError as exc:
+            if not self._can_fallback(exc, protocol):
+                raise
+            async for delta in self._stream_protocol("chat_completions", model, messages, **kwargs):
+                yield delta
+
+    async def _stream_protocol(self, protocol: str, model: str, messages: list[dict], **kwargs) -> AsyncIterator[str]:
         payload: dict[str, Any]
-        if self.protocol == "responses":
+        if protocol == "responses":
             payload = {"model": model, "input": messages, "stream": True}
             if kwargs.get("temperature") is not None:
                 payload["temperature"] = kwargs["temperature"]
@@ -85,7 +110,8 @@ class OpenAIRuntime(RuntimeEngine):
                 if kwargs.get(key) is not None:
                     payload[key] = kwargs[key]
         async with httpx.AsyncClient(timeout=None, follow_redirects=False) as client:
-            async with client.stream("POST", self._endpoint(), headers=self._headers, json=payload) as response:
+            endpoint = f"{self.base_url}/responses" if protocol == "responses" else f"{self.base_url}/chat/completions"
+            async with client.stream("POST", endpoint, headers=self._headers, json=payload) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -99,7 +125,7 @@ class OpenAIRuntime(RuntimeEngine):
                         event = httpx.Response(200, content=data).json()
                     except ValueError:
                         continue
-                    if self.protocol == "responses":
+                    if protocol == "responses":
                         event_type = event.get("type")
                         if event_type == "response.output_text.delta":
                             delta = event.get("delta", "")

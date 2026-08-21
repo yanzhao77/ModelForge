@@ -40,6 +40,7 @@ class DBAgentStore:
             knowledge_config=json.loads(row.knowledge_config) if row.knowledge_config else None,
             policy=json.loads(row.policy) if row.policy else None,
             runtime_config=json.loads(row.runtime_config) if row.runtime_config else None,
+            model_target=(json.loads(row.runtime_config) if row.runtime_config else {}).get("model_target"),
             plugins=(json.loads(row.runtime_config) if row.runtime_config else {}).get("plugins", []),
             status=row.status or "active",
         )
@@ -81,6 +82,8 @@ class DBAgentStore:
             rc = dict(config.runtime_config or {})
             if config.plugins:
                 rc["plugins"] = list(config.plugins)
+            if config.model_target:
+                rc["model_target"] = dict(config.model_target)
             row.runtime_config = json.dumps(rc, ensure_ascii=False) if rc else None
             row.status = config.status or "active"
             db.commit()

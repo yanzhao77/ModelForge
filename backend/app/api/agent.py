@@ -1,10 +1,13 @@
 """Agent API routes: 2.1 agent management + 3.0 Agent Run API (spec 25)."""
 
+from core.database import get_db
 from core.security import get_current_user, get_runtime_admin
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models.records import User
 from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
+from services.model_readiness_service import ModelReadinessService
+from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -40,15 +43,27 @@ def _get_engine():
 @router.post("/create")
 async def create_agent(
     req: AgentCreateRequest,
+    db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Create an owned agent definition before exposing it to the legacy engine."""
     rt = _get_runtime()
     from runtime.types import AgentConfig
+    model, target = req.model, None
+    if req.model_target is not None:
+        target = ModelReadinessService(db).target_for(
+            user.id,
+            kind=req.model_target.kind,
+            model_ref=req.model_target.model_ref,
+            provider_id=req.model_target.provider_id,
+        )
+        if target is None or target.get("model_name") != req.model_target.model_name:
+            raise HTTPException(status_code=422, detail="Selected Agent model target is not ready for this user.")
+        model = target["model_name"]
     try:
         rt.create_agent(AgentConfig(
             name=req.name,
-            model=req.model,
+            model=model,
             user_id=user.id,
             tools=req.tools,
             plugins=req.plugins,
@@ -57,20 +72,23 @@ async def create_agent(
             memory_config=req.memory,
             policy=req.policy,
             runtime_config=req.runtime_config,
+            model_target=target,
             knowledge_config=req.knowledge_config,
         ))
     except PermissionError:
         raise HTTPException(status_code=404, detail="Agent not found")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to persist agent definition: {exc}")
-    return _get_engine().create_agent(
+    result = _get_engine().create_agent(
         name=req.name,
-        model_name=req.model,
+        model_name=model,
         tools=req.tools,
         plugins=req.plugins,
         memory_config=req.memory,
         system_prompt=req.system_prompt,
     )
+    result["model_target"] = target or {}
+    return result
 
 @router.post("/{name}/chat")
 async def agent_chat(name: str, req: dict, user: User = Depends(get_current_user)):

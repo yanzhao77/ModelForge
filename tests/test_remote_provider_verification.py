@@ -78,3 +78,21 @@ def test_authentication_failure_is_persisted_as_recoverable_error_code():
     db.refresh(provider)
     assert provider.verification_status == "failed"
     assert provider.verification_error_code == "AUTHENTICATION_FAILED"
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected"),
+    [(429, "RATE_LIMITED"), (503, "PROVIDER_HTTP_ERROR")],
+)
+def test_limit_and_service_failures_persist_safe_diagnostics(status_code, expected):
+    db, user, provider, service = _service()
+    client = _client_with_response(status_code, {"error": {"message": "upstream failure"}})
+
+    with patch("services.remote_provider_service.httpx.Client", return_value=client):
+        with pytest.raises(RemoteProviderError):
+            service.verify(user.id, provider.id)
+
+    db.refresh(provider)
+    assert provider.verification_status == "failed"
+    assert provider.verification_error_code == expected
+    assert "test-secret" not in (provider.verified_models_json or "")

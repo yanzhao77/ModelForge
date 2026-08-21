@@ -3,11 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.config import settings
+from core.database import SessionLocal
 from repositories.run_repository import SQLAlchemyRunStore
 from runtime.events import EventBus
 from runtime.metrics import MetricsRegistry
 from runtime.runtime import AgentRuntime, default_provider_factory
 from services.agent_store import DBAgentStore
+from services.remote_provider_service import RemoteProviderService
 
 _runtime: AgentRuntime | None = None
 
@@ -58,13 +61,28 @@ def build_agent_runtime(
             knowledge_provider=knowledge_provider or KBKnowledgeProvider(),
             history_provider=history_provider or SessionHistoryProvider(),
         )
+    def routed_provider_factory(model: str, agent=None):
+        target = getattr(agent, "model_target", None) or {}
+        if target.get("kind") != "remote":
+            return default_provider_factory(model)
+        user_id = getattr(agent, "user_id", None)
+        provider_id = target.get("provider_id")
+        if user_id is None or provider_id is None:
+            raise ValueError("Remote Agent target is missing user or provider context.")
+        with SessionLocal() as db:
+            config = RemoteProviderService(db, settings.data_dir).resolve_verified(
+                user_id, int(provider_id), target.get("model_name") or model,
+            )
+        from runtime.models.openai_compatible import OpenAICompatibleProvider
+        return OpenAICompatibleProvider(**config)
+
     runtime = AgentRuntime(
         run_store=run_store,
         agent_store=agent_store,
         event_bus=bus,
         tool_registry=registry,
         tool_runner=ToolExecutor(registry),
-        provider_factory=provider_factory or default_provider_factory,
+        provider_factory=provider_factory or routed_provider_factory,
         context_builder=context_builder,
         memory_provider=memory_provider,
         knowledge_provider=knowledge_provider,

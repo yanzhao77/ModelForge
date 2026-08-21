@@ -319,10 +319,11 @@ class ModelForgeClient:
         data = self._get("/api/v1/agent/mcp/servers")
         return data.get("servers", [])
 
-    def create_agent_config(self, name: str, model: str, tools: list[str], system_prompt: str | None = None, policy: dict | None = None, runtime_config: dict | None = None) -> dict:
+    def create_agent_config(self, name: str, model: str, tools: list[str], system_prompt: str | None = None, policy: dict | None = None, runtime_config: dict | None = None, model_target: dict | None = None) -> dict:
         return self._post("/api/v1/agent/create", json={
             "name": name, "model": model, "tools": tools,
             "system_prompt": system_prompt, "policy": policy, "runtime_config": runtime_config,
+            "model_target": model_target,
         })
 
     # ---- datasets ----

@@ -1,9 +1,18 @@
 """Agent DTOs (spec 46)."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
+
+class AgentModelTarget(BaseModel):
+    """Credential-free, user-scoped route to a readiness-validated model."""
+
+    kind: Literal["local", "remote"]
+    model_ref: str
+    model_name: str
+    provider_id: int | None = None
 
 
 class AgentCreateRequest(BaseModel):
@@ -17,6 +26,7 @@ class AgentCreateRequest(BaseModel):
     policy: dict[str, Any] | None = None
     runtime_config: dict[str, Any] | None = None
     knowledge_config: dict[str, Any] | None = None
+    model_target: AgentModelTarget | None = None
 
 
 class AgentConfigResponse(BaseModel):
@@ -31,6 +41,7 @@ class AgentConfigResponse(BaseModel):
     knowledge_config: dict[str, Any] = {}
     policy: dict[str, Any] = {}
     runtime_config: dict[str, Any] = {}
+    model_target: dict[str, Any] = {}
     created_at: str | None = None
 
     @classmethod

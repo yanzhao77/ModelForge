@@ -144,9 +144,18 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         self.model.setText(provider["default_model"])
         self.api_key.clear()
         status = provider.get("verification_status", "unknown")
+        diagnostics = {
+            "AUTHENTICATION_FAILED": "认证被拒绝，请更新 API 密钥后重新验证",
+            "RATE_LIMITED": "服务正在限流，请稍后由用户手动重新验证",
+            "ENDPOINT_UNREACHABLE": "无法连接服务，请检查 Base URL 和网络",
+            "MODEL_LIST_INVALID": "服务未返回可用模型，请检查模型权限或协议",
+            "PROVIDER_HTTP_ERROR": "服务返回了意外响应，请检查协议和服务状态",
+            "PROVIDER_UNAVAILABLE": "服务暂时不可用，请稍后由用户手动重试",
+        }
+        error_code = provider.get("verification_error_code")
         status_text = {
             "success": "已验证连接",
-            "failed": f"验证失败：{provider.get('verification_error_code') or '未知原因'}",
+            "failed": f"验证失败：{diagnostics.get(error_code, error_code or '未知原因')}",
         }.get(status, "尚未验证连接")
         key_text = "已配置 API 密钥" if provider.get("key_configured") else "尚未配置 API 密钥"
         self.state.setText(f"{key_text}；{status_text}。")
@@ -190,7 +199,7 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
     def _verified(self, result: dict) -> None:
         models = result.get("models", [])
         self.state.setText(
-            f"连接验证成功，发现 {len(models)} model(s)."
+            f"连接验证成功，发现 {len(models)} 个模型。"
             + (f" 示例：{models[0]}" if models else "")
         )
         self.refresh()

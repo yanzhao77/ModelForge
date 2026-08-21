@@ -267,6 +267,38 @@ class TestAgentRunApi:
         agents = client.get("/api/v1/agent/list", headers=h).json()
         assert any(a["name"] == "api-bot-a" for a in agents)
 
+    def test_create_agent_persists_ready_model_target(self, client):
+        h = self._login(client, "apibot-target")
+        model = client.post(
+            "/api/v1/models/install",
+            json={"name": "target-local", "provider": "local", "path": "/tmp/target-local.gguf"},
+            headers=h,
+        ).json()
+        target = {
+            "kind": "local",
+            "model_ref": str(model["id"]),
+            "model_name": "target-local",
+            "provider_id": None,
+        }
+        created = client.post(
+            "/api/v1/agent/create",
+            json={"name": "target-agent", "model": "ignored-by-target", "model_target": target},
+            headers=h,
+        )
+        assert created.status_code == 200, created.text
+        agent = next(item for item in client.get("/api/v1/agent/list", headers=h).json() if item["name"] == "target-agent")
+        assert agent["model"] == "target-local"
+        assert {key: agent["model_target"][key] for key in target} == target
+        assert agent["model_target"]["protocol"] is None
+        assert agent["model_target"]["provider_name"] is None
+
+        denied = client.post(
+            "/api/v1/agent/create",
+            json={"name": "unready-target-agent", "model": "target-local", "model_target": {**target, "model_ref": "999999"}},
+            headers=h,
+        )
+        assert denied.status_code == 422
+
     def test_run_success(self, client):
         h = self._login(client, "apibotb")
         client.post("/api/v1/agent/create", json={"name": "api-bot-b", "model": "mock"}, headers=h)

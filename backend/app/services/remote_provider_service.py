@@ -150,3 +150,37 @@ class RemoteProviderService:
         if row is None:
             raise RemoteProviderError("Provider not found or disabled.")
         return {"base_url": row.base_url, "protocol": row.protocol, "default_model": row.default_model, "api_key": self.cipher.decrypt(row.key_ciphertext)}
+
+    def resolve_verified(self, user_id: int, provider_id: int, model_name: str) -> dict:
+        """Resolve a ready remote target for internal runtime use only.
+
+        This method never returns data through an API response; the decrypted key
+        remains in the server-side provider adapter for the lifetime of one run.
+        """
+        row = (
+            self.db.query(RemoteProviderConfig)
+            .filter(
+                RemoteProviderConfig.user_id == user_id,
+                RemoteProviderConfig.id == provider_id,
+                RemoteProviderConfig.enabled.is_(True),
+                RemoteProviderConfig.verification_status == "success",
+            )
+            .one_or_none()
+        )
+        verified = self._models_from_json(row.verified_models_json) if row else []
+        if row is None or not row.key_ciphertext or model_name not in verified:
+            raise RemoteProviderError("The selected remote model target is no longer verified for this user.")
+        return {
+            "base_url": row.base_url,
+            "protocol": row.protocol,
+            "model": model_name,
+            "api_key": self.cipher.decrypt(row.key_ciphertext),
+        }
+
+    @staticmethod
+    def _models_from_json(value: str | None) -> list[str]:
+        try:
+            models = json.loads(value or "[]")
+        except (TypeError, ValueError):
+            return []
+        return [str(model) for model in models if isinstance(model, str)] if isinstance(models, list) else []

@@ -8,6 +8,7 @@ from pages.run_timeline import RunTimeline
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -28,37 +29,107 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+AGENT_TEMPLATES = {
+    "自定义（最小权限）": {
+        "tools": [],
+        "prompt": "",
+        "policy": {"network_access": False, "shell_access": False, "filesystem_write": False},
+    },
+    "研究摘要（只读）": {
+        "tools": ["filesystem.read"],
+        "prompt": "收集已有材料中的事实与不确定项，输出结构化摘要。不得修改文件或主动执行网络操作。",
+        "policy": {
+            "network_access": False,
+            "shell_access": False,
+            "filesystem_write": False,
+            "require_approval_for": ["filesystem.read"],
+        },
+    },
+    "代码审查（只读）": {
+        "tools": ["filesystem.read", "code.search"],
+        "prompt": "审查给定代码变更的正确性、安全性和可维护性。仅输出发现和建议，不修改文件。",
+        "policy": {
+            "network_access": False,
+            "shell_access": False,
+            "filesystem_write": False,
+            "require_approval_for": ["filesystem.read", "code.search"],
+        },
+    },
+    "数据质量检查（只读）": {
+        "tools": ["filesystem.read"],
+        "prompt": "检查数据中的重复、缺失字段、格式问题和隐私风险。返回可执行的验证报告，不删除数据。",
+        "policy": {
+            "network_access": False,
+            "shell_access": False,
+            "filesystem_write": False,
+            "require_approval_for": ["filesystem.read"],
+        },
+    },
+}
+
 
 class AgentCreateDialog(QDialog):
     """Collect an agent definition in one reviewable, non-executing step."""
 
-    def __init__(self, default_model: str = "", parent=None):
+    def __init__(self, default_model: str = "", model_target: dict | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("创建智能体")
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
-        note = QLabel("创建定义不会启动 Agent Run。默认策略拒绝网络、Shell 和文件写入，敏感操作仍需审批。")
+        route = "已选默认模型目标会随定义保存。" if model_target else "将使用本地模型名称；可在模型工作区选择已验证目标。"
+        note = QLabel(f"创建定义不会启动 Agent Run。默认策略拒绝网络、Shell 和文件写入，敏感操作仍需审批。{route}")
         note.setWordWrap(True)
         note.setProperty("role", "muted")
         layout.addWidget(note)
         form = QFormLayout()
+        self.template = QComboBox()
+        self.template.addItems(AGENT_TEMPLATES)
         self.name = QLineEdit()
         self.model = QLineEdit(default_model)
+        self.model.setReadOnly(bool(model_target))
         self.tools = QLineEdit()
         self.tools.setPlaceholderText("例如：filesystem.read, code.search")
+        self.system_prompt = QTextEdit()
+        self.system_prompt.setMaximumHeight(92)
+        self.policy_summary = QLabel()
+        self.policy_summary.setWordWrap(True)
+        self.policy_summary.setProperty("role", "muted")
+        self._policy = dict(AGENT_TEMPLATES["自定义（最小权限）"]["policy"])
+        form.addRow("模板", self.template)
         form.addRow("名称", self.name)
         form.addRow("模型", self.model)
         form.addRow("工具（可选）", self.tools)
+        form.addRow("系统提示（可编辑）", self.system_prompt)
+        form.addRow("策略预览", self.policy_summary)
         layout.addLayout(form)
+        self.template.currentTextChanged.connect(self._apply_template)
+        self._apply_template(self.template.currentText())
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
         buttons.button(QDialogButtonBox.Ok).setText("创建定义")
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
 
-    def values(self) -> tuple[str, str, list[str]]:
+    def _apply_template(self, name: str) -> None:
+        template = AGENT_TEMPLATES.get(name, AGENT_TEMPLATES["自定义（最小权限）"])
+        self.tools.setText(", ".join(template["tools"]))
+        self.system_prompt.setPlainText(template["prompt"])
+        self._policy = dict(template["policy"])
+        approvals = self._policy.get("require_approval_for") or []
+        approval_text = f"；以下工具每次运行前需要人工审批：{', '.join(approvals)}" if approvals else ""
+        self.policy_summary.setText(
+            "网络、Shell 和文件写入均默认禁止" + approval_text + "。创建定义不会创建或启动 Run。"
+        )
+
+    def values(self) -> tuple[str, str, list[str], str, dict]:
         tools = [tool.strip() for tool in self.tools.text().split(",") if tool.strip()]
-        return self.name.text().strip(), self.model.text().strip(), tools
+        return (
+            self.name.text().strip(),
+            self.model.text().strip(),
+            tools,
+            self.system_prompt.toPlainText().strip(),
+            dict(self._policy),
+        )
 
 
 class AgentPage(QWidget, AsyncApiMixin):
@@ -71,6 +142,8 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.readiness_store = readiness_store
         self._model_ready = False
         self._default_model = ""
+        self._default_target: dict = {}
+        self._pending_agent_name: str | None = None
         self.current_run_id = None
         self._agents_loading = False
         self._runs_loading = False
@@ -134,6 +207,9 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.refresh_btn = QPushButton("刷新")
         self.refresh_btn.clicked.connect(self.refresh_runs)
         mlay.addWidget(self.refresh_btn)
+        self.replay_btn = QPushButton("回放所选 Run")
+        self.replay_btn.clicked.connect(self.replay_selected_run)
+        mlay.addWidget(self.replay_btn)
         self.status = QLabel("正在加载 Agent 与运行记录…")
         self.status.setWordWrap(True)
         mlay.addWidget(self.status)
@@ -160,6 +236,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.run_btn.setEnabled(not busy and self._model_ready)
         self.cancel_btn.setEnabled(not busy)
         self.refresh_btn.setEnabled(not busy)
+        self.replay_btn.setEnabled(not busy and bool(self.current_run_id))
 
     def _report_error(self, action: str, error: str, popup: bool = True):
         self.status.setText(f"{action}失败：{error}")
@@ -170,6 +247,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         self._model_ready = snapshot.get("level") == "READY"
         target = snapshot.get("default_target") or {}
         self._default_model = target.get("model_name") or ""
+        self._default_target = target
         self.create_btn.setEnabled(self._model_ready and not self._agents_loading)
         self.run_btn.setEnabled(self._model_ready and not self._runs_loading)
         if not self._model_ready:
@@ -192,8 +270,9 @@ class AgentPage(QWidget, AsyncApiMixin):
             item = QListWidgetItem(f"{agent.get('name', '?')}  ({agent.get('model', '')})")
             item.setData(Qt.UserRole, agent.get("name"))
             self.agent_list.addItem(item)
-            if agent.get("name") == selected:
+            if agent.get("name") in {selected, self._pending_agent_name}:
                 self.agent_list.setCurrentItem(item)
+                self._pending_agent_name = None
         self.status.setText(f"已同步 {len(agents)} 个 Agent 定义。")
 
     def _agents_failed(self, error: str):
@@ -205,23 +284,29 @@ class AgentPage(QWidget, AsyncApiMixin):
         if not self._model_ready:
             QMessageBox.information(self, "模型尚未就绪", "请先在模型工作区完成模型配置或远程服务验证。")
             return
-        dialog = AgentCreateDialog(self._default_model, self)
+        dialog = AgentCreateDialog(self._default_model, self._default_target, self)
         if dialog.exec() != QDialog.Accepted:
             return
-        name, model, tool_list = dialog.values()
+        name, model, tool_list, system_prompt, policy = dialog.values()
         if not name or not model:
             QMessageBox.warning(self, "信息不完整", "智能体名称和模型均为必填项。")
             return
         self._set_agent_busy(True)
         self.status.setText("正在提交 Agent 定义…")
         self._run_api(
-            lambda: self.api.create_agent_config(name.strip(), model.strip(), tool_list),
+            lambda: self.api.create_agent_config(
+                name.strip(), model.strip(), tool_list,
+                system_prompt=system_prompt or None,
+                policy=policy,
+                model_target=self._default_target or None,
+            ),
             lambda _result: self._agent_created(name.strip()),
             lambda error: self._agent_action_failed("创建 Agent", error),
         )
 
     def _agent_created(self, name: str):
         self._set_agent_busy(False)
+        self._pending_agent_name = name
         self.status.setText(f"已创建 Agent：{name}。正在刷新定义列表…")
         self.refresh_agents()
 
@@ -283,6 +368,13 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.status.setText(f"已创建 Run {self.current_run_id[:8]}，正在订阅事件流。")
         self.timeline.watch(self.current_run_id)
         self.refresh_runs()
+
+    def replay_selected_run(self):
+        if not self.current_run_id:
+            QMessageBox.information(self, "提示", "请先选择已有 Run 再回放。")
+            return
+        self.timeline.watch(self.current_run_id, after_sequence=0)
+        self.status.setText(f"正在从持久化事件回放 Run {self.current_run_id[:8]}。")
 
     def cancel_run(self):
         run_id = self.current_run_id
@@ -347,6 +439,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         if run_id and run_id != self.current_run_id:
             self.current_run_id = run_id
             self.timeline.watch(run_id)
+        self.replay_btn.setEnabled(bool(self.current_run_id) and not self._runs_loading)
 
     def closeEvent(self, event):
         self._timer.stop()

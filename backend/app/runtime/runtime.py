@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import inspect
 import time
 import uuid
 from collections.abc import Callable
@@ -25,7 +26,7 @@ from .models.base import ModelProvider
 from .run_context import RunContext
 from .types import AgentConfig, RunRecord, RunStatus
 
-ProviderFactory = Callable[[str], ModelProvider]
+ProviderFactory = Callable[..., ModelProvider]
 
 
 def default_provider_factory(model_name: str) -> ModelProvider:
@@ -558,7 +559,12 @@ class AgentRuntime:
         model = run.model or agent.model or ""
         if not model:
             raise ModelUnavailableError("agent has no model")
-        return self.provider_factory(model)
+        try:
+            parameters = inspect.signature(self.provider_factory).parameters.values()
+            accepts_agent = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in parameters) or len(parameters) >= 2
+        except (TypeError, ValueError):
+            accepts_agent = False
+        return self.provider_factory(model, agent) if accepts_agent else self.provider_factory(model)
 
     def _build_context(
         self, run: RunRecord, agent: AgentConfig, token: CancellationToken,

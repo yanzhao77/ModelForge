@@ -78,6 +78,17 @@ class ModelReadinessService:
             self.db.commit()
         return self.snapshot(user_id)
 
+    def target_for(
+        self,
+        user_id: int,
+        *,
+        kind: str,
+        model_ref: str,
+        provider_id: int | None = None,
+    ) -> dict | None:
+        """Return one current ready target without performing external I/O."""
+        return self._find_target(kind, model_ref, provider_id, self._targets(user_id))
+
     def _targets(self, user_id: int) -> list[dict]:
         local_models = (
             self.db.query(ModelRecord)

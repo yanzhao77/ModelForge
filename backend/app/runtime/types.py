@@ -115,6 +115,7 @@ class AgentConfig:
     knowledge_config: dict[str, Any] | None = None
     policy: dict[str, Any] | None = None
     runtime_config: dict[str, Any] | None = None
+    model_target: dict[str, Any] | None = None
     status: str = "active"
 
     def to_dict(self) -> dict[str, Any]:
@@ -130,6 +131,7 @@ class AgentConfig:
             "knowledge_config": self.knowledge_config or {},
             "policy": self.policy or {},
             "runtime_config": self.runtime_config or {},
+            "model_target": self.model_target or {},
             "status": self.status,
         }
 
@@ -147,5 +149,6 @@ class AgentConfig:
             knowledge_config=data.get("knowledge_config"),
             policy=data.get("policy"),
             runtime_config=data.get("runtime_config"),
+            model_target=data.get("model_target"),
             status=data.get("status", "active"),
         )

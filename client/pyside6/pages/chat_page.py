@@ -48,11 +48,20 @@ class StreamWorker(QThread):
                     self.done.emit(full)
                     return
                 elif kind == "error":
-                    self.failed.emit(event.get("data", "模型服务返回错误。"))
+                    self.failed.emit(self._format_error(event.get("data")))
                     return
             self.done.emit(full)
         except Exception as exc:
             self.failed.emit(str(exc))
+
+    @staticmethod
+    def _format_error(data) -> str:
+        if not isinstance(data, dict):
+            return str(data or "模型服务返回错误。")
+        code = data.get("code", "REMOTE_ERROR")
+        message = data.get("message", "模型服务返回错误。")
+        retry = "当前消息未自动重发，请确认后手动重试。" if data.get("retryable") else "请修复配置后再重试。"
+        return f"[{code}] {message} {retry}"
 
 
 class ChatPage(QWidget, AsyncApiMixin):
