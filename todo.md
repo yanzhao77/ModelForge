@@ -60,8 +60,12 @@
 - [x] 为 Agent 定义增加可验证模型目标路由、创建后回放和 API/桌面回归测试。
 - [x] 为 Agent 创建向导提供模板、工具权限摘要和运行前策略预览。
 - [x] 完善远程模型认证、限流、服务错误、协议能力与 SSE 中断恢复的诊断和测试。
-- [ ] 完成全量质量验证、更新版本规划并推送远端 CI。
-- [ ] 产出 Windows/Linux、CPU AI、GPU Runner 和 Pre-release 的外部环境执行清单。
+- [x] 完成全量质量验证、更新版本规划并推送远端 CI。
+- [x] 产出 Windows/Linux、CPU AI、GPU Runner 和 Pre-release 的外部环境执行清单。
+
+### 远端验证记录（2026-08-21）
+
+- 提交 `102a2fa` 已触发并通过 ModelForge CI #24；test、desktop、build 作业均成功。本地 Ruff、pip-audit、398 个测试（3 个环境跳过）和 Docker `/healthz` 均通过。
 
 ## 顺序开发执行
 
