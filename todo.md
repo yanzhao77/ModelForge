@@ -67,6 +67,7 @@
 
 - 提交 `102a2fa` 已触发并通过 ModelForge CI #24；test、desktop、build 作业均成功。本地 Ruff、pip-audit、398 个测试（3 个环境跳过）和 Docker `/healthz` 均通过。
 - 提交 `8ee707c` 的 CI #25 中 desktop 作业成功；test 作业失败、build 作业跳过。根因是人工审批事件虽然最终写入，但在 `WAITING_HUMAN` 状态和批准/拒绝解除执行前未建立持久化可见性边界；现已在三处状态转换前显式 flush，目标回归通过，待推送后复核远端 CI。
+- 提交 `b6f80de` 已通过 ModelForge CI #26；test、desktop、build 作业均成功。最终一次本地 Docker 复核因本机 Docker 守护进程已停止而未执行，但远端 build 作业已完成容器构建与健康检查。
 
 ## 顺序开发执行
 
