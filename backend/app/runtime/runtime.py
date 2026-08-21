@@ -324,6 +324,7 @@ class AgentRuntime:
         if run_id in self._approval_grants:
             return bool(self._approval_grants.pop(run_id, False))
         await self._publish(run_id, "human.approval.required", {"tool": tool_name})
+        await self._flush_audit_events()
         self.run_store.update(run_id, status="WAITING_HUMAN")
         event = asyncio.Event()
         self._approvals[run_id] = event
@@ -343,19 +344,21 @@ class AgentRuntime:
     async def approve_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.get_run(run_id, user_id=user_id)
         self._approval_grants[run_id] = True
+        await self._publish(run_id, "human.approval.granted", {"tool": None})
+        await self._flush_audit_events()
         event = self._approvals.get(run_id)
         if event is not None:
             event.set()
-        await self._publish(run_id, "human.approval.granted", {"tool": None})
         return run
 
     async def reject_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.get_run(run_id, user_id=user_id)
         self._approval_grants[run_id] = False
+        await self._publish(run_id, "human.approval.denied", {"tool": None})
+        await self._flush_audit_events()
         event = self._approvals.get(run_id)
         if event is not None:
             event.set()
-        await self._publish(run_id, "human.approval.denied", {"tool": None})
         return run
 
     # ---- tool registry (spec 8 / 36) ----
@@ -565,6 +568,11 @@ class AgentRuntime:
         except (TypeError, ValueError):
             accepts_agent = False
         return self.provider_factory(model, agent) if accepts_agent else self.provider_factory(model)
+
+    async def _flush_audit_events(self) -> None:
+        """Make human-gate audit records visible before changing the gate state."""
+        if self.event_bus is not None:
+            await self.event_bus.flush()
 
     def _build_context(
         self, run: RunRecord, agent: AgentConfig, token: CancellationToken,
