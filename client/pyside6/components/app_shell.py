@@ -78,7 +78,7 @@ class TopContext(QFrame):
         self.page.setText(title)
 
     def set_system(self, online: bool, detail: str = "") -> None:
-        self.status.set_state("Ready" if online else "Backend unavailable", "online" if online else "error")
+        self.status.set_state("就绪" if online else "服务不可用", "online" if online else "error")
         self.model.setText(detail or ("Connected" if online else "Check ModelForge Server"))
 
 

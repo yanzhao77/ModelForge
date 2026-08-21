@@ -4,6 +4,7 @@ from __future__ import annotations
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
+from PySide6.QtGui import QTextCursor
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
@@ -186,7 +187,7 @@ class ChatPage(QWidget, AsyncApiMixin):
             self._run_api(lambda: self.api.knowledge_answer(model, text, top_k=3), self._show_kb_answer, self._show_kb_failure)
             return
         self.display.append("<p><b>ModelForge</b><br>")
-        self.display.moveCursor(self.display.textCursor().End)
+        self.display.moveCursor(QTextCursor.End)
         self.worker = StreamWorker(self.api, model, self.messages, self.session_id, provider_id)
         self.worker.delta.connect(self._on_delta)
         self.worker.done.connect(self._on_done)
@@ -206,7 +207,7 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.send_btn.setEnabled(True)
 
     def _on_delta(self, chunk):
-        cursor = self.display.textCursor(); cursor.movePosition(cursor.End)
+        cursor = self.display.textCursor(); cursor.movePosition(QTextCursor.End)
         self.display.setTextCursor(cursor); self.display.insertPlainText(chunk)
         self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum())
 

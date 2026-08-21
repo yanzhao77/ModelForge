@@ -193,7 +193,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
 
     def _update_batch_action(self):
         count = len(self._checked_retry_task_ids())
-        self.batch_retry_btn.setText(f"Batch retry ({count})")
+        self.batch_retry_btn.setText(f"批量重试（{count}）")
         self.batch_retry_btn.setEnabled(count > 0)
 
     def _show_selected(self):
@@ -223,7 +223,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
             ("Updated", task.get("updated_at") or "-"), ("Progress", task.get("progress_percent")),
         ]
         if max_attempts:
-            fields.append(("Retry budget", f"Attempt {attempt} / {max_attempts}; {retries_left} remaining"))
+            fields.append(("重试额度", f"第 {attempt} / {max_attempts} 次；剩余 {retries_left} 次"))
         if task.get("error_code"):
             fields.append(("Failure category", task["error_code"]))
         lines = [f"{label}: {value}" for label, value in fields if value is not None]
@@ -262,7 +262,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         message = f"Created {succeeded} retry task(s)."
         if details:
             message += f"\n\nNot created:\n{details}"
-        QMessageBox.information(self, "Batch retry result", message)
+        QMessageBox.information(self, "批量重试结果", message)
 
     def _cancel_selected(self):
         task = self._selected_task()

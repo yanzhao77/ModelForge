@@ -52,7 +52,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.translator.changed.connect(self._retranslate)
         self.updater = GitHubReleaseUpdater(UPDATE_REPOSITORY, APP_VERSION)
         self.active_destination = "overview"
-        self.setWindowTitle(f"{APP_NAME} {APP_VERSION} · LOCAL AI WORKSTATION")
+        self.setWindowTitle(f"{APP_NAME} {APP_VERSION} · 本地 AI 工作区")
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.resize(1440, 900)
         self.task_store = TaskStore(self.api, self)
@@ -159,7 +159,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             self._show_task_center()
         elif (page := self._pages.get(destination)) is not None:
             self.stack.setCurrentWidget(page)
-        self.shell.set_status("{} · Connected to {}".format(self.translator.t("nav." + destination, destination.title()), self.api.base_url))
+        self.shell.set_status("{} · 已连接到 {}".format(self.translator.t("nav." + destination, destination.title()), self.api.base_url))
 
     def _on_session_selected(self, session_id: int) -> None:
         self.chat_page.set_session(session_id)

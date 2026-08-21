@@ -5,9 +5,20 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Tests](https://img.shields.io/badge/tests-339%20passed-brightgreen)
 ![API](https://img.shields.io/badge/API-92%20routes-important)
+![Desktop](https://img.shields.io/badge/Desktop-0.1.1--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
 基于 **FastAPI 后端 + PySide6 瘦客户端** 架构：后端承载全部业务逻辑（含 Agent Runtime），客户端只做展示与交互。
+
+## 桌面端测试版（0.1.1-beta.1）
+
+当前仓库已包含新版 macOS 桌面端测试版：默认使用简体中文，支持中文、English、日本語运行时切换；采用轻量侧边导航和对话优先工作区，并将**本地模型与远程 OpenAI 兼容模型服务统一收敛到“模型”页面**。远程服务默认使用 `/v1/responses`，也可切换到 `/v1/chat/completions`；API Key 仅在后端加密保存，客户端不会回显密钥。
+
+| 概览工作区 | 统一模型管理 |
+|---|---|
+| ![ModelForge 概览页面](docs/images/model-forge-overview-zh.png) | ![ModelForge 模型页面](docs/images/model-forge-models-zh.png) |
+
+> 以上截图来自本机测试版实机预览。测试版尚未上传到 GitHub Release；本地打包与预发布资产规范见[桌面端测试版发布指南](docs/DESKTOP_TEST_RELEASE.md)。
 
 ## 功能一览
 
@@ -16,9 +27,10 @@
 | 用户系统 | 注册/登录/改密码，JWT 认证，PBKDF2 密码哈希，用户数据隔离 |
 | 会话/消息 | 多会话创建/切换/重命名/软删除，消息持久化，自动标题 |
 | 跨会话记忆 | 关键词规则提取（偏好/事实）、搜索、重要性评分、上下文注入 |
-| 模型管理 | 扫描/登记/删除，HF 模型搜索与后台下载（GGUF 等） |
-| 推理运行时 | Ollama（SSE 流式）、本地 transformers/GGUF（需 requirements-ai.txt）、OpenAI 兼容接口 |
-| 聊天 | 统一 chat service（历史+记忆注入+持久化），**SSE 流式输出** |
+| 模型管理 | 本地模型扫描/登记/删除、HF 搜索与后台下载（GGUF 等）；统一管理本地与远程模型服务 |
+| 推理运行时 | Ollama（SSE 流式）、本地 transformers/GGUF（需 requirements-ai.txt）、远程 OpenAI 兼容服务 |
+| 远程模型服务 | 用户级加密 API Key，默认 `/v1/responses`，兼容 `/v1/chat/completions`，可在模型页连接验证 |
+| 聊天 | 统一 chat service（历史+记忆注入+持久化），本地或远程模型 **SSE 流式输出** |
 | **Agent Run** | 持久化执行单元：PENDING/RUNNING/WAITING_HUMAN/COMPLETED/FAILED/CANCELLED/TIMEOUT，可取消、可审批、可追踪 |
 | **Event System** | 23 类事件，per-run 严格 sequence，DB 持久化，SSE 断线恢复（after_sequence） |
 | **Tool Registry** | 统一 Tool 协议 + 注册表 + 执行器（超时/重试/策略门），内置/插件/MCP 工具统一管理 |
@@ -56,9 +68,19 @@ pip install -r requirements-gui.txt
 python client/pyside6/main.py
 ```
 
-启动后先注册/登录，即可使用 5 个标签页：**聊天 / 数据集 / 训练 / 知识库 / Agent（Run Timeline）**。
+启动后先注册/登录，即可使用 **概览、对话、模型、数据集、训练、知识库、智能体、任务、运行时、设置** 等工作区。远程模型服务在 **模型 → 管理远程模型** 中配置；默认优先 Responses API，服务不支持时可切换到 Chat Completions API。
 
-### 3. AI 推理 / 训练能力（按需安装）
+### 3. 构建 macOS 测试版（不会自动发布）
+
+```bash
+python3 -m pip install -r requirements-gui.txt -r requirements-build.txt
+chmod +x scripts/build_desktop_macos_test.sh
+PYTHON_BIN=python3 scripts/build_desktop_macos_test.sh
+```
+
+脚本将在 `release-artifacts/` 中生成含 macOS 名称的 ZIP、`checksums.txt` 和测试发布说明；请将它们作为同一个 GitHub Pre-release 的资产上传。客户端会在发现更高版本且校验文件齐备时提示下载，但始终由用户确认打开安装包。
+
+### 4. AI 推理 / 训练能力（按需安装）
 
 ```bash
 pip install -r requirements-ai.txt   # torch / transformers / llama-cpp-python / peft / datasets ...
@@ -66,7 +88,7 @@ pip install -r requirements-ai.txt   # torch / transformers / llama-cpp-python /
 
 > 不安装 AI 依赖也能启动后端与客户端（Ollama 推理、认证、会话、数据集、知识库检索均可用）。
 
-### 4. Docker 启动
+### 5. Docker 启动
 
 ```bash
 docker build -t modelforge:latest .
@@ -115,7 +137,7 @@ ModelForge
 │   │                       #       context/memory/mcp/scheduler/plugins
 │   ├── services/           # 业务层（21+ 服务）
 │   └── plugins/            # SPI 插件包
-├── client/pyside6/         # PySide6 瘦客户端（5 标签页）
+├── client/pyside6/         # PySide6 多语言桌面客户端（概览/对话/模型/数据/训练/知识/智能体/任务/运行时/设置）
 ├── tests/                  # pytest（339 用例）
 ├── docs/                   # 技术报告/审计/插件架构/API 参考/开发计划
 ├── requirements*.txt       # base / dev / gui / ai 四层依赖
@@ -151,9 +173,11 @@ ModelForge
 - [API 参考](docs/API_REFERENCE.md) —— 全量端点与错误模型
 - [Runtime 架构审计](docs/MODELFORGE_3_RUNTIME_ARCHITECTURE_AUDIT.md) —— 3.x 前的架构审计（结论 B：READY WITH REQUIRED HARDENING，已落地）
 - [微调/数据集/知识库开发计划](docs/DEVELOPMENT_PLAN.md) —— 历史设计依据（已标注执行完毕）
+- [桌面端测试版发布指南](docs/DESKTOP_TEST_RELEASE.md) —— macOS 打包、校验清单与 GitHub Pre-release 流程
 
 ## 版本历史
 
+- **v0.1.1-beta.1（桌面测试版）**：统一 Models 管理、远程 OpenAI 兼容模型服务（Responses / Chat Completions）、简体中文默认与中英日切换、聊天流式兼容修复、macOS 测试包与 SHA-256 发布资产支持。
 - **v3.1（3.x）**：Composable Agent & Tool Plugin —— PluginScope/PluginManager/ToolPlugin/AgentPlugin/SkillPlugin/Capability Discovery + Multi-Agent 护栏（parent_run_id/深度/循环/子数/取消级联/预算）。
 - **v3.0**：Agent Runtime —— Agent Run / Event System / Tool Registry / Policy / MCP / Scheduler / Multi-Agent（339 测试基线）。
 - **v2.1**：统一新版架构；认证/会话/记忆/模型/流式聊天/LangGraph Agent/数据集/训练/知识库（152 测试历史基线）。

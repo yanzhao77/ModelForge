@@ -1,0 +1,2 @@
+# Desktop packaging dependencies. Install only in the release build environment.
+pyinstaller==6.19.0

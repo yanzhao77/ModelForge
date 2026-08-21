@@ -61,7 +61,7 @@ class WorkspacePage(QWidget):
         layout.addStretch(1)
 
     def _connection_changed(self, connected: bool, error: str) -> None:
-        self.connection.setText("Connected to ModelForge Server" if connected else "Unable to connect to the backend. Check that ModelForge Server is running.")
+        self.connection.setText("已连接 ModelForge 服务" if connected else "无法连接服务，请确认 ModelForge 服务正在运行。")
 
     def refresh(self) -> None:
         tasks = self.task_store.ordered_tasks()

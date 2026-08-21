@@ -167,3 +167,6 @@ cython_debug/
 
 # Local runtime configuration; copy config.example.yaml before configuring a deployment.
 config.yaml
+
+# Desktop test release assets are uploaded to GitHub Release, not committed.
+release-artifacts/
