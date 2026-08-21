@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, Signal
+
 from .ui_localizer import set_current
 
 

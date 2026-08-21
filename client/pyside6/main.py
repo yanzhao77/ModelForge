@@ -1,23 +1,20 @@
 """ModelForge Future AI Workstation desktop entry point."""
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QSplitter, QStackedWidget, QVBoxLayout, QWidget
-
 from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
 from components.app_shell import AppShell
-from i18n import I18n
-from i18n.ui_localizer import localize_tree
-from components.desktop_update import GitHubReleaseUpdater, UpdateInfo
 from components.command_palette import CommandPalette
+from components.desktop_update import GitHubReleaseUpdater, UpdateInfo
 from components.recovery import RecoveryManager
 from components.task_center import TaskCenterDock
 from components.task_store import TaskStore
+from i18n import I18n
+from i18n.ui_localizer import localize_tree
 from pages.activity_page import ActivityPage
 from pages.agent_page import AgentPage
 from pages.chat_page import ChatPage
@@ -31,6 +28,17 @@ from pages.session_sidebar import SessionSidebar
 from pages.settings_page import SettingsPage
 from pages.training_page import TrainingPage
 from pages.workspace_page import WorkspacePage
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QMessageBox,
+    QSplitter,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 from theme.metrics import MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH
 from theme.theme import apply_theme
 from version import APP_NAME, APP_VERSION, UPDATE_REPOSITORY
@@ -38,13 +46,26 @@ from version import APP_NAME, APP_VERSION, UPDATE_REPOSITORY
 
 class MainWindow(QMainWindow, AsyncApiMixin):
     PAGE_TITLES = {
-        "overview": "概览", "chat": "对话", "models": "模型",
-        "datasets": "数据集", "training": "训练", "knowledge": "知识库",
-        "agents": "智能体", "tasks": "任务", "runtime": "运行时",
-        "activity": "活动", "settings": "设置",
+        "overview": "概览",
+        "chat": "对话",
+        "models": "模型",
+        "datasets": "数据集",
+        "training": "训练",
+        "knowledge": "知识库",
+        "agents": "智能体",
+        "tasks": "任务",
+        "runtime": "运行时",
+        "activity": "活动",
+        "settings": "设置",
     }
 
-    def __init__(self, api: ModelForgeClient, recovery: RecoveryManager, translator: I18n, theme_manager):
+    def __init__(
+        self,
+        api: ModelForgeClient,
+        recovery: RecoveryManager,
+        translator: I18n,
+        theme_manager,
+    ):
         QMainWindow.__init__(self)
         self._init_async_api()
         self.api, self.recovery = api, recovery
@@ -93,11 +114,23 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.knowledge_page = KnowledgePage(self.api)
         self.agent_page = AgentPage(self.api)
         self.activity_page = ActivityPage(self.task_store)
-        self.settings_page = SettingsPage(self.api, APP_VERSION, lambda: self._check_for_updates(True), self.theme_manager, self.translator)
+        self.settings_page = SettingsPage(
+            self.api,
+            APP_VERSION,
+            lambda: self._check_for_updates(True),
+            self.theme_manager,
+            self.translator,
+        )
         self._pages = {
-            "overview": self.workspace_page, "chat": chat_surface, "models": self.models_page,
-            "datasets": self.dataset_page, "training": self.training_page, "knowledge": self.knowledge_page,
-            "agents": self.agent_page, "runtime": self.runtime_page, "activity": self.activity_page,
+            "overview": self.workspace_page,
+            "chat": chat_surface,
+            "models": self.models_page,
+            "datasets": self.dataset_page,
+            "training": self.training_page,
+            "knowledge": self.knowledge_page,
+            "agents": self.agent_page,
+            "runtime": self.runtime_page,
+            "activity": self.activity_page,
             "settings": self.settings_page,
         }
         for page in dict.fromkeys(self._pages.values()):
@@ -111,6 +144,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self._navigate_to("overview")
 
         localize_tree(self, self.translator)
+
     def _retranslate(self, _locale: str) -> None:
         self.shell.retranslate()
         self._navigate_to(self.active_destination)
@@ -122,8 +156,35 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.command_shortcut_mac.activated.connect(self._open_command_palette)
 
     def _open_command_palette(self) -> None:
-        commands = [(self.translator.t("nav." + key, key.title()), "打开工作区", lambda destination=key: self._navigate_to(destination)) for key in ("overview", "chat", "models", "datasets", "training", "knowledge", "agents", "tasks", "runtime", "settings")]
-        commands.extend([("新建对话", "开始新的对话", lambda: self._navigate_to("chat")), ("检查更新", "检查经过验证的 GitHub Release", lambda: self._check_for_updates(True))])
+        commands = [
+            (
+                self.translator.t("nav." + key, key.title()),
+                "打开工作区",
+                lambda destination=key: self._navigate_to(destination),
+            )
+            for key in (
+                "overview",
+                "chat",
+                "models",
+                "datasets",
+                "training",
+                "knowledge",
+                "agents",
+                "tasks",
+                "runtime",
+                "settings",
+            )
+        ]
+        commands.extend(
+            [
+                ("新建对话", "开始新的对话", lambda: self._navigate_to("chat")),
+                (
+                    "检查更新",
+                    "检查经过验证的 GitHub Release",
+                    lambda: self._check_for_updates(True),
+                ),
+            ]
+        )
         CommandPalette(commands, self).exec()
 
     def _init_command_menu(self) -> None:
@@ -131,9 +192,17 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         menu.setNativeMenuBar(False)
         menu.setVisible(False)
         command = menu.addMenu("命令")
-        for title, key in (("概览", "overview"), ("对话", "chat"), ("任务", "tasks"), ("运行时", "runtime"), ("设置", "settings")):
+        for title, key in (
+            ("概览", "overview"),
+            ("对话", "chat"),
+            ("任务", "tasks"),
+            ("运行时", "runtime"),
+            ("设置", "settings"),
+        ):
             action = QAction(title, self)
-            action.triggered.connect(lambda _checked=False, destination=key: self._navigate_to(destination))
+            action.triggered.connect(
+                lambda _checked=False, destination=key: self._navigate_to(destination)
+            )
             command.addAction(action)
         command.addSeparator()
         updates = QAction("Check for updates…", self)
@@ -148,18 +217,34 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         models.addAction(download)
         help_menu = menu.addMenu("帮助")
         about = QAction("关于 ModelForge", self)
-        about.triggered.connect(lambda: QMessageBox.about(self, "ModelForge", f"<h3>MODEL FORGE {APP_VERSION}</h3><p>LOCAL AI WORKSTATION</p>"))
+        about.triggered.connect(
+            lambda: QMessageBox.about(
+                self,
+                "ModelForge",
+                f"<h3>MODEL FORGE {APP_VERSION}</h3><p>LOCAL AI WORKSTATION</p>",
+            )
+        )
         help_menu.addAction(about)
 
     def _navigate_to(self, destination: str) -> None:
         self.active_destination = destination
         self.shell.rail.set_active(destination)
-        self.shell.topbar.set_page(self.translator.t("nav." + destination, self.PAGE_TITLES.get(destination, destination).title()))
+        self.shell.topbar.set_page(
+            self.translator.t(
+                "nav." + destination,
+                self.PAGE_TITLES.get(destination, destination).title(),
+            )
+        )
         if destination == "tasks":
             self._show_task_center()
         elif (page := self._pages.get(destination)) is not None:
             self.stack.setCurrentWidget(page)
-        self.shell.set_status("{} · 已连接到 {}".format(self.translator.t("nav." + destination, destination.title()), self.api.base_url))
+        self.shell.set_status(
+            "{} · 已连接到 {}".format(
+                self.translator.t("nav." + destination, destination.title()),
+                self.api.base_url,
+            )
+        )
 
     def _on_session_selected(self, session_id: int) -> None:
         self.chat_page.set_session(session_id)
@@ -172,11 +257,15 @@ class MainWindow(QMainWindow, AsyncApiMixin):
 
     def _load_status(self) -> None:
         self.shell.set_status("正在检查 ModelForge 服务…")
-        self._run_api(self.api.get_info, self._show_service_status, self._show_service_error)
+        self._run_api(
+            self.api.get_info, self._show_service_status, self._show_service_error
+        )
 
     def _show_service_status(self, info: dict) -> None:
-        version = info.get("version", "Unavailable")
-        self.shell.topbar.set_system(True, f"已连接 · {self.api.username or 'Local workspace'}")
+        _version = info.get("version", "Unavailable")
+        self.shell.topbar.set_system(
+            True, f"已连接 · {self.api.username or 'Local workspace'}"
+        )
         self.shell.set_status(f"已连接 ModelForge 服务 · {self.api.base_url}")
 
     def _show_service_error(self, error: str) -> None:
@@ -184,36 +273,79 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.shell.set_status(f"无法连接服务 · {error}")
 
     def _show_task_stream_status(self, online: bool, error: str) -> None:
-        self.shell.set_status("任务更新已连接" if online else f"正在重连任务更新 · {error or 'waiting'}")
+        self.shell.set_status(
+            "任务更新已连接" if online else f"正在重连任务更新 · {error or 'waiting'}"
+        )
 
     def _offer_recovery(self, restored: dict) -> None:
         if not self.recovery.previous_crash:
             return
         text = f"The previous session ended unexpectedly.\n{self.recovery.latest_crash_summary()}\n\nRestore the last workspace state?"
-        if QMessageBox.question(self, "恢复工作区", text, QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
+        if (
+            QMessageBox.question(
+                self,
+                "恢复工作区",
+                text,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            == QMessageBox.Yes
+        ):
             session_id = restored.get("session_id")
             if isinstance(session_id, int):
                 self.session_sidebar.current_session_id = session_id
                 self.chat_page.set_session(session_id)
 
     def _check_for_updates(self, manual: bool) -> None:
-        self._run_api(self.updater.check_latest, lambda update: self._update_checked(update, manual), lambda error: self._update_check_failed(error, manual))
+        self._run_api(
+            self.updater.check_latest,
+            lambda update: self._update_checked(update, manual),
+            lambda error: self._update_check_failed(error, manual),
+        )
 
     def _update_checked(self, update: UpdateInfo | None, manual: bool) -> None:
         if update is None:
             if manual:
-                QMessageBox.information(self, "Check updates", "No verified release update is currently available.")
+                QMessageBox.information(
+                    self,
+                    "Check updates",
+                    "No verified release update is currently available.",
+                )
             return
-        if QMessageBox.question(self, "Verified update", f"ModelForge {update.version} is available.\n\nThe download is SHA-256 verified before an installer is opened. Download now?", QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
-            self.shell.set_status(f"●  DOWNLOADING VERIFIED RELEASE  ·  {update.asset_name}")
-            self._run_api(lambda: self.updater.download_and_verify(update), self._update_downloaded, self._update_download_failed)
+        if (
+            QMessageBox.question(
+                self,
+                "Verified update",
+                f"ModelForge {update.version} is available.\n\nThe download is SHA-256 verified before an installer is opened. Download now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            == QMessageBox.Yes
+        ):
+            self.shell.set_status(
+                f"●  DOWNLOADING VERIFIED RELEASE  ·  {update.asset_name}"
+            )
+            self._run_api(
+                lambda: self.updater.download_and_verify(update),
+                self._update_downloaded,
+                self._update_download_failed,
+            )
 
     def _update_check_failed(self, error: str, manual: bool) -> None:
         if manual:
             QMessageBox.warning(self, "Check updates", error)
 
     def _update_downloaded(self, path: Path) -> None:
-        if QMessageBox.question(self, "Verified installer", f"SHA-256 verified installer:\n{path}\n\nOpen it now?", QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
+        if (
+            QMessageBox.question(
+                self,
+                "Verified installer",
+                f"SHA-256 verified installer:\n{path}\n\nOpen it now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            == QMessageBox.Yes
+        ):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _update_download_failed(self, error: str) -> None:
@@ -225,7 +357,14 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.task_store.stop()
         self.chat_page.shutdown_stream()
         self.agent_page.timeline.shutdown_stream()
-        for page in (self.session_sidebar, self.dataset_page, self.training_page, self.knowledge_page, self.agent_page, self.runtime_page):
+        for page in (
+            self.session_sidebar,
+            self.dataset_page,
+            self.training_page,
+            self.knowledge_page,
+            self.agent_page,
+            self.runtime_page,
+        ):
             shutdown = getattr(page, "shutdown_async_api", None)
             if shutdown:
                 shutdown()

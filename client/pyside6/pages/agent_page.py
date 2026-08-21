@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
-from components.mf.primitives import MFSection, MFStatusBadge
 from components.example_library import open_examples
+from components.mf.primitives import MFSection, MFStatusBadge
 from pages.run_timeline import RunTimeline
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (

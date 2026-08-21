@@ -1,9 +1,13 @@
 """Persistent Light / Dark / System theme preference management."""
 from __future__ import annotations
+
 from enum import Enum
+
 from PySide6.QtCore import QObject, QSettings, Signal
 from PySide6.QtGui import QGuiApplication
+
 from .tokens import DARK, LIGHT
+
 
 class ThemeMode(str, Enum):
     LIGHT = "light"

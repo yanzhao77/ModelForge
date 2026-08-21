@@ -1,15 +1,14 @@
 """Authenticated remote provider configuration endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-
 from core.config import settings
 from core.database import get_db
 from core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
+from pydantic import BaseModel, Field
 from services.remote_provider_service import RemoteProviderError, RemoteProviderService
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/providers", tags=["providers"])
 

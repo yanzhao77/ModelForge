@@ -1,9 +1,8 @@
 """Activity stream derived solely from real TaskStore state."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QVBoxLayout, QWidget
-
 from components.mf.primitives import MFEmptyState, MFSection
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 
 class ActivityPage(QWidget):

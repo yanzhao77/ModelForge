@@ -114,4 +114,5 @@ class TestClientStructure:
         src = open(path, encoding="utf-8").read()
         assert "AgentPage" in src
         assert '"agents": self.agent_page' in src
-        assert "AGENT MATRIX" in src
+        assert '"agents": self.agent_page' in src
+        assert '"智能体"' in src

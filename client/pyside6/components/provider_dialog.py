@@ -1,10 +1,23 @@
 """Desktop management dialog for user-scoped OpenAI-compatible providers."""
+
 from __future__ import annotations
-from i18n.ui_localizer import localize_tree
 
 from components.api_worker import AsyncApiMixin
+from i18n.ui_localizer import localize_tree
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
 
 
 class RemoteProviderDialog(QDialog, AsyncApiMixin):
@@ -24,7 +37,9 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         title = QLabel("OpenAI 兼容模型服务")
         title.setProperty("role", "pageTitle")
         right.addWidget(title)
-        note = QLabel("密钥将在本机加密保存，保存后不会再次显示。默认使用 Responses API；仅当服务不支持 Responses 时才切换到 Chat Completions API。")
+        note = QLabel(
+            "密钥将在本机加密保存，保存后不会再次显示。默认使用 Responses API；仅当服务不支持 Responses 时才切换到 Chat Completions API。"
+        )
         note.setWordWrap(True)
         note.setProperty("role", "muted")
         right.addWidget(note)
@@ -75,8 +90,11 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
 
     def clear(self) -> None:
         self.list.clearSelection()
-        self.name.clear(); self.base_url.setText("https://api.openai.com/v1")
-        self.protocol.setCurrentIndex(0); self.model.clear(); self.api_key.clear()
+        self.name.clear()
+        self.base_url.setText("https://api.openai.com/v1")
+        self.protocol.setCurrentIndex(0)
+        self.model.clear()
+        self.api_key.clear()
         self.state.setText("新建模型服务配置。点击验证连接前不会发起网络请求。")
 
     def refresh(self) -> None:
@@ -91,45 +109,81 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
             item.setData(Qt.UserRole, provider)
             self.list.addItem(item)
         self.state.setText("选择已有模型服务，或新建一个配置。")
-        if providers: self.list.setCurrentRow(0)
+        if providers:
+            self.list.setCurrentRow(0)
 
     def _selected(self, item) -> None:
         provider = item.data(Qt.UserRole) if item else None
-        if not provider: return
+        if not provider:
+            return
         self.name.setText(provider["name"])
         self.base_url.setText(provider["base_url"])
-        self.protocol.setCurrentIndex(max(self.protocol.findData(provider["protocol"]), 0))
+        self.protocol.setCurrentIndex(
+            max(self.protocol.findData(provider["protocol"]), 0)
+        )
         self.model.setText(provider["default_model"])
         self.api_key.clear()
-        self.state.setText("已配置 API 密钥" if provider.get("key_configured") else "尚未配置 API 密钥")
+        self.state.setText(
+            "已配置 API 密钥" if provider.get("key_configured") else "尚未配置 API 密钥"
+        )
 
     def save(self) -> None:
-        name, url, protocol, model, key = self.name.text().strip(), self.base_url.text().strip(), self.protocol.currentData(), self.model.text().strip(), self.api_key.text().strip()
+        name, url, protocol, model, key = (
+            self.name.text().strip(),
+            self.base_url.text().strip(),
+            self.protocol.currentData(),
+            self.model.text().strip(),
+            self.api_key.text().strip(),
+        )
         if not all((name, url, model)):
-            QMessageBox.warning(self, "信息不完整", "名称、Base URL 和默认模型均为必填项。")
+            QMessageBox.warning(
+                self, "信息不完整", "名称、Base URL 和默认模型均为必填项。"
+            )
             return
         self.state.setText("正在保存加密的模型服务配置…")
-        self._run_api(lambda: self.api.save_remote_provider(name, url, protocol, model, key or None), lambda _: self.refresh(), self._failed)
+        self._run_api(
+            lambda: self.api.save_remote_provider(
+                name, url, protocol, model, key or None
+            ),
+            lambda _: self.refresh(),
+            self._failed,
+        )
 
     def verify(self) -> None:
         provider = self.current()
         if not provider:
-            QMessageBox.information(self, "请选择模型服务", "请先保存模型服务，再验证连接。")
+            QMessageBox.information(
+                self, "请选择模型服务", "请先保存模型服务，再验证连接。"
+            )
             return
         self.state.setText("正在验证连接并获取模型列表…")
-        self._run_api(lambda: self.api.verify_remote_provider(provider["id"]), self._verified, self._failed)
+        self._run_api(
+            lambda: self.api.verify_remote_provider(provider["id"]),
+            self._verified,
+            self._failed,
+        )
 
     def _verified(self, result: dict) -> None:
         models = result.get("models", [])
-        self.state.setText(f"连接验证成功，发现 {len(models)} model(s)." + (f" 示例：{models[0]}" if models else ""))
+        self.state.setText(
+            f"连接验证成功，发现 {len(models)} model(s)."
+            + (f" 示例：{models[0]}" if models else "")
+        )
 
     def delete(self) -> None:
         provider = self.current()
         if not provider:
             return
-        if QMessageBox.question(self, "删除模型服务", f"删除此模型服务及其加密密钥？") != QMessageBox.Yes:
+        if (
+            QMessageBox.question(self, "删除模型服务", "删除此模型服务及其加密密钥？")
+            != QMessageBox.Yes
+        ):
             return
-        self._run_api(lambda: self.api.delete_remote_provider(provider["id"]), lambda _: self.refresh(), self._failed)
+        self._run_api(
+            lambda: self.api.delete_remote_provider(provider["id"]),
+            lambda _: self.refresh(),
+            self._failed,
+        )
 
     def _failed(self, error: str) -> None:
         self.state.setText(f"请求未完成：{error}")

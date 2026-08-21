@@ -7,7 +7,6 @@ import hmac
 from contextlib import asynccontextmanager
 
 from api import (
-    providers,
     agent,
     auth,
     chat,
@@ -17,6 +16,7 @@ from api import (
     models,
     openai_api,
     plugin,
+    providers,
     runtime,
     sessions,
     system,

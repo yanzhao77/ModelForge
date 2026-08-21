@@ -1,10 +1,18 @@
 """Calm AI-native home workspace backed by real task state."""
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QTextEdit, QVBoxLayout, QWidget
-
 from components.mf.primitives import MFEmptyState, MFPanel
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class WorkspacePage(QWidget):

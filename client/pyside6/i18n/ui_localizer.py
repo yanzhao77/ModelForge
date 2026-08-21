@@ -6,8 +6,15 @@ pages cleanly switchable while they are progressively migrated.
 from __future__ import annotations
 
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QComboBox, QGroupBox, QLabel, QLineEdit, QPushButton, QTextEdit, QWidget
-
+from PySide6.QtWidgets import (
+    QComboBox,
+    QGroupBox,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTextEdit,
+    QWidget,
+)
 
 _CURRENT = None
 

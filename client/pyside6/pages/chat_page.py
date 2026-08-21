@@ -1,12 +1,24 @@
 """Conversation-first chat with local and remote OpenAI-compatible model selection."""
+
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
-from PySide6.QtGui import QTextCursor
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtGui import QTextCursor
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class StreamWorker(QThread):
@@ -22,7 +34,9 @@ class StreamWorker(QThread):
     def run(self):
         full = ""
         try:
-            for event in self.api.stream_chat(self.model, self.messages, self.session_id, self.provider_id):
+            for event in self.api.stream_chat(
+                self.model, self.messages, self.session_id, self.provider_id
+            ):
                 if self.isInterruptionRequested():
                     return
                 kind = event.get("type")
@@ -50,7 +64,11 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.api, self.session_id, self.messages, self.worker = api, None, [], None
         self.session_refresher = None
         self._init_ui()
-        self._run_api(self.api.list_remote_providers, self._render_remote_providers, lambda _error: None)
+        self._run_api(
+            self.api.list_remote_providers,
+            self._render_remote_providers,
+            lambda _error: None,
+        )
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -86,7 +104,11 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.msg_input.returnPressed.connect(self.send_message)
         composer.addWidget(self.msg_input, 1)
         examples = QPushButton("示例")
-        examples.clicked.connect(lambda: open_examples("chat", self, lambda example: self.msg_input.setText(example.template)))
+        examples.clicked.connect(
+            lambda: open_examples(
+                "chat", self, lambda example: self.msg_input.setText(example.template)
+            )
+        )
         composer.addWidget(examples)
         self.send_btn = QPushButton("发送")
         self.send_btn.setProperty("accent", True)
@@ -100,7 +122,9 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.provider_select.clear()
         self.provider_select.addItem("本地运行时", None)
         for provider in providers:
-            self.provider_select.addItem(f"{provider['name']} · {provider['default_model']}", provider)
+            self.provider_select.addItem(
+                f"{provider['name']} · {provider['default_model']}", provider
+            )
             if provider["id"] == selected:
                 self.provider_select.setCurrentIndex(self.provider_select.count() - 1)
         self.provider_select.blockSignals(False)
@@ -125,17 +149,25 @@ class ChatPage(QWidget, AsyncApiMixin):
 
     def set_session(self, session_id):
         self.session_id = session_id
-        self.display.clear(); self.messages = []
+        self.display.clear()
+        self.messages = []
         self.display.append("[Loading conversation…]")
-        self._run_api(lambda: self.api.list_messages(session_id), lambda messages: self._render_session(session_id, messages), self._session_load_failed)
+        self._run_api(
+            lambda: self.api.list_messages(session_id),
+            lambda messages: self._render_session(session_id, messages),
+            self._session_load_failed,
+        )
 
     def _render_session(self, session_id, messages):
         if session_id != self.session_id:
             return
-        self.display.clear(); self.messages = []
+        self.display.clear()
+        self.messages = []
         for message in messages:
             self._append_msg(message["role"], message["content"])
-            self.messages.append({"role": message["role"], "content": message["content"]})
+            self.messages.append(
+                {"role": message["role"], "content": message["content"]}
+            )
 
     def _session_load_failed(self, error):
         self.display.append(f"[Unable to load conversation] {error}")
@@ -143,21 +175,31 @@ class ChatPage(QWidget, AsyncApiMixin):
     def load_model(self):
         model = self.model_input.text().strip()
         if not model:
-            QMessageBox.warning(self, "请选择模型", "请输入模型名称，或选择已配置的远程模型服务。")
+            QMessageBox.warning(
+                self, "请选择模型", "请输入模型名称，或选择已配置的远程模型服务。"
+            )
             return
         provider = self._provider()
         if provider:
             self.chat_status.set_state(f"{provider['name']} · {model}", "online")
-            self.display.append("<p><b>Remote provider ready</b><br>Messages will be sent through the selected OpenAI-compatible provider.</p>")
+            self.display.append(
+                "<p><b>Remote provider ready</b><br>Messages will be sent through the selected OpenAI-compatible provider.</p>"
+            )
             return
         self.load_btn.setEnabled(False)
         self.display.append("<p><b>Preparing local model…</b></p>")
-        self._run_api(lambda: self.api.runtime_start(model), lambda _result: self._model_loaded(model), self._model_load_failed)
+        self._run_api(
+            lambda: self.api.runtime_start(model),
+            lambda _result: self._model_loaded(model),
+            self._model_load_failed,
+        )
 
     def _model_loaded(self, model):
         self.load_btn.setEnabled(True)
         self.chat_status.set_state(f"{model} ready", "online")
-        self.display.append("<p><b>Model ready</b><br>Start a conversation when you are ready.</p>")
+        self.display.append(
+            "<p><b>Model ready</b><br>Start a conversation when you are ready.</p>"
+        )
 
     def _model_load_failed(self, error):
         self.load_btn.setEnabled(True)
@@ -172,23 +214,36 @@ class ChatPage(QWidget, AsyncApiMixin):
         if not text:
             return
         if not model:
-            QMessageBox.warning(self, "请选择模型", "Enter a model name before sending a message.")
+            QMessageBox.warning(
+                self, "请选择模型", "Enter a model name before sending a message."
+            )
             return
         if self.worker and self.worker.isRunning():
             return
         provider_id = self._provider_id()
         if self.kb_check.isChecked() and provider_id:
-            QMessageBox.information(self, "知识库与远程模型", "知识库检索目前使用本地运行时。请关闭“使用知识库”，或选择本地模型。")
+            QMessageBox.information(
+                self,
+                "知识库与远程模型",
+                "知识库检索目前使用本地运行时。请关闭“使用知识库”，或选择本地模型。",
+            )
             return
         self._append_msg("user", text)
         self.messages.append({"role": "user", "content": text})
-        self.msg_input.clear(); self.send_btn.setEnabled(False)
+        self.msg_input.clear()
+        self.send_btn.setEnabled(False)
         if self.kb_check.isChecked():
-            self._run_api(lambda: self.api.knowledge_answer(model, text, top_k=3), self._show_kb_answer, self._show_kb_failure)
+            self._run_api(
+                lambda: self.api.knowledge_answer(model, text, top_k=3),
+                self._show_kb_answer,
+                self._show_kb_failure,
+            )
             return
         self.display.append("<p><b>ModelForge</b><br>")
         self.display.moveCursor(QTextCursor.End)
-        self.worker = StreamWorker(self.api, model, self.messages, self.session_id, provider_id)
+        self.worker = StreamWorker(
+            self.api, model, self.messages, self.session_id, provider_id
+        )
         self.worker.delta.connect(self._on_delta)
         self.worker.done.connect(self._on_done)
         self.worker.failed.connect(self._on_failed)
@@ -198,7 +253,9 @@ class ChatPage(QWidget, AsyncApiMixin):
         answer = result.get("answer", "")
         self.display.append(f"<b>ModelForge</b><br>{answer}<br>")
         for source in result.get("sources", []):
-            self.display.append(f"<span>[Source: {source.get('source')} @ {source.get('score', 0)}]</span><br>")
+            self.display.append(
+                f"<span>[Source: {source.get('source')} @ {source.get('score', 0)}]</span><br>"
+            )
         self.messages.append({"role": "assistant", "content": answer})
         self.send_btn.setEnabled(True)
 
@@ -207,25 +264,37 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.send_btn.setEnabled(True)
 
     def _on_delta(self, chunk):
-        cursor = self.display.textCursor(); cursor.movePosition(QTextCursor.End)
-        self.display.setTextCursor(cursor); self.display.insertPlainText(chunk)
-        self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum())
+        cursor = self.display.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.display.setTextCursor(cursor)
+        self.display.insertPlainText(chunk)
+        self.display.verticalScrollBar().setValue(
+            self.display.verticalScrollBar().maximum()
+        )
 
     def _on_done(self, full):
         self.display.append("</p>")
         self.messages.append({"role": "assistant", "content": full})
         self.send_btn.setEnabled(True)
         if self.session_id:
-            self._run_api(lambda: self.api.auto_title(self.session_id), lambda _result: self.session_refresher() if self.session_refresher else None, lambda _error: None)
+            self._run_api(
+                lambda: self.api.auto_title(self.session_id),
+                lambda _result: (
+                    self.session_refresher() if self.session_refresher else None
+                ),
+                lambda _error: None,
+            )
 
     def _on_failed(self, error):
         self.display.append(f"<br><b>Unable to respond</b><br>{error}</p>")
         self.send_btn.setEnabled(True)
 
     def shutdown_stream(self) -> None:
-        worker = self.worker; self.worker = None
+        worker = self.worker
+        self.worker = None
         if worker and worker.isRunning():
             worker.requestInterruption()
             if not worker.wait(2500):
-                worker.terminate(); worker.wait(500)
+                worker.terminate()
+                worker.wait(500)
         self.shutdown_async_api()

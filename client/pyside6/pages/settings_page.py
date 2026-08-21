@@ -1,9 +1,17 @@
 """Modern settings workspace for appearance, language, connection and updates."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QListWidget, QStackedWidget, QPushButton, QVBoxLayout, QWidget
-
 from components.mf.primitives import MFPanel, MFSection, MFStatusBadge
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class SettingsPage(QWidget):

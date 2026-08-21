@@ -5,7 +5,6 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
-
 from services.runtime import RuntimeEngine
 
 

@@ -1,9 +1,19 @@
 """ModelForge workstation connection dialog."""
 from __future__ import annotations
-from i18n.ui_localizer import localize_tree
 
+from i18n.ui_localizer import localize_tree
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class LoginDialog(QDialog):

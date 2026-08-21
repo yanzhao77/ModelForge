@@ -10,9 +10,8 @@ from urllib.parse import urlparse
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy.orm import Session
-
 from models.records import RemoteProviderConfig
+from sqlalchemy.orm import Session
 
 
 class RemoteProviderError(ValueError):

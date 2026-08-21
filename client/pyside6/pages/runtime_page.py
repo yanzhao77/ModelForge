@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 
 from components.api_worker import AsyncApiMixin
-from components.mf.primitives import MFSection, MFStatusBadge
 from components.example_library import open_examples
+from components.mf.primitives import MFSection, MFStatusBadge
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QComboBox,

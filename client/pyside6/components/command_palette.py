@@ -1,9 +1,16 @@
 """Small command palette for fast keyboard-first ModelForge navigation."""
-from __future__ import annotations
-from i18n.ui_localizer import localize_tree
 
+from __future__ import annotations
+
+from i18n.ui_localizer import localize_tree
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QVBoxLayout,
+)
 
 
 class CommandPalette(QDialog):
@@ -34,7 +41,8 @@ class CommandPalette(QDialog):
             item = QListWidgetItem(f"{title}\n{hint}")
             item.setData(Qt.UserRole, callback)
             self.list.addItem(item)
-        if self.list.count(): self.list.setCurrentRow(0)
+        if self.list.count():
+            self.list.setCurrentRow(0)
 
     def _run(self, item: QListWidgetItem) -> None:
         callback = item.data(Qt.UserRole)

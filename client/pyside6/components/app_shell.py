@@ -1,10 +1,16 @@
 """Minimal AI-native application shell for ModelForge."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
-
 from components.mf.primitives import MFStatusBadge
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 from theme.icons import glyph
 from theme.tokens import SIDEBAR_WIDTH, TOPBAR_HEIGHT
 

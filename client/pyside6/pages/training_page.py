@@ -2,8 +2,8 @@
 
 from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
-from components.mf.primitives import MFSection, MFStatusBadge
 from components.example_library import open_examples
+from components.mf.primitives import MFSection, MFStatusBadge
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,

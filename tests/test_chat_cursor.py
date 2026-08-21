@@ -8,9 +8,9 @@ CLIENT = ROOT / "client" / "pyside6"
 if str(CLIENT) not in sys.path:
     sys.path.insert(0, str(CLIENT))
 
-from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QTextCursor
 from pages.chat_page import ChatPage
+from PySide6.QtGui import QTextCursor
+from PySide6.QtWidgets import QApplication
 
 
 class FakeApi:
@@ -22,10 +22,13 @@ class FakeApi:
 
 
 def test_stream_cursor_uses_qtextcursor_end():
-    app = QApplication.instance() or QApplication([])
+    QApplication.instance() or QApplication([])
     page = ChatPage(FakeApi())
     page.display.setPlainText("hello")
     page._on_delta(" world")
     assert page.display.toPlainText().endswith("hello world")
-    assert page.display.textCursor().position() == page.display.document().characterCount() - 1
+    assert (
+        page.display.textCursor().position()
+        == page.display.document().characterCount() - 1
+    )
     assert QTextCursor.End.value >= 0
