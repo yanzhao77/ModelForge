@@ -1,0 +1,27 @@
+name: ModelForge CPU AI Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_path:
+        description: "Absolute path to a pre-provisioned local Transformers model directory"
+        required: true
+        type: string
+
+jobs:
+  cpu-real-model-smoke:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install optional AI dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt -r requirements-ai.txt
+      - name: Verify pre-provisioned CPU model inference
+        env:
+          MODELFORGE_CPU_SMOKE_MODEL: ${{ inputs.model_path }}
+        run: pytest tests/test_hardware_cpu.py -q -m real_model

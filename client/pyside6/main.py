@@ -10,6 +10,8 @@ from components.api_worker import AsyncApiMixin
 from components.app_shell import AppShell
 from components.command_palette import CommandPalette
 from components.desktop_update import GitHubReleaseUpdater, UpdateInfo
+from components.model_readiness_store import ModelReadinessStore
+from components.onboarding import OnboardingCoordinator
 from components.recovery import RecoveryManager
 from components.task_center import TaskCenterDock
 from components.task_store import TaskStore
@@ -77,12 +79,22 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.resize(1440, 900)
         self.task_store = TaskStore(self.api, self)
+        self.readiness_store = ModelReadinessStore(self.api, self)
+        self.onboarding = OnboardingCoordinator(
+            self.api,
+            self.readiness_store,
+            self.recovery,
+            self.api.username or "desktop-user",
+            self.translator,
+            self,
+        )
         self.task_store.stream_changed.connect(self._show_task_stream_status)
         self._init_ui()
         restored = self.recovery.restore_window_state(self)
         self.task_store.start()
         self._load_status()
         QTimer.singleShot(0, lambda: self._offer_recovery(restored))
+        QTimer.singleShot(450, lambda: self.readiness_store.refresh(force=True))
         QTimer.singleShot(1800, lambda: self._check_for_updates(False))
 
     def _init_ui(self) -> None:
@@ -91,15 +103,15 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.setCentralWidget(self.shell)
         self.stack = QStackedWidget()
         self.shell.content_layout.addWidget(self.stack, 1)
-        self.workspace_page = WorkspacePage(self.task_store)
+        self.workspace_page = WorkspacePage(self.task_store, self.readiness_store)
         self.workspace_page.navigate_requested.connect(self._navigate_to)
-        self.models_page = ModelsPage(self.api)
+        self.models_page = ModelsPage(self.api, self.readiness_store)
         self.models_page.navigate_requested.connect(self._navigate_to)
         self.runtime_page = RuntimePage(self.api)
         self.session_sidebar = SessionSidebar(self.api)
         self.session_sidebar.session_selected.connect(self._on_session_selected)
         self.session_sidebar.session_created.connect(self._on_session_selected)
-        self.chat_page = ChatPage(self.api)
+        self.chat_page = ChatPage(self.api, self.readiness_store)
         self.chat_page.session_refresher = self.session_sidebar.refresh
         chat_surface = QWidget()
         chat_layout = QVBoxLayout(chat_surface)
@@ -112,7 +124,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.dataset_page = DatasetPage(self.api)
         self.training_page = TrainingPage(self.api)
         self.knowledge_page = KnowledgePage(self.api)
-        self.agent_page = AgentPage(self.api)
+        self.agent_page = AgentPage(self.api, self.readiness_store)
         self.activity_page = ActivityPage(self.task_store)
         self.settings_page = SettingsPage(
             self.api,
@@ -353,6 +365,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         QMessageBox.warning(self, "Update download", error)
 
     def closeEvent(self, event) -> None:
+        self.readiness_store.shutdown()
         self.recovery.save_window_state(self)
         self.task_store.stop()
         self.chat_page.shutdown_stream()

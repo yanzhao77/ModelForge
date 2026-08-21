@@ -62,6 +62,10 @@ def _additive_migrations():
     """
     statements = [
         "ALTER TABLE agent_runs ADD COLUMN parent_run_id VARCHAR(64)",
+        "ALTER TABLE remote_provider_configs ADD COLUMN last_verified_at DATETIME",
+        "ALTER TABLE remote_provider_configs ADD COLUMN verification_status VARCHAR(32) NOT NULL DEFAULT 'unknown'",
+        "ALTER TABLE remote_provider_configs ADD COLUMN verification_error_code VARCHAR(64)",
+        "ALTER TABLE remote_provider_configs ADD COLUMN verified_models_json TEXT",
     ]
     with engine.connect() as conn:
         for stmt in statements:

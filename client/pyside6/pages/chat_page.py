@@ -58,10 +58,12 @@ class StreamWorker(QThread):
 class ChatPage(QWidget, AsyncApiMixin):
     """Streaming conversation workspace with a safe remote-provider selector."""
 
-    def __init__(self, api, parent=None):
+    def __init__(self, api, readiness_store=None, parent=None):
         QWidget.__init__(self, parent)
         self._init_async_api()
         self.api, self.session_id, self.messages, self.worker = api, None, [], None
+        self.readiness_store = readiness_store
+        self._model_ready = False
         self.session_refresher = None
         self._init_ui()
         self._run_api(
@@ -69,6 +71,12 @@ class ChatPage(QWidget, AsyncApiMixin):
             self._render_remote_providers,
             lambda _error: None,
         )
+        if self.readiness_store:
+            self.readiness_store.changed.connect(self._render_readiness)
+            self.readiness_store.failed.connect(
+                lambda _error: self._render_readiness({"level": "SERVICE_UNAVAILABLE"})
+            )
+            self.readiness_store.refresh()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -113,6 +121,7 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.send_btn = QPushButton("发送")
         self.send_btn.setProperty("accent", True)
         self.send_btn.clicked.connect(self.send_message)
+        self.send_btn.setEnabled(False)
         composer.addWidget(self.send_btn)
         layout.addLayout(composer)
 
@@ -122,6 +131,8 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.provider_select.clear()
         self.provider_select.addItem("本地运行时", None)
         for provider in providers:
+            if provider.get("verification_status") != "success":
+                continue
             self.provider_select.addItem(
                 f"{provider['name']} · {provider['default_model']}", provider
             )
@@ -146,6 +157,24 @@ class ChatPage(QWidget, AsyncApiMixin):
         else:
             self.load_btn.setText("使用模型")
             self.chat_status.set_state("未选择模型", "warning")
+
+    def _render_readiness(self, snapshot: dict) -> None:
+        self._model_ready = snapshot.get("level") == "READY"
+        target = snapshot.get("default_target")
+        if target and not self.model_input.text().strip():
+            self.model_input.setText(target.get("model_name") or "")
+            provider_id = target.get("provider_id")
+            if provider_id is not None:
+                for index in range(self.provider_select.count()):
+                    provider = self.provider_select.itemData(index)
+                    if isinstance(provider, dict) and provider.get("id") == provider_id:
+                        self.provider_select.setCurrentIndex(index)
+                        break
+        self.send_btn.setEnabled(self._model_ready)
+        self.chat_status.set_state(
+            "模型已就绪" if self._model_ready else "请先配置可用模型",
+            "online" if self._model_ready else "warning",
+        )
 
     def set_session(self, session_id):
         self.session_id = session_id
@@ -173,6 +202,9 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.display.append(f"[Unable to load conversation] {error}")
 
     def load_model(self):
+        if not self._model_ready:
+            QMessageBox.information(self, "模型尚未就绪", "请先在模型工作区完成模型配置或远程服务验证。")
+            return
         model = self.model_input.text().strip()
         if not model:
             QMessageBox.warning(
@@ -211,6 +243,9 @@ class ChatPage(QWidget, AsyncApiMixin):
 
     def send_message(self):
         text, model = self.msg_input.text().strip(), self.model_input.text().strip()
+        if not self._model_ready:
+            QMessageBox.information(self, "模型尚未就绪", "请先在模型工作区配置并验证一个可用模型。")
+            return
         if not text:
             return
         if not model:

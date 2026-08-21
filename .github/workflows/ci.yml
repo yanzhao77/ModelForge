@@ -38,8 +38,44 @@ jobs:
           path: coverage.xml
           if-no-files-found: error
 
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install desktop test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt -r requirements-gui.txt
+      - name: Lint desktop client
+        run: ruff check client/pyside6
+      - name: Run desktop readiness and onboarding tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          pytest -q \
+            tests/test_model_readiness_service.py \
+            tests/test_model_readiness_api.py \
+            tests/test_desktop_resilience.py \
+            tests/test_workspace_task_center_smoke.py \
+            tests/test_i18n_runtime.py \
+            --cov=client/pyside6 --cov-report=xml:desktop-coverage.xml
+      - name: Upload desktop coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-coverage-xml
+          path: desktop-coverage.xml
+          if-no-files-found: error
+
   build:
-    needs: test
+    needs: [test, desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

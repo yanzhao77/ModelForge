@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import base64
+import datetime
 import hashlib
+import json
 import os
 import secrets
 from pathlib import Path
@@ -108,13 +110,40 @@ class RemoteProviderService:
             with httpx.Client(timeout=15.0, follow_redirects=False) as client:
                 response = client.get(f"{row.base_url}/models", headers={"Authorization": f"Bearer {api_key}"})
             if response.status_code >= 400:
+                code = (
+                    "AUTHENTICATION_FAILED"
+                    if response.status_code in {401, 403}
+                    else "RATE_LIMITED"
+                    if response.status_code == 429
+                    else "PROVIDER_HTTP_ERROR"
+                )
+                self._record_verification(row, "failed", code, [])
                 raise RemoteProviderError(f"Provider returned HTTP {response.status_code} while listing models.")
             data = response.json()
             items = data.get("data", data.get("models", [])) if isinstance(data, dict) else []
             models = [str(item.get("id") or item.get("name")) for item in items if isinstance(item, dict) and (item.get("id") or item.get("name"))]
+            if not models:
+                self._record_verification(row, "failed", "MODEL_LIST_INVALID", [])
+                raise RemoteProviderError("Provider returned no usable models.")
+            self._record_verification(row, "success", None, models)
             return {"ok": True, "models": models[:100], "protocol": row.protocol}
         except httpx.HTTPError as exc:
+            self._record_verification(row, "failed", "ENDPOINT_UNREACHABLE", [])
             raise RemoteProviderError(f"Unable to reach provider: {exc}") from exc
+
+    def _record_verification(
+        self,
+        row: RemoteProviderConfig,
+        status: str,
+        error_code: str | None,
+        models: list[str],
+    ) -> None:
+        """Persist only non-sensitive provider verification metadata."""
+        row.last_verified_at = datetime.datetime.utcnow()
+        row.verification_status = status
+        row.verification_error_code = error_code
+        row.verified_models_json = json.dumps(models[:100], ensure_ascii=False)
+        self.db.commit()
 
     def resolve(self, user_id: int, provider_id: int) -> dict:
         row = self.db.query(RemoteProviderConfig).filter(RemoteProviderConfig.user_id == user_id, RemoteProviderConfig.id == provider_id, RemoteProviderConfig.enabled.is_(True)).one_or_none()

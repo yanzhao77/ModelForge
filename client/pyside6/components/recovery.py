@@ -1,6 +1,7 @@
 """Crash marker and workspace-state recovery for the ModelForge desktop app."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -20,6 +21,7 @@ class RecoveryManager:
         self.state_path = self.data_dir / "workspace-state.json"
         self.lock_path = self.data_dir / "running.json"
         self.crash_path = self.data_dir / "last-crash.json"
+        self.onboarding_path = self.data_dir / "onboarding.json"
         self.previous_crash = self.lock_path.exists()
 
     def mark_started(self) -> None:
@@ -86,6 +88,30 @@ class RecoveryManager:
     def latest_crash_summary(self) -> str:
         crash = self._read_json(self.crash_path) or {}
         return f"{crash.get('exception_type', '异常')}：{crash.get('message', '上次退出未记录具体异常。')}"
+
+    def onboarding_state(self, user_key: str) -> dict:
+        """Return only the device-local, non-sensitive onboarding progress."""
+        states = self._read_json(self.onboarding_path).get("users", {})
+        return states.get(self._onboarding_namespace(user_key), {}) if isinstance(states, dict) else {}
+
+    def save_onboarding_state(self, user_key: str, state: dict) -> None:
+        payload = self._read_json(self.onboarding_path)
+        users = payload.get("users") if isinstance(payload, dict) else None
+        users = users if isinstance(users, dict) else {}
+        users[self._onboarding_namespace(user_key)] = state
+        self._write_json(self.onboarding_path, {"users": users})
+
+    def clear_onboarding_state(self, user_key: str) -> None:
+        payload = self._read_json(self.onboarding_path)
+        users = payload.get("users") if isinstance(payload, dict) else None
+        if not isinstance(users, dict):
+            return
+        users.pop(self._onboarding_namespace(user_key), None)
+        self._write_json(self.onboarding_path, {"users": users})
+
+    @staticmethod
+    def _onboarding_namespace(user_key: str) -> str:
+        return hashlib.sha256(user_key.encode("utf-8")).hexdigest()[:24]
 
     @staticmethod
     def _timestamp() -> str:

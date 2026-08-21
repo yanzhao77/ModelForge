@@ -82,6 +82,20 @@ class ModelForgeClient:
     def list_models(self) -> list[dict]:
         return self._get("/api/v1/models")
 
+    def model_readiness(self) -> dict:
+        return self._get("/api/v1/models/readiness")
+
+    def set_default_model(
+        self, kind: str, model_ref: str, provider_id: int | None = None
+    ) -> dict:
+        payload = {"kind": kind, "model_ref": model_ref}
+        if provider_id is not None:
+            payload["provider_id"] = provider_id
+        return self._put("/api/v1/models/default", json=payload)
+
+    def clear_default_model(self) -> dict:
+        return self._delete("/api/v1/models/default")
+
     # ---- remote providers (API keys are write-only and never returned) ----
     def list_remote_providers(self) -> list[dict]:
         return self._get("/api/v1/providers").get("providers", [])
@@ -483,6 +497,9 @@ class ModelForgeClient:
 
     def _patch(self, path: str, **kwargs) -> dict:
         return self._request_json("patch", path, timeout=30.0, **kwargs)
+
+    def _put(self, path: str, **kwargs) -> dict:
+        return self._request_json("put", path, timeout=30.0, **kwargs)
 
     def _delete(self, path: str, **kwargs) -> dict:
         return self._request_json("delete", path, timeout=30.0, **kwargs)

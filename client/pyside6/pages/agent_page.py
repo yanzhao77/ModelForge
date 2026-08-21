@@ -8,10 +8,14 @@ from pages.run_timeline import RunTimeline
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -25,19 +29,58 @@ from PySide6.QtWidgets import (
 )
 
 
+class AgentCreateDialog(QDialog):
+    """Collect an agent definition in one reviewable, non-executing step."""
+
+    def __init__(self, default_model: str = "", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("创建智能体")
+        self.setMinimumWidth(460)
+        layout = QVBoxLayout(self)
+        note = QLabel("创建定义不会启动 Agent Run。默认策略拒绝网络、Shell 和文件写入，敏感操作仍需审批。")
+        note.setWordWrap(True)
+        note.setProperty("role", "muted")
+        layout.addWidget(note)
+        form = QFormLayout()
+        self.name = QLineEdit()
+        self.model = QLineEdit(default_model)
+        self.tools = QLineEdit()
+        self.tools.setPlaceholderText("例如：filesystem.read, code.search")
+        form.addRow("名称", self.name)
+        form.addRow("模型", self.model)
+        form.addRow("工具（可选）", self.tools)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
+        buttons.button(QDialogButtonBox.Ok).setText("创建定义")
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        layout.addWidget(buttons)
+
+    def values(self) -> tuple[str, str, list[str]]:
+        tools = [tool.strip() for tool in self.tools.text().split(",") if tool.strip()]
+        return self.name.text().strip(), self.model.text().strip(), tools
+
+
 class AgentPage(QWidget, AsyncApiMixin):
     """Agent definitions, runs and live timeline without UI-thread HTTP calls."""
 
-    def __init__(self, api, parent=None):
+    def __init__(self, api, readiness_store=None, parent=None):
         QWidget.__init__(self, parent)
         self._init_async_api()
         self.api = api
+        self.readiness_store = readiness_store
+        self._model_ready = False
+        self._default_model = ""
         self.current_run_id = None
         self._agents_loading = False
         self._runs_loading = False
         self._init_ui()
         self.refresh_agents()
         self.refresh_runs()
+        if self.readiness_store:
+            self.readiness_store.changed.connect(self._render_readiness)
+            self.readiness_store.failed.connect(lambda _error: self._render_readiness({"level": "SERVICE_UNAVAILABLE"}))
+            self.readiness_store.refresh()
 
     def _init_ui(self):
         root = QVBoxLayout(self)
@@ -110,11 +153,11 @@ class AgentPage(QWidget, AsyncApiMixin):
         self._timer.start(2000)
 
     def _set_agent_busy(self, busy: bool):
-        self.create_btn.setEnabled(not busy)
+        self.create_btn.setEnabled(not busy and self._model_ready)
         self.delete_btn.setEnabled(not busy)
 
     def _set_run_busy(self, busy: bool):
-        self.run_btn.setEnabled(not busy)
+        self.run_btn.setEnabled(not busy and self._model_ready)
         self.cancel_btn.setEnabled(not busy)
         self.refresh_btn.setEnabled(not busy)
 
@@ -122,6 +165,15 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.status.setText(f"{action}失败：{error}")
         if popup:
             QMessageBox.warning(self, action, error)
+
+    def _render_readiness(self, snapshot: dict) -> None:
+        self._model_ready = snapshot.get("level") == "READY"
+        target = snapshot.get("default_target") or {}
+        self._default_model = target.get("model_name") or ""
+        self.create_btn.setEnabled(self._model_ready and not self._agents_loading)
+        self.run_btn.setEnabled(self._model_ready and not self._runs_loading)
+        if not self._model_ready:
+            self.status.setText("请先在模型工作区配置并验证一个可用模型，再创建或运行智能体。")
 
     def refresh_agents(self):
         if self._agents_loading:
@@ -150,16 +202,16 @@ class AgentPage(QWidget, AsyncApiMixin):
         self._report_error("获取 Agent", error)
 
     def create_agent(self):
-        name, ok1 = QInputDialog.getText(self, "新建 Agent", "名称:")
-        if not ok1 or not name.strip():
+        if not self._model_ready:
+            QMessageBox.information(self, "模型尚未就绪", "请先在模型工作区完成模型配置或远程服务验证。")
             return
-        model, ok2 = QInputDialog.getText(self, "新建 Agent", "模型 (Ollama 名称):")
-        if not ok2 or not model.strip():
+        dialog = AgentCreateDialog(self._default_model, self)
+        if dialog.exec() != QDialog.Accepted:
             return
-        tools, ok3 = QInputDialog.getText(self, "新建 Agent", "工具 (逗号分隔, 如 filesystem.read,code.search):")
-        if not ok3:
+        name, model, tool_list = dialog.values()
+        if not name or not model:
+            QMessageBox.warning(self, "信息不完整", "智能体名称和模型均为必填项。")
             return
-        tool_list = [tool.strip() for tool in tools.split(",") if tool.strip()]
         self._set_agent_busy(True)
         self.status.setText("正在提交 Agent 定义…")
         self._run_api(
@@ -205,6 +257,9 @@ class AgentPage(QWidget, AsyncApiMixin):
         return item.data(Qt.UserRole) if item else None
 
     def run_agent(self):
+        if not self._model_ready:
+            QMessageBox.information(self, "模型尚未就绪", "请先在模型工作区完成模型配置或远程服务验证。")
+            return
         agent = self.selected_agent()
         if not agent:
             QMessageBox.warning(self, "提示", "请先选择 Agent")

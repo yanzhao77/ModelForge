@@ -193,6 +193,10 @@ class RemoteProviderConfig(Base):
     default_model = Column(String(255), nullable=False)
     key_ciphertext = Column(Text, nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
+    last_verified_at = Column(DateTime, nullable=True)
+    verification_status = Column(String(32), nullable=False, default="unknown")
+    verification_error_code = Column(String(64), nullable=True)
+    verified_models_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -205,8 +209,24 @@ class RemoteProviderConfig(Base):
             "default_model": self.default_model,
             "enabled": self.enabled,
             "key_configured": bool(self.key_ciphertext),
+            "last_verified_at": self.last_verified_at.isoformat() if self.last_verified_at else None,
+            "verification_status": self.verification_status or "unknown",
+            "verification_error_code": self.verification_error_code,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class UserModelPreference(Base):
+    """One explicit default model target per user, without provider credentials."""
+
+    __tablename__ = "user_model_preferences"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    default_kind = Column(String(32), nullable=False)
+    default_model_ref = Column(String(255), nullable=False)
+    default_provider_id = Column(Integer, ForeignKey("remote_provider_configs.id"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
 
 class ApiKey(Base):
     """API key for the OpenAI-compatible endpoint."""

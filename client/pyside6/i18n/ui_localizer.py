@@ -69,6 +69,19 @@ _TEXT = {
     "这里还没有内容": ("这里还没有内容", "Nothing Here Yet", "まだ何もありません"),
     "ModelForge · 本地工作区登录": ("ModelForge · 本地工作区登录", "ModelForge · Local Workspace Login", "ModelForge · ローカルワークスペースにログイン"),
     "登录": ("登录", "Sign In", "ログイン"), "创建账号": ("创建账号", "Create Account", "アカウントを作成"),
+    "正在检查模型就绪状态…": ("正在检查模型就绪状态…", "Checking model readiness…", "モデルの準備状態を確認中…"),
+    "将自动识别本地模型与已验证的远程模型服务。": ("将自动识别本地模型与已验证的远程模型服务。", "Local models and verified remote providers are detected automatically.", "ローカルモデルと検証済みリモートプロバイダーを自動検出します。"),
+    "配置模型": ("配置模型", "Configure Models", "モデルを設定"), "修复配置": ("修复配置", "Fix Configuration", "設定を修復"),
+    "重新检查": ("重新检查", "Check Again", "再確認"), "稍后处理": ("稍后处理", "Not Now", "後で行う"),
+    "准备你的第一个模型": ("准备你的第一个模型", "Set Up Your First Model", "最初のモデルを設定"),
+    "开始配置 ModelForge": ("开始配置 ModelForge", "Set Up ModelForge", "ModelForge を設定"),
+    "使用已有本地模型": ("使用已有本地模型", "Use an Existing Local Model", "既存のローカルモデルを使用"),
+    "模型已准备完成": ("模型已准备完成", "Models Are Ready", "モデルの準備が完了しました"),
+    "服务预设": ("服务预设", "Provider Preset", "プロバイダープリセット"),
+    "名称": ("名称", "Name", "名前"), "服务地址": ("服务地址", "Base URL", "ベース URL"),
+    "协议": ("协议", "Protocol", "プロトコル"),
+    "智谱 AI（GLM-4.5-Flash）": ("智谱 AI（GLM-4.5-Flash）", "Zhipu AI (GLM-4.5-Flash)", "Zhipu AI（GLM-4.5-Flash）"),
+    "自定义 OpenAI 兼容服务": ("自定义 OpenAI 兼容服务", "Custom OpenAI-Compatible Provider", "カスタム OpenAI 互換プロバイダー"),
 }
 
 # Make English source literals equivalent to their Chinese migration counterparts.

@@ -72,8 +72,10 @@ class RemoteProviderCard(MFPanel):
         row.addStretch(1)
 
         key_configured = bool(provider.get("key_configured"))
-        badge = QLabel("远程 · 已配置" if key_configured else "远程 · 需要密钥")
-        badge.setProperty("status", "online" if key_configured else "warning")
+        verified = provider.get("verification_status") == "success"
+        label = "远程 · 已验证" if key_configured and verified else "远程 · 需要验证" if key_configured else "远程 · 需要密钥"
+        badge = QLabel(label)
+        badge.setProperty("status", "online" if key_configured and verified else "warning")
         row.addWidget(badge)
         self.layout.addLayout(row)
 
@@ -102,10 +104,11 @@ class ModelsPage(QWidget, AsyncApiMixin):
 
     navigate_requested = Signal(str)
 
-    def __init__(self, api, parent=None):
+    def __init__(self, api, readiness_store=None, parent=None):
         QWidget.__init__(self, parent)
         self._init_async_api()
         self.api = api
+        self.readiness_store = readiness_store
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -150,6 +153,9 @@ class ModelsPage(QWidget, AsyncApiMixin):
         root.addWidget(self.empty, 1)
         root.addWidget(self.scroll, 1)
         self.refresh()
+        if self.readiness_store:
+            self.readiness_store.changed.connect(self._render_readiness)
+            self.readiness_store.refresh()
 
     def refresh(self) -> None:
         self.status.set_state("正在检查模型", "warning")
@@ -158,6 +164,9 @@ class ModelsPage(QWidget, AsyncApiMixin):
             self._render_models,
             self._failed,
         )
+        if self.readiness_store:
+            self.readiness_store.invalidate()
+            self.readiness_store.refresh()
 
     def _clear_cards(self) -> None:
         while self.cards_layout.count() > 1:
@@ -194,6 +203,18 @@ class ModelsPage(QWidget, AsyncApiMixin):
         self.status.set_state(
             f"{len(models)} 个本地 · {len(providers)} 个远程", "online"
         )
+
+    def _render_readiness(self, snapshot: dict) -> None:
+        level = snapshot.get("level")
+        if level == "READY":
+            targets = snapshot.get("targets") or []
+            self.status.set_state(f"模型就绪 · {len(targets)} 个可用", "online")
+        elif level == "DEGRADED":
+            self.status.set_state("模型配置需要处理", "warning")
+        elif level == "SERVICE_UNAVAILABLE":
+            self.status.set_state("模型服务不可用", "error")
+        else:
+            self.status.set_state("尚未配置可用模型", "warning")
 
     def _manage_providers(self) -> None:
         dialog = RemoteProviderDialog(self.api, self)

@@ -1,12 +1,15 @@
 """Model management API routes."""
 
+from typing import Literal
+
 from core.database import get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from services.downloader import downloader
 from services.model_manager import ModelManager
+from services.model_readiness_service import ModelReadinessError, ModelReadinessService
 from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -30,8 +33,18 @@ class DownloadRequest(BaseModel):
     filename: str | None = None
 
 
+class DefaultModelRequest(BaseModel):
+    kind: Literal["local", "remote"]
+    model_ref: str = Field(min_length=1, max_length=255)
+    provider_id: int | None = None
+
+
 def _manager(db: DBSession) -> ModelManager:
     return ModelManager(db)
+
+
+def _readiness(db: DBSession) -> ModelReadinessService:
+    return ModelReadinessService(db)
 
 
 @router.get("")
@@ -91,6 +104,38 @@ def download_status(
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
     return task.to_dict()
+
+
+@router.get("/readiness")
+def model_readiness(
+    db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Return a user-scoped, credential-safe model availability snapshot."""
+    return _readiness(db).snapshot(user.id)
+
+
+@router.put("/default")
+def set_default_model(
+    req: DefaultModelRequest,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        return _readiness(db).set_default(
+            user.id,
+            kind=req.kind,
+            model_ref=req.model_ref,
+            provider_id=req.provider_id,
+        )
+    except ModelReadinessError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/default")
+def clear_default_model(
+    db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    return _readiness(db).clear_default(user.id)
 
 
 @router.get("/{model_id}")

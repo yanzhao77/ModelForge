@@ -3,7 +3,7 @@
 > 本地优先的 AI Agent Runtime Platform —— 从模型管理、微调训练到 **Agent Run / Event / Tool / Policy / MCP / Scheduler / Multi-Agent / Composable Plugin** 的一站式平台。
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-339%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-392%20passed-brightgreen)
 ![API](https://img.shields.io/badge/API-92%20routes-important)
 ![Desktop](https://img.shields.io/badge/Desktop-0.1.1--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
@@ -12,7 +12,7 @@
 
 ## 桌面端测试版（0.1.1-beta.1）
 
-当前仓库已包含新版 macOS 桌面端测试版：默认使用简体中文，支持中文、English、日本語运行时切换；采用轻量侧边导航和对话优先工作区，并将**本地模型与远程 OpenAI 兼容模型服务统一收敛到“模型”页面**。远程服务默认使用 `/v1/responses`，也可切换到 `/v1/chat/completions`；API Key 仅在后端加密保存，客户端不会回显密钥。
+当前仓库已包含新版 macOS 桌面端测试版：默认使用简体中文，支持中文、English、日本語运行时切换；采用轻量侧边导航和对话优先工作区，并将**本地模型与远程 OpenAI 兼容模型服务统一收敛到“模型”页面**。远程服务默认使用 `/v1/responses`，也可切换到 `/v1/chat/completions`；API Key 仅在后端加密保存，客户端不会回显密钥。登录后，客户端会通过后端权威的模型就绪快照区分“可用、需要配置、配置待修复、服务不可用”四种状态；无可用模型时，首次使用向导只提供显式配置、验证与跳转，不会下载模型、创建会话、Agent Run 或训练任务。
 
 | 概览工作区 | 统一模型管理 |
 |---|---|
@@ -27,9 +27,10 @@
 | 用户系统 | 注册/登录/改密码，JWT 认证，PBKDF2 密码哈希，用户数据隔离 |
 | 会话/消息 | 多会话创建/切换/重命名/软删除，消息持久化，自动标题 |
 | 跨会话记忆 | 关键词规则提取（偏好/事实）、搜索、重要性评分、上下文注入 |
-| 模型管理 | 本地模型扫描/登记/删除、HF 搜索与后台下载（GGUF 等）；统一管理本地与远程模型服务 |
+| 模型管理 | 本地模型扫描/登记/删除、HF 搜索与后台下载（GGUF 等）；统一管理本地与远程模型服务、就绪状态和用户默认模型偏好 |
 | 推理运行时 | Ollama（SSE 流式）、本地 transformers/GGUF（需 requirements-ai.txt）、远程 OpenAI 兼容服务 |
-| 远程模型服务 | 用户级加密 API Key，默认 `/v1/responses`，兼容 `/v1/chat/completions`，可在模型页连接验证 |
+| 远程模型服务 | 用户级加密 API Key，默认 `/v1/responses`，兼容 `/v1/chat/completions`，可在模型页显式连接验证并保存非敏感验证摘要 |
+| 首次使用引导 | 无可用模型时引导选择本地或远程路径；本机仅保存非敏感恢复进度，真实可用性始终以后端模型就绪快照为准 |
 | 聊天 | 统一 chat service（历史+记忆注入+持久化），本地或远程模型 **SSE 流式输出** |
 | **Agent Run** | 持久化执行单元：PENDING/RUNNING/WAITING_HUMAN/COMPLETED/FAILED/CANCELLED/TIMEOUT，可取消、可审批、可追踪 |
 | **Event System** | 23 类事件，per-run 严格 sequence，DB 持久化，SSE 断线恢复（after_sequence） |
@@ -68,7 +69,7 @@ pip install -r requirements-gui.txt
 python client/pyside6/main.py
 ```
 
-启动后先注册/登录，即可使用 **概览、对话、模型、数据集、训练、知识库、智能体、任务、运行时、设置** 等工作区。远程模型服务在 **模型 → 管理远程模型** 中配置；默认优先 Responses API，服务不支持时可切换到 Chat Completions API。
+启动后先注册/登录，即可使用 **概览、对话、模型、数据集、训练、知识库、智能体、任务、运行时、设置** 等工作区。若没有可用模型，概览会显示配置入口并打开可恢复的首次使用向导；远程模型服务始终在 **模型 → 管理远程模型** 中配置。默认优先 Responses API，服务不支持时可切换到 Chat Completions API。只有用户显式保存、验证并选择可用模型后，对话与智能体操作才会启用。
 
 ### 3. 构建 macOS 测试版（不会自动发布）
 
@@ -104,7 +105,7 @@ docker rm -f modelforge
 | 认证 | auth/register · login · me · change-password |
 | 会话 | sessions（CRUD）· sessions/{id}/messages · title |
 | 记忆 | memories · memories/search |
-| 模型 | models（list/scan/install）· models/search · models/download |
+| 模型 | models（list/scan/install）· models/readiness · models/default · models/search · models/download |
 | 运行时 | runtime/start · chat · stop · status |
 | 聊天 | chat · **chat/stream（SSE 流式）** |
 | 数据集 | datasets/upload · datasets · datasets/{id}/validate |
@@ -120,7 +121,7 @@ docker rm -f modelforge
 ## 测试
 
 ```bash
-pytest tests/ -q    # 339 个用例全部通过（单元 + API 集成 + 数据集/训练/知识库 + Agent Runtime + Plugin）
+pytest tests/ -q    # 392 个用例通过、3 个按环境跳过（单元 + API 集成 + 桌面离屏 + 数据集/训练/知识库 + Agent Runtime + Plugin）
 ```
 
 ## 目录结构
@@ -138,7 +139,7 @@ ModelForge
 │   ├── services/           # 业务层（21+ 服务）
 │   └── plugins/            # SPI 插件包
 ├── client/pyside6/         # PySide6 多语言桌面客户端（概览/对话/模型/数据/训练/知识/智能体/任务/运行时/设置）
-├── tests/                  # pytest（339 用例）
+├── tests/                  # pytest（392 通过、3 跳过）
 ├── docs/                   # 技术报告/审计/插件架构/API 参考/开发计划
 ├── requirements*.txt       # base / dev / gui / ai 四层依赖
 └── config.yaml             # 配置文件（支持环境变量覆盖）
@@ -162,12 +163,13 @@ ModelForge
 
 ## 分支说明
 
-- **master**：当前版本。FastAPI + 瘦客户端 + 3.0 Agent Runtime + 3.x Composable Plugin，339 测试全绿。
+- **master**：当前版本。FastAPI + 瘦客户端 + 3.0 Agent Runtime + 3.x Composable Plugin，392 个测试通过、3 个环境相关测试跳过。
 - **gui_old**：旧版 v2.0 PySide6 桌面端存档分支（登录/会话/记忆/GGUF 下载/本地推理/微调脚本），不再维护，仅作参考。
 
 ## 文档
 
-- [统一架构技术报告](docs/TECHNICAL_REPORT.md) —— 当前真实状态（339 测试 / 92 路由 / 14 表）
+- [统一架构技术报告](docs/TECHNICAL_REPORT.md) —— 历史架构与能力基线
+- [技术开发计划](docs/TECHNICAL_DEVELOPMENT_PLAN.md) —— P0/P1/P2 顺序开发、验收标准与质量门禁
 - [Agent Runtime 架构](docs/AGENT_RUNTIME.md) —— 3.0 Runtime 分层/执行链/事件/工具/策略/MCP/调度/多 Agent
 - [Composable Plugin 架构](docs/PLUGIN_ARCHITECTURE.md) —— 3.x 插件化（Scope/Manager/AgentProfile/ContextContributor/Multi-Agent 护栏/能力发现）
 - [API 参考](docs/API_REFERENCE.md) —— 全量端点与错误模型

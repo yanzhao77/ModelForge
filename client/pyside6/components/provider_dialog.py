@@ -44,19 +44,25 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         note.setProperty("role", "muted")
         right.addWidget(note)
         form = QFormLayout()
+        self.preset = QComboBox()
+        self.preset.addItem("智谱 AI（GLM-4.5-Flash）", "zhipu")
+        self.preset.addItem("OpenAI", "openai")
+        self.preset.addItem("自定义 OpenAI 兼容服务", "custom")
+        self.preset.currentIndexChanged.connect(self._preset_changed)
         self.name = QLineEdit()
-        self.base_url = QLineEdit("https://api.openai.com/v1")
+        self.base_url = QLineEdit("https://open.bigmodel.cn/api/paas/v4")
         self.protocol = QComboBox()
         self.protocol.addItem("Responses API（推荐）", "responses")
         self.protocol.addItem("Chat Completions API", "chat_completions")
         self.model = QLineEdit()
-        self.model.setPlaceholderText("e.g. gpt-4.1-mini")
+        self.model.setText("GLM-4.5-Flash")
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.Password)
         self.api_key.setPlaceholderText("新建服务时必填；编辑时留空可保留已有密钥")
-        form.addRow("Name", self.name)
-        form.addRow("Base URL", self.base_url)
-        form.addRow("Protocol", self.protocol)
+        form.addRow("服务预设", self.preset)
+        form.addRow("名称", self.name)
+        form.addRow("服务地址", self.base_url)
+        form.addRow("协议", self.protocol)
         form.addRow("默认模型", self.model)
         form.addRow("API 密钥", self.api_key)
         right.addLayout(form)
@@ -81,7 +87,6 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         right.addLayout(actions)
         root.addLayout(right, 2)
         localize_tree(self)
-        localize_tree(self)
         self.refresh()
 
     def current(self) -> dict | None:
@@ -90,12 +95,26 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
 
     def clear(self) -> None:
         self.list.clearSelection()
-        self.name.clear()
-        self.base_url.setText("https://api.openai.com/v1")
+        self.preset.setCurrentIndex(0)
+        self.name.setText("智谱 AI")
+        self.base_url.setText("https://open.bigmodel.cn/api/paas/v4")
         self.protocol.setCurrentIndex(0)
-        self.model.clear()
+        self.model.setText("GLM-4.5-Flash")
         self.api_key.clear()
         self.state.setText("新建模型服务配置。点击验证连接前不会发起网络请求。")
+
+    def _preset_changed(self, _index: int) -> None:
+        preset = self.preset.currentData()
+        if preset == "zhipu":
+            self.name.setText("智谱 AI")
+            self.base_url.setText("https://open.bigmodel.cn/api/paas/v4")
+            self.model.setText("GLM-4.5-Flash")
+            self.protocol.setCurrentIndex(0)
+        elif preset == "openai":
+            self.name.setText("OpenAI")
+            self.base_url.setText("https://api.openai.com/v1")
+            self.model.setText("gpt-4.1-mini")
+            self.protocol.setCurrentIndex(0)
 
     def refresh(self) -> None:
         self.state.setText("正在加载模型服务…")
@@ -117,15 +136,20 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         if not provider:
             return
         self.name.setText(provider["name"])
+        self.preset.setCurrentIndex(self.preset.findData("custom"))
         self.base_url.setText(provider["base_url"])
         self.protocol.setCurrentIndex(
             max(self.protocol.findData(provider["protocol"]), 0)
         )
         self.model.setText(provider["default_model"])
         self.api_key.clear()
-        self.state.setText(
-            "已配置 API 密钥" if provider.get("key_configured") else "尚未配置 API 密钥"
-        )
+        status = provider.get("verification_status", "unknown")
+        status_text = {
+            "success": "已验证连接",
+            "failed": f"验证失败：{provider.get('verification_error_code') or '未知原因'}",
+        }.get(status, "尚未验证连接")
+        key_text = "已配置 API 密钥" if provider.get("key_configured") else "尚未配置 API 密钥"
+        self.state.setText(f"{key_text}；{status_text}。")
 
     def save(self) -> None:
         name, url, protocol, model, key = (
@@ -169,6 +193,7 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
             f"连接验证成功，发现 {len(models)} model(s)."
             + (f" 示例：{models[0]}" if models else "")
         )
+        self.refresh()
 
     def delete(self) -> None:
         provider = self.current()
