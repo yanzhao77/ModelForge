@@ -39,7 +39,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         header = QHBoxLayout()
         header.addWidget(MFSection("知识工作区", "知识库"))
         header.addStretch(1)
-        self.knowledge_status = MFStatusBadge("Document index", "online")
+        self.knowledge_status = MFStatusBadge("文档索引", "online")
         header.addWidget(self.knowledge_status)
         layout.addLayout(header)
         splitter = QSplitter(Qt.Vertical)
@@ -52,7 +52,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         top = QHBoxLayout()
-        for label, handler in (("Add document", self.upload), ("Refresh", self.refresh), ("View chunks", self.show_chunks), ("Delete document", self.delete_selected)):
+        for label, handler in (("添加文档", self.upload), ("刷新", self.refresh), ("查看分块", self.show_chunks), ("删除文档", self.delete_selected)):
             button = QPushButton(label)
             button.clicked.connect(handler)
             top.addWidget(button)
@@ -74,9 +74,9 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         model_row = QHBoxLayout()
-        model_row.addWidget(QLabel("模型:"))
+        model_row.addWidget(QLabel("模型："))
         self.model_input = QLineEdit()
-        self.model_input.setPlaceholderText("default-model")
+        self.model_input.setPlaceholderText("默认模型")
         model_row.addWidget(self.model_input, 1)
         layout.addLayout(model_row)
         query_row = QHBoxLayout()
@@ -97,7 +97,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         return widget
 
     def refresh(self):
-        self._run_api(self.api.knowledge_documents, self._render_documents, lambda error: self.result_view.append(f"[加载文档失败] {error}"))
+        self._run_api(self.api.knowledge_documents, self._render_documents, lambda error: self.result_view.append(f"[加载文档失败] {error}"), request_key="knowledge.documents")
 
     def _render_documents(self, docs):
         self.doc_table.setRowCount(len(docs))
@@ -114,7 +114,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         if not path:
             return
         self.result_view.append("[上传中...]")
-        self._run_api(lambda: self.api.knowledge_upload(path), self._on_uploaded, lambda error: QMessageBox.warning(self, "上传失败", error))
+        self._run_api(lambda: self.api.knowledge_upload(path), self._on_uploaded, lambda error: QMessageBox.warning(self, "上传失败", error), request_key="knowledge.upload")
 
     def _on_uploaded(self, result):
         self.result_view.append(f"[上传] {result}")
@@ -129,12 +129,12 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         if not name:
             return
         if QMessageBox.question(self, "确认", f"删除文档 {name}？") == QMessageBox.Yes:
-            self._run_api(lambda: self.api.knowledge_delete(name), lambda _: self.refresh(), lambda error: QMessageBox.warning(self, "失败", error))
+            self._run_api(lambda: self.api.knowledge_delete(name), lambda _: self.refresh(), lambda error: QMessageBox.warning(self, "失败", error), request_key="knowledge.document.delete")
 
     def show_chunks(self):
         name = self._selected_filename()
         if name:
-            self._run_api(lambda: self.api.knowledge_chunks(name), self._show_chunks, lambda error: QMessageBox.warning(self, "失败", error))
+            self._run_api(lambda: self.api.knowledge_chunks(name), self._show_chunks, lambda error: QMessageBox.warning(self, "失败", error), request_key="knowledge.chunks")
 
     def _show_chunks(self, chunks):
         self.result_view.clear()
@@ -146,7 +146,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         if not question:
             return
         operation = (lambda: self.api.knowledge_query(question, top_k=5)) if hasattr(self.api, "knowledge_query") else (lambda: self.api._post("/api/v1/knowledge/query", json={"question": question, "top_k": 5}))
-        self._run_api(operation, self._show_search, lambda error: QMessageBox.warning(self, "失败", error))
+        self._run_api(operation, self._show_search, lambda error: QMessageBox.warning(self, "失败", error), request_key="knowledge.search")
 
     def _show_search(self, result):
         self.result_view.clear()
@@ -159,7 +159,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         if not question:
             return
         self.result_view.append("\n[生成中...]")
-        self._run_api(lambda: self.api.knowledge_answer(model, question, top_k=3), self._show_answer, lambda error: QMessageBox.warning(self, "失败", error))
+        self._run_api(lambda: self.api.knowledge_answer(model, question, top_k=3), self._show_answer, lambda error: QMessageBox.warning(self, "失败", error), request_key="knowledge.answer")
 
     def _show_answer(self, result):
         self.result_view.clear()
@@ -168,3 +168,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         self.result_view.append("\n【引用来源】")
         for source in result.get("sources", []):
             self.result_view.append(f"- [{source.get('source')}] @{source.get('score', 0)}: {source.get('text', '')}")
+
+    def closeEvent(self, event):
+        self.shutdown_async_api()
+        super().closeEvent(event)

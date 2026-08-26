@@ -18,16 +18,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from components.api_worker import ApiWorker
+from components.api_worker import AsyncApiMixin
 
 
-class AgentWorkbenchPage(QWidget):
+class AgentWorkbenchPage(QWidget, AsyncApiMixin):
     """Review templates and immutable definition snapshots before explicit runs."""
 
     navigate_requested = Signal(str)
 
     def __init__(self, api, parent=None):
-        super().__init__(parent)
+        QWidget.__init__(self, parent)
+        self._init_async_api()
         self.api = api
         self._agents: list[dict] = []
         self._templates: list[dict] = []
@@ -90,12 +91,20 @@ class AgentWorkbenchPage(QWidget):
 
     def refresh(self) -> None:
         self.refresh_button.setEnabled(False)
-        worker = ApiWorker(lambda: {"agents": self.api.list_agents(), "templates": self.api.list_agent_templates()})
-        worker.succeeded.connect(self._loaded)
-        worker.failed.connect(lambda message: self.detail.setPlainText(f"无法加载 Agent 工作台：{message}"))
-        worker.finished.connect(lambda: self.refresh_button.setEnabled(True))
-        worker.start()
-        self._worker = worker
+        self._run_api(
+            lambda: {"agents": self.api.list_agents(), "templates": self.api.list_agent_templates()},
+            self._refresh_loaded,
+            self._refresh_failed,
+            request_key="agent_workbench.refresh",
+        )
+
+    def _refresh_loaded(self, data: dict) -> None:
+        self.refresh_button.setEnabled(True)
+        self._loaded(data)
+
+    def _refresh_failed(self, message: str) -> None:
+        self.refresh_button.setEnabled(True)
+        self.detail.setPlainText(f"无法加载 Agent 工作台：{message}")
 
     def _loaded(self, data: dict) -> None:
         self._agents = data.get("agents") or []
@@ -128,11 +137,12 @@ class AgentWorkbenchPage(QWidget):
         if not agent:
             return
         self._render_definition(agent)
-        worker = ApiWorker(lambda: self.api.agent_versions(agent["name"]))
-        worker.succeeded.connect(self._versions_loaded)
-        worker.failed.connect(lambda message: self.detail.append(f"\n版本记录不可用：{message}"))
-        worker.start()
-        self._worker = worker
+        self._run_api(
+            lambda: self.api.agent_versions(agent["name"]),
+            self._versions_loaded,
+            lambda message: self.detail.append(f"\n版本记录不可用：{message}"),
+            request_key="agent_workbench.versions",
+        )
 
     def _versions_loaded(self, data: dict) -> None:
         self._versions = data.get("versions") or []
@@ -183,11 +193,12 @@ class AgentWorkbenchPage(QWidget):
         name, ok = QInputDialog.getText(self, "保存模板", "模板名称", text=f"{agent.get('name', 'Agent')} 模板")
         if not ok or not name.strip():
             return
-        worker = ApiWorker(lambda: self.api.create_agent_template(name.strip(), agent, f"从 {agent.get('name', 'Agent')} 定义保存"))
-        worker.succeeded.connect(lambda _result: self.refresh())
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "保存模板", str(message)))
-        worker.start()
-        self._worker = worker
+        self._run_api(
+            lambda: self.api.create_agent_template(name.strip(), agent, f"从 {agent.get('name', 'Agent')} 定义保存"),
+            lambda _result: self.refresh(),
+            lambda message: QMessageBox.warning(self, "保存模板", str(message)),
+            request_key="agent_workbench.template.save",
+        )
 
     def _delete_template(self) -> None:
         template = self._selected_template()
@@ -195,8 +206,13 @@ class AgentWorkbenchPage(QWidget):
             return
         if QMessageBox.question(self, "删除模板", f"删除模板“{template.get('name')}”？不会删除任何 Agent 定义或 Run。") != QMessageBox.StandardButton.Yes:
             return
-        worker = ApiWorker(lambda: self.api.delete_agent_template(template["id"]))
-        worker.succeeded.connect(lambda _result: self.refresh())
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "删除模板", str(message)))
-        worker.start()
-        self._worker = worker
+        self._run_api(
+            lambda: self.api.delete_agent_template(template["id"]),
+            lambda _result: self.refresh(),
+            lambda message: QMessageBox.warning(self, "删除模板", str(message)),
+            request_key="agent_workbench.template.delete",
+        )
+
+    def closeEvent(self, event) -> None:
+        self.shutdown_async_api()
+        super().closeEvent(event)

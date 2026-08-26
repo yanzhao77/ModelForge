@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime
 import json
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from core.api_contracts import correlation_id, operation_result, problem
 from core.database import get_db
@@ -26,6 +26,7 @@ from services.audit_log import record_operation
 from services.migration_preflight import migration_preflight
 from services.runtime_diagnostics import runtime_diagnostics
 from services.lifecycle_diagnostics import lifecycle_diagnostics
+from services.lifecycle_preview import check_lifecycle_confirmation, create_lifecycle_preview
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -56,6 +57,41 @@ async def get_lifecycle_diagnostics(
     return lifecycle_diagnostics(db, retention_days=retention_days)
 
 
+@router.post("/lifecycle-preview")
+async def get_lifecycle_preview(
+    req: LifecyclePreviewRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_runtime_admin),
+):
+    """Create a short-lived, read-only lifecycle preview token for an administrator."""
+    corr = req.request_id or correlation_id()
+    result = create_lifecycle_preview(
+        db,
+        user_id=user.id,
+        retention_days=req.retention_days,
+        action=req.action,
+        target_id=req.target_id,
+    )
+    return operation_result(result, corr)
+
+
+@router.post("/lifecycle-confirmation-check")
+async def lifecycle_confirmation_check(
+    req: LifecycleConfirmationRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_runtime_admin),
+):
+    """Validate future lifecycle confirmation semantics while blocking execution."""
+    corr = req.request_id or correlation_id()
+    result = check_lifecycle_confirmation(
+        token=req.preview_token,
+        user_id=user.id,
+        action=req.action,
+        confirm=req.confirm,
+    )
+    return operation_result(result, corr)
+
+
 class CollectionCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=10000)
@@ -73,6 +109,20 @@ class ModelInsightPreferenceRequest(BaseModel):
     prices: dict[str, dict[str, float]] = Field(default_factory=dict)
     daily_budget: float | None = Field(default=None, ge=0.0)
     weekly_budget: float | None = Field(default=None, ge=0.0)
+
+
+class LifecyclePreviewRequest(BaseModel):
+    retention_days: int = Field(default=30, ge=1, le=3650)
+    action: Literal["retention.cleanup", "schedule.recovery", "plugin.compensation", "runtime.shutdown_recovery"] = "retention.cleanup"
+    target_id: str | None = Field(default=None, min_length=1, max_length=160)
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+class LifecycleConfirmationRequest(BaseModel):
+    action: str = Field(min_length=1, max_length=100)
+    preview_token: str = Field(min_length=1, max_length=4096)
+    confirm: bool = False
+    request_id: str | None = Field(default=None, max_length=64)
 
 
 @router.get("/artifacts")

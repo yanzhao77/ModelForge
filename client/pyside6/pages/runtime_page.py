@@ -88,7 +88,7 @@ class RuntimePage(QWidget, AsyncApiMixin):
             return
         self._set_busy(True)
         self.status.setText("正在同步模型库存与运行时状态…")
-        self._run_api(lambda: (self.api.list_models(), self.api.runtime_status()), self._render_state, self._refresh_failed)
+        self._run_api(lambda: (self.api.list_models(), self.api.runtime_status()), self._render_state, self._refresh_failed, request_key="runtime.refresh")
 
     def _render_state(self, result):
         self._set_busy(False)
@@ -120,7 +120,7 @@ class RuntimePage(QWidget, AsyncApiMixin):
             return
         self._set_busy(True)
         self.status.setText(f"正在启动运行时：{model}…")
-        self._run_api(lambda: self.api.runtime_start(model), lambda result: self._operation_done("启动", model, result), lambda error: self._operation_failed("启动", error))
+        self._run_api(lambda: self.api.runtime_start(model), lambda result: self._operation_done("启动", model, result), lambda error: self._operation_failed("启动", error), request_key="runtime.lifecycle")
 
     def stop_runtime(self):
         model = self._selected_model()
@@ -129,7 +129,7 @@ class RuntimePage(QWidget, AsyncApiMixin):
             return
         self._set_busy(True)
         self.status.setText(f"正在停止运行时：{model}…")
-        self._run_api(lambda: self.api.runtime_stop(model), lambda result: self._operation_done("停止", model, result), lambda error: self._operation_failed("停止", error))
+        self._run_api(lambda: self.api.runtime_stop(model), lambda result: self._operation_done("停止", model, result), lambda error: self._operation_failed("停止", error), request_key="runtime.lifecycle")
 
     def _operation_done(self, action, model, result):
         self._set_busy(False)
@@ -144,4 +144,5 @@ class RuntimePage(QWidget, AsyncApiMixin):
 
     def closeEvent(self, event):
         self._timer.stop()
+        self.shutdown_async_api()
         super().closeEvent(event)

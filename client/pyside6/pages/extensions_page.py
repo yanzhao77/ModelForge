@@ -4,14 +4,15 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
-from components.api_worker import ApiWorker
+from components.api_worker import AsyncApiMixin
 
 
-class ExtensionsPage(QWidget):
+class ExtensionsPage(QWidget, AsyncApiMixin):
     """Shows loaded extensions without discovering, loading, or starting any of them."""
 
     def __init__(self, api, parent=None):
-        super().__init__(parent)
+        QWidget.__init__(self, parent)
+        self._init_async_api()
         self.api = api
         self._plugins: list[dict] = []
         layout = QVBoxLayout(self)
@@ -49,12 +50,20 @@ class ExtensionsPage(QWidget):
 
     def refresh(self) -> None:
         self.refresh_button.setEnabled(False)
-        worker = ApiWorker(self.api.list_runtime_plugins)
-        worker.succeeded.connect(self._loaded)
-        worker.failed.connect(lambda message: self.detail.setText("无法加载扩展：管理员权限不足或服务不可用。" if "403" in str(message) else f"无法加载扩展：{message}"))
-        worker.finished.connect(lambda: self.refresh_button.setEnabled(True))
-        worker.start()
-        self._worker = worker
+        self._run_api(
+            self.api.list_runtime_plugins,
+            self._refresh_loaded,
+            self._refresh_failed,
+            request_key="extensions.refresh",
+        )
+
+    def _refresh_loaded(self, data: list[dict]) -> None:
+        self.refresh_button.setEnabled(True)
+        self._loaded(data)
+
+    def _refresh_failed(self, message: str) -> None:
+        self.refresh_button.setEnabled(True)
+        self.detail.setText("无法加载扩展：管理员权限不足或服务不可用。" if "403" in str(message) else f"无法加载扩展：{message}")
 
     def _loaded(self, data: list[dict]) -> None:
         self._plugins = data or []
@@ -81,21 +90,23 @@ class ExtensionsPage(QWidget):
         plugin = self._selected()
         if not plugin:
             return
-        worker = ApiWorker(lambda: self.api.plugin_health(plugin["name"]))
-        worker.succeeded.connect(lambda data: QMessageBox.information(self, "扩展健康状态", f"状态：{data.get('status')}\n扩展状态：{data.get('plugin_status')}\n错误：{data.get('error') or '无'}\n检查节流：{'本次返回缓存结果' if data.get('rate_limited') else '未节流'}\n\n健康检查不会启动、挂载或加载扩展。"))
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "扩展健康状态", str(message)))
-        worker.start()
-        self._worker = worker
+        self._run_api(
+            lambda: self.api.plugin_health(plugin["name"]),
+            lambda data: QMessageBox.information(self, "扩展健康状态", f"状态：{data.get('status')}\n扩展状态：{data.get('plugin_status')}\n错误：{data.get('error') or '无'}\n检查节流：{'本次返回缓存结果' if data.get('rate_limited') else '未节流'}\n\n健康检查不会启动、挂载或加载扩展。"),
+            lambda message: QMessageBox.warning(self, "扩展健康状态", str(message)),
+            request_key="extensions.health",
+        )
 
     def _confirm_action(self, action: str) -> None:
         plugin = self._selected()
         if not plugin:
             return
-        worker = ApiWorker(lambda: self.api.plugin_impact(plugin["name"]))
-        worker.succeeded.connect(lambda impact: self._approve_action(plugin, action, impact))
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "扩展影响预览", str(message)))
-        worker.start()
-        self._worker = worker
+        self._run_api(
+            lambda: self.api.plugin_impact(plugin["name"]),
+            lambda impact: self._approve_action(plugin, action, impact),
+            lambda message: QMessageBox.warning(self, "扩展影响预览", str(message)),
+            request_key="extensions.impact",
+        )
 
     def _approve_action(self, plugin: dict, action: str, impact: dict) -> None:
         details = f"工具：{', '.join(impact.get('tools') or []) or '无'}\n依赖它的扩展：{', '.join(impact.get('dependents') or []) or '无'}"
@@ -104,8 +115,13 @@ class ExtensionsPage(QWidget):
             return
         if QMessageBox.question(self, "确认扩展操作", f"将执行“{action}”于“{plugin.get('name')}”。\n\n{details}\n\n是否继续？") != QMessageBox.StandardButton.Yes:
             return
-        worker = ApiWorker(lambda: self.api.plugin_lifecycle(plugin["name"], action, confirm=True))
-        worker.succeeded.connect(lambda _data: self.refresh())
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "扩展操作失败", str(message)))
-        worker.start()
-        self._worker = worker
+        self._run_api(
+            lambda: self.api.plugin_lifecycle(plugin["name"], action, confirm=True),
+            lambda _data: self.refresh(),
+            lambda message: QMessageBox.warning(self, "扩展操作失败", str(message)),
+            request_key="extensions.lifecycle",
+        )
+
+    def closeEvent(self, event) -> None:
+        self.shutdown_async_api()
+        super().closeEvent(event)

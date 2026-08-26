@@ -132,7 +132,7 @@ class AutomationPage(QWidget, AsyncApiMixin):
         if QMessageBox.question(self, f"确认{action}", f"{action}“{job.get('name')}”吗？") != QMessageBox.Yes:
             return
         callback = self.api.enable_schedule if enabled else self.api.pause_schedule
-        self._call(lambda: callback(job["id"]), f"计划已{action}。")
+        self._call(lambda: callback(job["id"], confirm=True), f"计划已{action}。")
 
     def _run_now(self):
         job = self._selected()
@@ -140,7 +140,7 @@ class AutomationPage(QWidget, AsyncApiMixin):
             return
         if QMessageBox.question(self, "确认立即运行", "这会创建一个新的 Agent Run。是否继续？") != QMessageBox.Yes:
             return
-        self._call(lambda: self.api.run_schedule_now(job["id"]), "已创建新的 Agent Run。")
+        self._call(lambda: self.api.run_schedule_now(job["id"], confirm=True), "已创建新的 Agent Run。")
 
     def _preview(self):
         job = self._selected()
@@ -173,7 +173,7 @@ class AutomationPage(QWidget, AsyncApiMixin):
             return
         if QMessageBox.question(self, "确认删除", "删除计划不会删除历史执行记录。是否继续？") != QMessageBox.Yes:
             return
-        self._call(lambda: self.api.delete_schedule(job["id"]), "计划已删除。")
+        self._call(lambda: self.api.delete_schedule(job["id"], confirm=True), "计划已删除。")
 
     def _call(self, action, success):
         worker = self._run_api(

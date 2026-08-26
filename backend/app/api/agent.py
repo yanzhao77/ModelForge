@@ -1,14 +1,19 @@
 """Agent API routes: 2.1 agent management + 3.0 Agent Run API (spec 25)."""
 
+from typing import Any
+
+from core.api_contracts import correlation_id, operation_result, problem
 from core.database import SessionLocal, get_db
 from core.security import get_current_user, get_runtime_admin
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from models.records import KnowledgeCollection, User
 from models.records import AgentDefinitionVersion, AgentTemplate
+from pydantic import BaseModel, ConfigDict, Field
 from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
 from services.model_readiness_service import ModelReadinessService
 from services.schedule_service import ScheduleService
+from services.audit_log import record_operation
 from sqlalchemy.orm import Session as DBSession
 import json
 import uuid
@@ -17,6 +22,48 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 
 _agent_engine = None
 _runtime = None
+
+
+class AgentTemplateRequest(BaseModel):
+    """Compatible, audited request payload for a persisted template."""
+
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=500)
+    definition: dict[str, Any] = Field(default_factory=dict)
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+class MCPServerRequest(BaseModel):
+    """Administrator-controlled MCP registration payload."""
+
+    name: str = Field(min_length=1, max_length=160)
+    endpoint: str = Field(min_length=1, max_length=2048)
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+class ScheduleDraftRequest(BaseModel):
+    """Compatible typed schedule payload that preserves existing draft fields."""
+
+    model_config = ConfigDict(extra="allow")
+
+    agent_id: str | None = Field(default=None, min_length=1, max_length=160)
+    schedule_kind: str | None = Field(default=None, max_length=32)
+    delay_seconds: int | None = Field(default=None, ge=0)
+    request_id: str | None = Field(default=None, max_length=64)
+
+    def schedule_payload(self, *, partial: bool = False) -> dict[str, Any]:
+        fields = self.model_fields_set if partial else None
+        payload = self.model_dump(exclude_none=True, exclude=({"request_id"}))
+        if fields is not None:
+            payload = {key: value for key, value in payload.items() if key in fields}
+        return payload
+
+
+class ScheduleActionRequest(BaseModel):
+    """Explicit confirmation boundary for schedule state transitions."""
+
+    confirm: bool = False
+    request_id: str | None = Field(default=None, max_length=64)
 
 
 def set_agent_engine(engine):
@@ -51,6 +98,7 @@ async def create_agent(
     user: User = Depends(get_current_user),
 ):
     """Create an owned agent definition before exposing it to the legacy engine."""
+    corr = correlation_id()
     rt = _get_runtime()
     from runtime.types import AgentConfig
     model, target = req.model, None
@@ -62,7 +110,7 @@ async def create_agent(
             provider_id=req.model_target.provider_id,
         )
         if target is None or target.get("model_name") != req.model_target.model_name:
-            raise HTTPException(status_code=422, detail="Selected Agent model target is not ready for this user.")
+            raise problem(422, "MODEL_TARGET_NOT_READY", "Selected Agent model target is not ready for this user.", correlation=corr)
         model = target["model_name"]
     knowledge_config = dict(req.knowledge_config or {})
     collection_ids = list(knowledge_config.get("collection_ids") or [])
@@ -72,7 +120,7 @@ async def create_agent(
             KnowledgeCollection.id.in_(collection_ids),
         ).count()
         if owned_count != len(set(collection_ids)):
-            raise HTTPException(status_code=422, detail="Selected knowledge collection is not available to this user.")
+            raise problem(422, "KNOWLEDGE_COLLECTION_UNAVAILABLE", "Selected knowledge collection is not available to this user.", correlation=corr)
         knowledge_config["collection_ids"] = list(dict.fromkeys(collection_ids))
     try:
         rt.create_agent(AgentConfig(
@@ -90,9 +138,9 @@ async def create_agent(
             knowledge_config=knowledge_config,
         ))
     except PermissionError:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to persist agent definition: {exc}")
+        raise problem(500, "AGENT_DEFINITION_PERSIST_FAILED", "Failed to persist agent definition", correlation=corr)
     result = _get_engine().create_agent(
         name=req.name,
         model_name=model,
@@ -104,8 +152,17 @@ async def create_agent(
     result["model_target"] = target or {}
     previous = db.query(AgentDefinitionVersion).filter(AgentDefinitionVersion.user_id == user.id, AgentDefinitionVersion.agent_name == req.name).count()
     db.add(AgentDefinitionVersion(id=uuid.uuid4().hex, user_id=user.id, agent_name=req.name, version=previous + 1, snapshot_json=json.dumps(result, ensure_ascii=False), change_note="Initial definition"))
+    record_operation(
+        db,
+        user_id=user.id,
+        action="agent.create",
+        object_type="agent",
+        object_id=req.name,
+        correlation_id=corr,
+        metadata={"model": model, "tool_count": len(req.tools or []), "plugin_count": len(req.plugins or [])},
+    )
     db.commit()
-    return result
+    return operation_result(result, corr)
 
 
 @router.get("/templates")
@@ -114,27 +171,37 @@ async def list_agent_templates(db: DBSession = Depends(get_db), user: User = Dep
 
 
 @router.post("/templates")
-async def create_agent_template(req: dict, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
-    name = str((req or {}).get("name") or "").strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="template name required")
-    definition = dict((req or {}).get("definition") or {})
+async def create_agent_template(req: AgentTemplateRequest, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = req.request_id or correlation_id()
+    name = req.name.strip()
+    definition = dict(req.definition or {})
     for key in ("api_key", "token", "authorization", "password"):
         definition.pop(key, None)
-    item = AgentTemplate(id=uuid.uuid4().hex, user_id=user.id, name=name, description=(req or {}).get("description"), definition_json=json.dumps(definition, ensure_ascii=False))
+    item = AgentTemplate(id=uuid.uuid4().hex, user_id=user.id, name=name, description=req.description, definition_json=json.dumps(definition, ensure_ascii=False))
     db.add(item)
+    record_operation(
+        db,
+        user_id=user.id,
+        action="agent_template.create",
+        object_type="agent_template",
+        object_id=item.id,
+        correlation_id=corr,
+        metadata={"name": name, "definition_keys": sorted(definition)[:40]},
+    )
     db.commit()
-    return item.to_dict()
+    return operation_result(item.to_dict(), corr)
 
 
 @router.delete("/templates/{template_id}")
-async def delete_agent_template(template_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def delete_agent_template(template_id: str, request_id: str | None = Header(default=None, alias="X-Request-ID"), db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = request_id or correlation_id()
     item = db.query(AgentTemplate).filter(AgentTemplate.id == template_id, AgentTemplate.user_id == user.id).first()
     if item is None:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise problem(404, "AGENT_TEMPLATE_NOT_FOUND", "Template not found", correlation=corr)
     db.delete(item)
+    record_operation(db, user_id=user.id, action="agent_template.delete", object_type="agent_template", object_id=template_id, correlation_id=corr, metadata={"name": item.name})
     db.commit()
-    return {"ok": True}
+    return operation_result({"ok": True}, corr)
 
 
 @router.get("/{name}/versions")
@@ -168,12 +235,15 @@ async def list_agents(user: User = Depends(get_current_user)):
 
 
 @router.delete("/{name}")
-async def delete_agent(name: str, user: User = Depends(get_current_user)):
+async def delete_agent(name: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Delete an owned agent definition."""
+    corr = correlation_id()
     ok = _get_runtime().delete_agent(name, user_id=user.id)
     if not ok:
-        raise HTTPException(status_code=404, detail=f"Agent {name} not found")
-    return {"ok": True}
+        raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr)
+    record_operation(db, user_id=user.id, action="agent.delete", object_type="agent", object_id=name, correlation_id=corr)
+    db.commit()
+    return operation_result({"ok": True}, corr)
 
 
 # ---------------- 3.0 Agent Run API (spec 25) ----------------
@@ -324,16 +394,18 @@ async def run_stream(
 
 
 @router.post("/mcp/servers")
-async def register_mcp(req: dict, user: User = Depends(get_runtime_admin)):
+async def register_mcp(req: MCPServerRequest, db: DBSession = Depends(get_db), user: User = Depends(get_runtime_admin)):
     """Register an MCP server; its tools land in the Tool Registry (spec 70)."""
-    name = (req or {}).get("name")
-    endpoint = (req or {}).get("endpoint")
-    if not name or not endpoint:
-        raise HTTPException(status_code=400, detail="name and endpoint required")
+    corr = req.request_id or correlation_id()
+    name = req.name
+    endpoint = req.endpoint
     try:
-        return await _get_runtime().register_mcp_server(name, endpoint)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"MCP register failed: {e}")
+        result = await _get_runtime().register_mcp_server(name, endpoint)
+    except Exception:
+        raise problem(400, "MCP_REGISTER_FAILED", "MCP register failed", correlation=corr)
+    record_operation(db, user_id=user.id, action="mcp.register", object_type="mcp_server", object_id=name, correlation_id=corr, metadata={"endpoint_configured": True})
+    db.commit()
+    return operation_result(result if isinstance(result, dict) else {"ok": True, "name": name}, corr)
 
 
 @router.get("/mcp/servers")
@@ -342,11 +414,14 @@ async def list_mcp_servers(user: User = Depends(get_runtime_admin)):
 
 
 @router.delete("/mcp/servers/{name}")
-async def unregister_mcp(name: str, user: User = Depends(get_runtime_admin)):
+async def unregister_mcp(name: str, request_id: str | None = Header(default=None, alias="X-Request-ID"), db: DBSession = Depends(get_db), user: User = Depends(get_runtime_admin)):
+    corr = request_id or correlation_id()
     ok = await _get_runtime().unregister_mcp_server(name)
     if not ok:
-        raise HTTPException(status_code=404, detail=f"MCP server {name} not found")
-    return {"ok": True}
+        raise problem(404, "MCP_SERVER_NOT_FOUND", "MCP server not found", correlation=corr)
+    record_operation(db, user_id=user.id, action="mcp.unregister", object_type="mcp_server", object_id=name, correlation_id=corr)
+    db.commit()
+    return operation_result({"ok": True}, corr)
 
 
 @router.get("/tools")
@@ -404,22 +479,34 @@ async def _persistent_schedule_trigger(schedule_id: str, run_spec: dict) -> None
 
 @router.post("/schedules")
 async def create_schedule(
-    req: dict,
+    req: ScheduleDraftRequest,
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Create a disabled schedule draft; enable is always a separate action."""
-    payload = dict(req or {})
+    corr = req.request_id or correlation_id()
+    payload = req.schedule_payload()
     if "schedule_kind" not in payload:
         payload["schedule_kind"] = "once" if payload.get("delay_seconds") is not None else "interval"
     agent_id = payload.get("agent_id")
     rt = _get_runtime()
     if not agent_id or rt.get_agent(agent_id, user_id=user.id) is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr)
     try:
-        return ScheduleService(db).create_draft(user.id, payload).to_dict()
+        item = ScheduleService(db).create_draft(user.id, payload)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise problem(422, "SCHEDULE_DRAFT_INVALID", "Schedule draft is invalid", correlation=corr) from exc
+    record_operation(
+        db,
+        user_id=user.id,
+        action="schedule.draft.create",
+        object_type="schedule",
+        object_id=item.id,
+        correlation_id=corr,
+        metadata={"agent_id": agent_id, "schedule_kind": payload.get("schedule_kind"), "enabled": False},
+    )
+    db.commit()
+    return operation_result(item.to_dict(), corr)
 
 
 @router.get("/schedules")
@@ -428,48 +515,76 @@ async def list_schedules(db: DBSession = Depends(get_db), user: User = Depends(g
 
 
 @router.patch("/schedules/{schedule_id}")
-async def update_schedule(schedule_id: str, req: dict, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def update_schedule(schedule_id: str, req: ScheduleDraftRequest, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = req.request_id or correlation_id()
     job = ScheduleService(db).owned(user.id, schedule_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
     try:
-        return ScheduleService(db).update_draft(job, req or {}).to_dict()
+        item = ScheduleService(db).update_draft(job, req.schedule_payload(partial=True))
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise problem(409, "SCHEDULE_DRAFT_CONFLICT", "Schedule draft cannot be updated", correlation=corr) from exc
+    record_operation(
+        db,
+        user_id=user.id,
+        action="schedule.draft.update",
+        object_type="schedule",
+        object_id=item.id,
+        correlation_id=corr,
+        metadata={"updated_fields": sorted(req.model_fields_set - {"request_id"})[:40]},
+    )
+    db.commit()
+    return operation_result(item.to_dict(), corr)
 
 
 @router.post("/schedules/{schedule_id}/enable")
-async def enable_schedule(schedule_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def enable_schedule(schedule_id: str, req: ScheduleActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = (req.request_id if req else None) or correlation_id()
+    if req is None or not req.confirm:
+        raise problem(409, "CONFIRM_REQUIRED", "Explicit confirmation is required to enable a schedule", correlation=corr)
     service = ScheduleService(db)
     job = service.owned(user.id, schedule_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
     try:
-        return service.enable(job, _get_runtime(), _persistent_schedule_callback).to_dict()
+        item = service.enable(job, _get_runtime(), _persistent_schedule_callback)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise problem(400, "SCHEDULE_ENABLE_FAILED", "Schedule could not be enabled", correlation=corr) from exc
+    record_operation(db, user_id=user.id, action="schedule.enable", object_type="schedule", object_id=item.id, correlation_id=corr, metadata={"explicit_confirm": True})
+    db.commit()
+    return operation_result(item.to_dict(), corr)
 
 
 @router.post("/schedules/{schedule_id}/pause")
-async def pause_schedule(schedule_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def pause_schedule(schedule_id: str, req: ScheduleActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = (req.request_id if req else None) or correlation_id()
+    if req is None or not req.confirm:
+        raise problem(409, "CONFIRM_REQUIRED", "Explicit confirmation is required to pause a schedule", correlation=corr)
     service = ScheduleService(db)
     job = service.owned(user.id, schedule_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
-    return service.pause(job, _get_runtime()).to_dict()
+        raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
+    item = service.pause(job, _get_runtime())
+    record_operation(db, user_id=user.id, action="schedule.pause", object_type="schedule", object_id=item.id, correlation_id=corr, metadata={"explicit_confirm": True})
+    db.commit()
+    return operation_result(item.to_dict(), corr)
 
 
 @router.post("/schedules/{schedule_id}/run-now")
 async def run_schedule_now(
     schedule_id: str,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    req: ScheduleActionRequest | None = None,
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    corr = (req.request_id if req else None) or correlation_id()
+    if req is None or not req.confirm:
+        raise problem(409, "CONFIRM_REQUIRED", "Explicit confirmation is required to run a schedule", correlation=corr)
     service = ScheduleService(db)
     job = service.owned(user.id, schedule_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
     spec = __import__("json").loads(job.run_spec or "{}")
     decision, claim = service.claim_occurrence(
         job,
@@ -478,12 +593,12 @@ async def run_schedule_now(
         require_enabled=False,
     )
     if decision != "run":
-        return {
+        return operation_result({
             "schedule_id": job.id,
             "run_id": claim.agent_run_id if claim else None,
             "status": claim.outcome if claim else decision,
             "duplicate": decision == "duplicate",
-        }
+        }, corr)
     rt = _get_runtime()
     try:
         run = rt.create_run(spec.get("agent_id", ""), spec.get("input", ""), user.id, spec.get("session_id"), {**(spec.get("metadata") or {}), "schedule_id": job.id, "trigger_kind": "manual"}, execute=True)
@@ -493,7 +608,9 @@ async def run_schedule_now(
         if claim is not None:
             service.fail_claim(claim, exc)
         raise
-    return {"schedule_id": job.id, "run_id": run.run_id, "status": run.status}
+    record_operation(db, user_id=user.id, action="schedule.run_now", object_type="schedule", object_id=job.id, correlation_id=corr, metadata={"operation_id_supplied": bool(idempotency_key), "explicit_confirm": True})
+    db.commit()
+    return operation_result({"schedule_id": job.id, "run_id": run.run_id, "status": run.status}, corr)
 
 
 @router.get("/schedules/{schedule_id}/executions")
@@ -524,13 +641,18 @@ def restore_persistent_schedules() -> int:
 
 
 @router.delete("/schedules/{job_id}")
-async def cancel_schedule(job_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def cancel_schedule(job_id: str, req: ScheduleActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = (req.request_id if req else None) or correlation_id()
+    if req is None or not req.confirm:
+        raise problem(409, "CONFIRM_REQUIRED", "Explicit confirmation is required to delete a schedule", correlation=corr)
     service = ScheduleService(db)
     job = service.owned(user.id, job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
     service.delete(job, _get_runtime())
-    return {"ok": True}
+    record_operation(db, user_id=user.id, action="schedule.delete", object_type="schedule", object_id=job_id, correlation_id=corr, metadata={"explicit_confirm": True})
+    db.commit()
+    return operation_result({"ok": True}, corr)
 
 
 @router.get("/metrics")

@@ -230,17 +230,17 @@ class ModelForgeClient:
     def update_schedule(self, schedule_id: str, payload: dict) -> dict:
         return self._patch(f"/api/v1/agent/schedules/{schedule_id}", json=payload)
 
-    def enable_schedule(self, schedule_id: str) -> dict:
-        return self._post(f"/api/v1/agent/schedules/{schedule_id}/enable")
+    def enable_schedule(self, schedule_id: str, *, confirm: bool = False) -> dict:
+        return self._post(f"/api/v1/agent/schedules/{schedule_id}/enable", json={"confirm": confirm})
 
-    def pause_schedule(self, schedule_id: str) -> dict:
-        return self._post(f"/api/v1/agent/schedules/{schedule_id}/pause")
+    def pause_schedule(self, schedule_id: str, *, confirm: bool = False) -> dict:
+        return self._post(f"/api/v1/agent/schedules/{schedule_id}/pause", json={"confirm": confirm})
 
-    def run_schedule_now(self, schedule_id: str) -> dict:
-        return self._post(f"/api/v1/agent/schedules/{schedule_id}/run-now")
+    def run_schedule_now(self, schedule_id: str, *, confirm: bool = False) -> dict:
+        return self._post(f"/api/v1/agent/schedules/{schedule_id}/run-now", json={"confirm": confirm})
 
-    def delete_schedule(self, schedule_id: str) -> dict:
-        return self._delete(f"/api/v1/agent/schedules/{schedule_id}")
+    def delete_schedule(self, schedule_id: str, *, confirm: bool = False) -> dict:
+        return self._delete(f"/api/v1/agent/schedules/{schedule_id}", json={"confirm": confirm})
 
     def schedule_executions(self, schedule_id: str) -> list[dict]:
         return self._get(f"/api/v1/agent/schedules/{schedule_id}/executions").get("executions", [])
@@ -258,6 +258,18 @@ class ModelForgeClient:
 
     def lifecycle_diagnostics(self, retention_days: int = 30) -> dict:
         return self._get("/api/v1/workspaces/lifecycle-diagnostics", params={"retention_days": retention_days})
+
+    def preview_lifecycle(self, retention_days: int = 30, *, action: str = "retention.cleanup", target_id: str | None = None) -> dict:
+        payload = {"retention_days": retention_days, "action": action}
+        if target_id:
+            payload["target_id"] = target_id
+        return self._post("/api/v1/workspaces/lifecycle-preview", json=payload)
+
+    def check_lifecycle_confirmation(self, action: str, preview_token: str, confirm: bool) -> dict:
+        return self._post(
+            "/api/v1/workspaces/lifecycle-confirmation-check",
+            json={"action": action, "preview_token": preview_token, "confirm": confirm},
+        )
 
     def list_artifacts(self) -> list[dict]:
         return self._get("/api/v1/workspaces/artifacts").get("artifacts", [])

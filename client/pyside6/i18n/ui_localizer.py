@@ -113,6 +113,14 @@ _TEXT = {
     "启用": ("启用", "Enable", "有効化"), "暂停": ("暂停", "Pause", "一時停止"),
     "立即运行": ("立即运行", "Run Now", "今すぐ実行"), "查看下五次": ("查看下五次", "View Next Five", "次の5回を表示"),
     "查看执行历史": ("查看执行历史", "View Execution History", "実行履歴を表示"), "删除计划": ("删除计划", "Delete Schedule", "スケジュールを削除"),
+    "开始对话": ("开始对话", "Start Chat", "チャットを開始"), "查看运行时": ("查看运行时", "View Runtime", "ランタイムを表示"), "管理服务": ("管理服务", "Manage Provider", "プロバイダーを管理"),
+    "正在检查模型": ("正在检查模型", "Checking Models", "モデルを確認中"), "在此统一管理本地模型和远程 OpenAI 兼容模型服务。": ("在此统一管理本地模型和远程 OpenAI 兼容模型服务。", "Manage local models and remote OpenAI-compatible providers in one place.", "ローカルモデルとリモート OpenAI 互換プロバイダーをここで一元管理します。"),
+    "尚未添加模型": ("尚未添加模型", "No Models Added", "モデルが追加されていません"), "添加本地模型或配置远程服务后，即可开始对话。": ("添加本地模型或配置远程服务后，即可开始对话。", "Add a local model or configure a remote provider to start chatting.", "ローカルモデルを追加するかリモートプロバイダーを設定すると会話を開始できます。"),
+    "知识工作区": ("知识工作区", "Knowledge Workspace", "ナレッジワークスペース"), "文档索引": ("文档索引", "Document Index", "ドキュメント索引"), "添加文档": ("添加文档", "Add Document", "ドキュメントを追加"), "查看分块": ("查看分块", "View Chunks", "チャンクを表示"), "删除文档": ("删除文档", "Delete Document", "ドキュメントを削除"),
+    "模型：": ("模型：", "Model:", "モデル："), "默认模型": ("默认模型", "Default Model", "既定モデル"), "输入问题（回车先检索，再生成回答）...": ("输入问题（回车先检索，再生成回答）...", "Enter a question (Enter searches first, then generates an answer)...", "質問を入力してください（Enter で検索後に回答を生成します）..."),
+    "推理服务": ("推理服务", "Inference Service", "推論サービス"), "模型生命周期、权限响应和运行时诊断均来自已连接服务。": ("模型生命周期、权限响应和运行时诊断均来自已连接服务。", "Model lifecycle, permission responses, and runtime diagnostics come from the connected service.", "モデルのライフサイクル、権限応答、ランタイム診断は接続済みサービスから取得されます。"), "运行时状态将在此显示。": ("运行时状态将在此显示。", "Runtime status will appear here.", "ランタイムの状態がここに表示されます。"),
+    "运行记录": ("运行记录", "Run History", "実行履歴"), "暂无活动记录": ("暂无活动记录", "No Activity Yet", "アクティビティはまだありません"), "已连接的 ModelForge 服务发布任务事件后，将显示在这里。": ("已连接的 ModelForge 服务发布任务事件后，将显示在这里。", "Task events from the connected ModelForge service will appear here.", "接続済みの ModelForge サービスがタスクイベントを公開すると、ここに表示されます。"),
+    "选择已加载扩展查看详情。": ("选择已加载扩展查看详情。", "Select a loaded extension to view details.", "読み込み済みの拡張機能を選択して詳細を確認します。"), "尚无已加载扩展。此页面不会自动发现、加载或安装扩展。": ("尚无已加载扩展。此页面不会自动发现、加载或安装扩展。", "No extensions are loaded. This page never discovers, loads, or installs extensions automatically.", "読み込み済みの拡張機能はありません。この画面で自動検出、読み込み、インストールは行われません。"),
 }
 
 # Make English source literals equivalent to their Chinese migration counterparts.

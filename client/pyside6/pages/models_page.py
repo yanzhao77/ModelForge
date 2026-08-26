@@ -163,6 +163,7 @@ class ModelsPage(QWidget, AsyncApiMixin):
             lambda: (self.api.list_models(), self.api.list_remote_providers()),
             self._render_models,
             self._failed,
+            request_key="models.refresh",
         )
         if self.readiness_store:
             self.readiness_store.invalidate()

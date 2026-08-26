@@ -2,12 +2,14 @@
 
 from typing import Literal
 
+from core.api_contracts import correlation_id, operation_result, problem
 from core.database import get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
 from pydantic import BaseModel, Field
 from services.downloader import downloader
+from services.audit_log import record_operation
 from services.model_manager import ModelManager
 from services.model_readiness_service import ModelReadinessError, ModelReadinessService
 from sqlalchemy.orm import Session as DBSession
@@ -37,6 +39,7 @@ class DefaultModelRequest(BaseModel):
     kind: Literal["local", "remote"]
     model_ref: str = Field(min_length=1, max_length=255)
     provider_id: int | None = None
+    request_id: str | None = Field(default=None, max_length=64)
 
 
 def _manager(db: DBSession) -> ModelManager:
@@ -120,22 +123,30 @@ def set_default_model(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    corr = req.request_id or correlation_id()
     try:
-        return _readiness(db).set_default(
+        result = _readiness(db).set_default(
             user.id,
             kind=req.kind,
             model_ref=req.model_ref,
             provider_id=req.provider_id,
         )
     except ModelReadinessError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise problem(400, "MODEL_DEFAULT_INVALID", "Selected default model is not available", correlation=corr) from exc
+    record_operation(db, user_id=user.id, action="model.default.set", object_type="model_default", object_id=req.model_ref, correlation_id=corr, metadata={"kind": req.kind, "provider_id": req.provider_id})
+    db.commit()
+    return operation_result(result, corr)
 
 
 @router.delete("/default")
 def clear_default_model(
-    db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
+    request_id: str | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    return _readiness(db).clear_default(user.id)
+    corr = request_id or correlation_id()
+    result = _readiness(db).clear_default(user.id)
+    record_operation(db, user_id=user.id, action="model.default.clear", object_type="model_default", object_id=str(user.id), correlation_id=corr)
+    db.commit()
+    return operation_result(result, corr)
 
 
 @router.get("/{model_id}")

@@ -258,7 +258,7 @@ class AgentPage(QWidget, AsyncApiMixin):
             return
         self._agents_loading = True
         self._set_agent_busy(True)
-        self._run_api(self.api.list_agents, self._render_agents, self._agents_failed)
+        self._run_api(self.api.list_agents, self._render_agents, self._agents_failed, request_key="agent.definitions")
 
     def _render_agents(self, agents):
         self._agents_loading = False
@@ -302,6 +302,7 @@ class AgentPage(QWidget, AsyncApiMixin):
             ),
             lambda _result: self._agent_created(name.strip()),
             lambda error: self._agent_action_failed("创建 Agent", error),
+            request_key="agent.definition.mutate",
         )
 
     def _agent_created(self, name: str):
@@ -323,6 +324,7 @@ class AgentPage(QWidget, AsyncApiMixin):
             lambda: self.api.delete_agent(name),
             lambda _result: self._agent_deleted(name),
             lambda error: self._agent_action_failed("删除 Agent", error),
+            request_key="agent.definition.mutate",
         )
 
     def _agent_deleted(self, name: str):
@@ -365,6 +367,7 @@ class AgentPage(QWidget, AsyncApiMixin):
             lambda: self.api.create_agent_run(agent, task),
             self._run_created,
             lambda error: self._run_action_failed("启动 Agent Run", error),
+            request_key="agent.run.lifecycle",
         )
 
     def _run_created(self, result):
@@ -393,6 +396,7 @@ class AgentPage(QWidget, AsyncApiMixin):
             lambda: self.api.cancel_agent_run(run_id),
             self._run_cancelled,
             lambda error: self._run_action_failed("取消 Agent Run", error),
+            request_key="agent.run.lifecycle",
         )
     def _run_cancelled(self):
         self._set_run_busy(False)
@@ -412,6 +416,7 @@ class AgentPage(QWidget, AsyncApiMixin):
             lambda: self.api.list_agent_runs(limit=30),
             self._render_runs,
             lambda error: self._runs_failed(error, silent),
+            request_key="agent.runs",
         )
 
     def _render_runs(self, runs):
@@ -449,4 +454,5 @@ class AgentPage(QWidget, AsyncApiMixin):
 
     def closeEvent(self, event):
         self._timer.stop()
+        self.shutdown_async_api()
         super().closeEvent(event)

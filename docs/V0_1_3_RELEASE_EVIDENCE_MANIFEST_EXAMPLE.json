@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "commit_sha": "REPLACE_WITH_40_HEX_COMMIT_SHA",
+  "application_version": "REPLACE_WITH_NON_DEV_VERSION_AFTER_APPROVAL",
+  "candidate_type": "release-candidate",
+  "gates": [
+    {"gate_id": "i1_migration", "status": "not_run", "evidence_refs": [], "redacted": true, "executed_at_utc": null, "operator": null, "notes": "Validation not authorized."},
+    {"gate_id": "i2_concurrency_events", "status": "not_run", "evidence_refs": [], "redacted": true, "executed_at_utc": null, "operator": null, "notes": "Validation not authorized."},
+    {"gate_id": "i3_control_plane_audit", "status": "not_run", "evidence_refs": [], "redacted": true, "executed_at_utc": null, "operator": null, "notes": "Validation not authorized."},
+    {"gate_id": "i4_lifecycle", "status": "not_run", "evidence_refs": [], "redacted": true, "executed_at_utc": null, "operator": null, "notes": "Validation not authorized."},
+    {"gate_id": "i5_desktop", "status": "not_run", "evidence_refs": [], "redacted": true, "executed_at_utc": null, "operator": null, "notes": "Validation not authorized."},
+    {"gate_id": "windows_signing_install", "status": "not_run", "evidence_refs": [], "redacted": true, "executed_at_utc": null, "operator": null, "notes": "Signing and installation not authorized."},
+    {"gate_id": "linux_signing_install", "status": "not_run", "evidence_refs": [], "redacted": true, "executed_at_utc": null, "operator": null, "notes": "Signing and installation not authorized."},
+    {"gate_id": "release_approval", "status": "not_run", "evidence_refs": [], "redacted": true, "executed_at_utc": null, "operator": null, "notes": "No release authorization."}
+  ],
+  "approval": {"release_authorized": false, "approver": null, "approved_at_utc": null},
+  "security": {"contains_secrets": false, "contains_unredacted_payloads": false}
+}
