@@ -253,6 +253,12 @@ class ModelForgeClient:
     def migration_preflight(self) -> dict:
         return self._get("/api/v1/workspaces/migration-preflight")
 
+    def runtime_diagnostics(self) -> dict:
+        return self._get("/api/v1/workspaces/runtime-diagnostics")
+
+    def lifecycle_diagnostics(self, retention_days: int = 30) -> dict:
+        return self._get("/api/v1/workspaces/lifecycle-diagnostics", params={"retention_days": retention_days})
+
     def list_artifacts(self) -> list[dict]:
         return self._get("/api/v1/workspaces/artifacts").get("artifacts", [])
 

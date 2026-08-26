@@ -45,6 +45,12 @@ I1 已新增 `migration_preflight` 只读诊断服务。该服务仅针对文件
 
 工作区新增 `/api/v1/workspaces/migration-preflight`，仅运行时管理员可读取。桌面控制中心新增“数据库”标签页，用户显式点击后才请求预检，结果明确显示只读状态和“迁移未执行”说明。该实现尚未连接任何真实数据库、执行升级、启动服务或通过 API/PySide6 验证。
 
+### I2–I6 基础实施记录
+
+I2 新增只读运行时诊断，汇总 Run claim、计划 occurrence、事件键、outbox lease 与 SSE resync 的无内容计数；I3 将插件控制面生命周期动作收敛为 Pydantic 确认请求、稳定 `problem` 错误、`correlation_id` 和脱敏操作审计；I4 新增 Runtime/Scheduler 生命周期与 retention 候选的只读快照；I5 让控制中心和自动化页使用请求代次、协作取消和关闭回收，并补齐数据库诊断与自动化核心按钮的中英日文案；I6 新增 v0.1.3 候选的 Go/No-Go 模板和只做结构校验的决策清单脚本。
+
+这些基础实现不执行状态修复、计划恢复、retention 删除、插件操作、数据库升级、测试、构建、签名、发布或网络发行操作。当前仍需在未来获准的验证阶段逐项产生固定 SHA 的脱敏证据。
+
 ## 6. 参考资料
 
 [1] [B2–H7 下一迭代技术开发计划](./B2_H7_ITERATION_DEVELOPMENT_PLAN.md)

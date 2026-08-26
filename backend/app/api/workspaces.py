@@ -24,6 +24,8 @@ from models.records import (
 from services.redaction import redact_data, redact_text
 from services.audit_log import record_operation
 from services.migration_preflight import migration_preflight
+from services.runtime_diagnostics import runtime_diagnostics
+from services.lifecycle_diagnostics import lifecycle_diagnostics
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -34,6 +36,24 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 async def get_migration_preflight(_admin: User = Depends(get_runtime_admin)):
     """Return read-only migration diagnostics for a runtime administrator."""
     return migration_preflight()
+
+
+@router.get("/runtime-diagnostics")
+async def get_runtime_diagnostics(
+    db: Session = Depends(get_db), _admin: User = Depends(get_runtime_admin)
+):
+    """Return content-free C3/D4 diagnostics for a runtime administrator."""
+    return runtime_diagnostics(db)
+
+
+@router.get("/lifecycle-diagnostics")
+async def get_lifecycle_diagnostics(
+    retention_days: int = 30,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_runtime_admin),
+):
+    """Return lifecycle and retention diagnostics without performing recovery."""
+    return lifecycle_diagnostics(db, retention_days=retention_days)
 
 
 class CollectionCreateRequest(BaseModel):

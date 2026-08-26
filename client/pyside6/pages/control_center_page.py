@@ -15,14 +15,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from components.api_worker import ApiWorker
+from components.api_worker import AsyncApiMixin
 
 
-class ControlCenterPage(QWidget):
+class ControlCenterPage(QWidget, AsyncApiMixin):
     """A read-first workspace; all persistence and export actions remain explicit."""
 
     def __init__(self, api, parent=None):
         super().__init__(parent)
+        self._init_async_api()
         self.api = api
         layout = QVBoxLayout(self)
         title = QLabel("控制中心")
@@ -49,7 +50,7 @@ class ControlCenterPage(QWidget):
         self.tabs.addTab(self._tab(self.collection_list, "新建集合", self._create_collection, "归类现有文档", self._bind_document, "管理所选集合", self._manage_collection), "知识集合")
         self.tabs.addTab(self._tab(self.profile_list, "新建配置档", self._create_profile, "预览所选配置档", self._preview_selected_profile, "删除所选配置档", self._delete_selected_profile), "插件/MCP")
         self.tabs.addTab(self._tab(self.insight_list, "设置洞察预算", self._configure_insight_budget, "查看预算摘要", self._show_budget_summary), "模型洞察")
-        self.tabs.addTab(self._tab(self.database_list, "运行只读迁移预检", self._run_migration_preflight), "数据库")
+        self.tabs.addTab(self._tab(self.database_list, "运行只读迁移预检", self._run_migration_preflight, "查看并发/事件诊断", self._run_runtime_diagnostics, "查看生命周期/保留诊断", self._run_lifecycle_diagnostics), "数据库")
         layout.addWidget(self.tabs, 1)
         self.refresh_button = QPushButton("刷新控制中心")
         self.refresh_button.clicked.connect(self.refresh)
@@ -76,17 +77,14 @@ class ControlCenterPage(QWidget):
 
     def refresh(self):
         self.refresh_button.setEnabled(False)
-        worker = ApiWorker(lambda: {
+        worker = self._run_api(lambda: {
             "memories": self.api.list_memories(),
             "artifacts": self.api.list_artifacts(),
             "collections": self.api.list_knowledge_collections(),
             "profiles": self.api.list_plugin_profiles(),
             "insight_data": self.api.model_insights(),
-        })
-        worker.succeeded.connect(self._loaded)
-        worker.failed.connect(lambda error: self.insight_list.addItem(f"无法加载控制中心：{error}"))
+        }, self._loaded, lambda error: self.insight_list.addItem(f"无法加载控制中心：{error}"), request_key="control-refresh")
         worker.finished.connect(lambda: self.refresh_button.setEnabled(True))
-        worker.start()
         self._worker = worker
 
     def _loaded(self, data):
@@ -134,10 +132,7 @@ class ControlCenterPage(QWidget):
         if row < 0 or row >= len(self._collections):
             return
         collection = self._collections[row]
-        worker = ApiWorker(lambda: self.api.get_knowledge_collection(collection["id"]))
-        worker.succeeded.connect(lambda data: self._show_collection_dialog(collection, data))
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "知识集合", str(message)))
-        worker.start()
+        worker = self._run_api(lambda: self.api.get_knowledge_collection(collection["id"]), lambda data: self._show_collection_dialog(collection, data), lambda message: QMessageBox.warning(self, "知识集合", str(message)), request_key="collection-detail")
         self._worker = worker
 
     def _show_collection_dialog(self, collection, data):
@@ -188,10 +183,7 @@ class ControlCenterPage(QWidget):
         if row < 0 or row >= len(self._artifacts):
             return
         artifact = self._artifacts[row]
-        worker = ApiWorker(lambda: self.api.get_artifact(artifact["id"]))
-        worker.succeeded.connect(lambda data: QMessageBox.information(self, "已脱敏运行产物", f"{data.get('title')}\n\n来源：{data.get('source_kind')} · {data.get('source_id')}\n已脱敏：{data.get('redacted')}\n\n{data.get('text') or json.dumps(data.get('content') or {}, ensure_ascii=False, indent=2)}"))
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "运行产物", str(message)))
-        worker.start()
+        worker = self._run_api(lambda: self.api.get_artifact(artifact["id"]), lambda data: QMessageBox.information(self, "已脱敏运行产物", f"{data.get('title')}\n\n来源：{data.get('source_kind')} · {data.get('source_id')}\n已脱敏：{data.get('redacted')}\n\n{data.get('text') or json.dumps(data.get('content') or {}, ensure_ascii=False, indent=2)}"), lambda message: QMessageBox.warning(self, "运行产物", str(message)), request_key="artifact-detail")
         self._worker = worker
 
     def _preview_selected_profile(self):
@@ -199,10 +191,7 @@ class ControlCenterPage(QWidget):
         if row < 0 or row >= len(self._profiles):
             return
         profile = self._profiles[row]
-        worker = ApiWorker(lambda: self.api.preview_plugin_profile(profile["id"]))
-        worker.succeeded.connect(lambda data: QMessageBox.information(self, "配置档预览", f"{data.get('name')}\n\n插件：{data.get('declared_plugin_count')}\nMCP 服务：{data.get('declared_mcp_server_count')}\n工具白名单：{data.get('declared_tool_count')}\n\n{data.get('notice')}"))
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "配置档预览", str(message)))
-        worker.start()
+        worker = self._run_api(lambda: self.api.preview_plugin_profile(profile["id"]), lambda data: QMessageBox.information(self, "配置档预览", f"{data.get('name')}\n\n插件：{data.get('declared_plugin_count')}\nMCP 服务：{data.get('declared_mcp_server_count')}\n工具白名单：{data.get('declared_tool_count')}\n\n{data.get('notice')}"), lambda message: QMessageBox.warning(self, "配置档预览", str(message)), request_key="profile-preview")
         self._worker = worker
 
     def _delete_selected_profile(self):
@@ -250,10 +239,7 @@ class ControlCenterPage(QWidget):
 
     def _run_migration_preflight(self):
         """Request diagnostics only; the action never starts a migration."""
-        worker = ApiWorker(self.api.migration_preflight)
-        worker.succeeded.connect(self._show_migration_preflight)
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "迁移预检", str(message)))
-        worker.start()
+        worker = self._run_api(self.api.migration_preflight, self._show_migration_preflight, lambda message: QMessageBox.warning(self, "迁移预检", str(message)), request_key="migration-preflight")
         self._worker = worker
 
     def _show_migration_preflight(self, data):
@@ -276,8 +262,54 @@ class ControlCenterPage(QWidget):
             "该操作未调用 init_db()，未创建表、未修改 schema、未执行迁移。",
         )
 
-    def _call(self, action):
-        worker = ApiWorker(action)
-        worker.succeeded.connect(lambda _result: self.refresh())
-        worker.start()
+    def _run_runtime_diagnostics(self):
+        """Read aggregated state only; no lease, event, or schedule is changed."""
+        worker = self._run_api(self.api.runtime_diagnostics, self._show_runtime_diagnostics, lambda message: QMessageBox.warning(self, "并发/事件诊断", str(message)), request_key="runtime-diagnostics")
         self._worker = worker
+
+    def _show_runtime_diagnostics(self, data):
+        runs = data.get("runs") or {}
+        claims = data.get("schedule_claims") or {}
+        events = data.get("events") or {}
+        outbox = data.get("task_outbox") or {}
+        QMessageBox.information(
+            self,
+            "只读并发/事件诊断",
+            f"运行中：{runs.get('active_count', 0)}；有效执行 lease：{runs.get('leased_count', 0)}；"
+            f"过期执行 lease：{runs.get('expired_lease_count', 0)}\n"
+            f"有效计划 claim：{claims.get('active_claim_count', 0)}；过期 claim：{claims.get('expired_claim_count', 0)}\n"
+            f"事件总数：{events.get('total_count', 0)}；缺失 event key：{events.get('missing_key_count', 0)}；"
+            f"重复 key 组：{events.get('duplicate_key_group_count', 0)}\n"
+            f"待派送 outbox：{outbox.get('pending_count', 0)}；有效 lease：{outbox.get('active_lease_count', 0)}；"
+            f"重试到期：{outbox.get('retry_due_count', 0)}\n\n"
+            f"{data.get('notice', '只显示聚合诊断。')}",
+        )
+
+    def _run_lifecycle_diagnostics(self):
+        worker = self._run_api(self.api.lifecycle_diagnostics, self._show_lifecycle_diagnostics, lambda message: QMessageBox.warning(self, "生命周期诊断", str(message)), request_key="lifecycle-diagnostics")
+        self._worker = worker
+
+    def _show_lifecycle_diagnostics(self, data):
+        runtime = data.get("runtime") or {}
+        scheduler = runtime.get("scheduler") or {}
+        schedules = data.get("schedules") or {}
+        retention = data.get("retention") or {}
+        QMessageBox.information(
+            self,
+            "只读生命周期/保留诊断",
+            f"追踪运行任务：{runtime.get('tracked_task_count', 0)}；运行中：{runtime.get('running_run_count', 0)}；"
+            f"等待审批：{runtime.get('awaiting_approval_count', 0)}\n"
+            f"调度器已启动：{scheduler.get('started', False)}；注册计划：{scheduler.get('registered_job_count', 0)}；"
+            f"失败回调：{scheduler.get('failed_callback_count', 0)}\n"
+            f"待处理触发：{schedules.get('pending_trigger_count', 0)}；近 24 小时计划：{schedules.get('next_24h_count', 0)}\n"
+            f"保留候选执行记录：{retention.get('execution_candidates', 0)}（策略 {retention.get('policy_days', 30)} 天）\n\n"
+            f"{data.get('notice', '只显示状态。')}",
+        )
+
+    def _call(self, action):
+        worker = self._run_api(action, lambda _result: self.refresh(), lambda message: QMessageBox.warning(self, "控制中心", str(message)), request_key="control-mutation")
+        self._worker = worker
+
+    def closeEvent(self, event):
+        self.shutdown_async_api()
+        super().closeEvent(event)

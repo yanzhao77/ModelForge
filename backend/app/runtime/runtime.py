@@ -155,6 +155,21 @@ class AgentRuntime:
             await self.event_bus.shutdown()
         log_run(self.logger, 20, "agent runtime stopped")
 
+    def lifecycle_snapshot(self) -> dict[str, Any]:
+        """Expose aggregate in-memory ownership without revealing Run content."""
+        scheduler_snapshot = {}
+        snapshot = getattr(self.scheduler, "lifecycle_snapshot", None) if self.scheduler is not None else None
+        if callable(snapshot):
+            scheduler_snapshot = snapshot()
+        return {
+            "started": bool(self._started),
+            "running_run_count": len(self._running),
+            "tracked_task_count": len(self._run_tasks),
+            "cancellation_token_count": len(self._cancellations),
+            "awaiting_approval_count": len(self._approvals),
+            "scheduler": scheduler_snapshot,
+        }
+
     # ---- run lifecycle (spec 65) ----
     def create_run(
         self,

@@ -17,16 +17,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from components.api_worker import ApiWorker
+from components.api_worker import AsyncApiMixin
 
 
-class AutomationPage(QWidget):
+class AutomationPage(QWidget, AsyncApiMixin):
     """List persistent schedule drafts and require explicit enable/run actions."""
 
     navigate_requested = Signal(str)
 
     def __init__(self, api, parent=None):
         super().__init__(parent)
+        self._init_async_api()
         self.api = api
         self._jobs: list[dict] = []
         layout = QVBoxLayout(self)
@@ -80,11 +81,8 @@ class AutomationPage(QWidget):
 
     def refresh(self):
         self.refresh_button.setEnabled(False)
-        worker = ApiWorker(self.api.list_schedules)
-        worker.succeeded.connect(self._loaded)
-        worker.failed.connect(self._failed)
+        worker = self._run_api(self.api.list_schedules, self._loaded, self._failed, request_key="automation-refresh")
         worker.finished.connect(lambda: self.refresh_button.setEnabled(True))
-        worker.start()
         self._worker = worker
 
     def _loaded(self, jobs):
@@ -148,31 +146,25 @@ class AutomationPage(QWidget):
         job = self._selected()
         if not job:
             return
-        worker = ApiWorker(lambda: self.api.schedule_preview(job["id"]))
-        worker.succeeded.connect(lambda data: QMessageBox.information(
+        worker = self._run_api(lambda: self.api.schedule_preview(job["id"]), lambda data: QMessageBox.information(
             self,
             "计划预览",
             "时区：" + str(data.get("timezone", "UTC")) + "\n\n" + "\n".join(data.get("next_runs") or ["暂无后续执行。"]),
-        ))
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "计划预览", str(message)))
-        worker.start()
+        ), lambda message: QMessageBox.warning(self, "计划预览", str(message)), request_key="automation-preview")
         self._worker = worker
 
     def _history(self):
         job = self._selected()
         if not job:
             return
-        worker = ApiWorker(lambda: self.api.schedule_executions(job["id"]))
-        worker.succeeded.connect(lambda items: QMessageBox.information(
+        worker = self._run_api(lambda: self.api.schedule_executions(job["id"]), lambda items: QMessageBox.information(
             self,
             "计划执行历史",
             "\n\n".join(
                 f"{item.get('created_at', '—')}\n状态：{item.get('status', '—')} · 触发：{item.get('trigger_kind', '—')}\nRun：{item.get('run_id') or '—'}\n错误：{item.get('error') or '无'}"
                 for item in items
             ) or "暂无执行历史。读取历史不会创建 Agent Run。",
-        ))
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "计划执行历史", str(message)))
-        worker.start()
+        ), lambda message: QMessageBox.warning(self, "计划执行历史", str(message)), request_key="automation-history")
         self._worker = worker
 
     def _delete(self):
@@ -184,8 +176,14 @@ class AutomationPage(QWidget):
         self._call(lambda: self.api.delete_schedule(job["id"]), "计划已删除。")
 
     def _call(self, action, success):
-        worker = ApiWorker(action)
-        worker.succeeded.connect(lambda _result: (QMessageBox.information(self, "自动化", success), self.refresh()))
-        worker.failed.connect(lambda message: QMessageBox.warning(self, "自动化", str(message)))
-        worker.start()
+        worker = self._run_api(
+            action,
+            lambda _result: (QMessageBox.information(self, "自动化", success), self.refresh()),
+            lambda message: QMessageBox.warning(self, "自动化", str(message)),
+            request_key="automation-mutation",
+        )
         self._worker = worker
+
+    def closeEvent(self, event):
+        self.shutdown_async_api()
+        super().closeEvent(event)

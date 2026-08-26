@@ -98,6 +98,21 @@ _TEXT = {
     "协议": ("协议", "Protocol", "プロトコル"),
     "智谱 AI（GLM-4.5-Flash）": ("智谱 AI（GLM-4.5-Flash）", "Zhipu AI (GLM-4.5-Flash)", "Zhipu AI（GLM-4.5-Flash）"),
     "自定义 OpenAI 兼容服务": ("自定义 OpenAI 兼容服务", "Custom OpenAI-Compatible Provider", "カスタム OpenAI 互換プロバイダー"),
+    "数据库": ("数据库", "Database", "データベース"),
+    "运行只读迁移预检": ("运行只读迁移预检", "Run Read-Only Migration Preflight", "読み取り専用の移行事前確認を実行"),
+    "查看并发/事件诊断": ("查看并发/事件诊断", "View Concurrency/Event Diagnostics", "並行性・イベント診断を表示"),
+    "查看生命周期/保留诊断": ("查看生命周期/保留诊断", "View Lifecycle/Retention Diagnostics", "ライフサイクル・保持診断を表示"),
+    "迁移预检": ("迁移预检", "Migration Preflight", "移行事前確認"),
+    "并发/事件诊断": ("并发/事件诊断", "Concurrency/Event Diagnostics", "並行性・イベント診断"),
+    "生命周期诊断": ("生命周期诊断", "Lifecycle Diagnostics", "ライフサイクル診断"),
+    "只读生命周期/保留诊断": ("只读生命周期/保留诊断", "Read-Only Lifecycle/Retention Diagnostics", "読み取り専用のライフサイクル・保持診断"),
+    "控制中心": ("控制中心", "Control Center", "コントロールセンター"),
+    "自动化": ("自动化", "Automation", "自動化"),
+    "刷新": ("刷新", "Refresh", "更新"),
+    "新建计划草稿": ("新建计划草稿", "New Schedule Draft", "新しいスケジュール下書き"),
+    "启用": ("启用", "Enable", "有効化"), "暂停": ("暂停", "Pause", "一時停止"),
+    "立即运行": ("立即运行", "Run Now", "今すぐ実行"), "查看下五次": ("查看下五次", "View Next Five", "次の5回を表示"),
+    "查看执行历史": ("查看执行历史", "View Execution History", "実行履歴を表示"), "删除计划": ("删除计划", "Delete Schedule", "スケジュールを削除"),
 }
 
 # Make English source literals equivalent to their Chinese migration counterparts.

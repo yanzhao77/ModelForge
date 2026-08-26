@@ -128,3 +128,18 @@ class Scheduler:
             job = self._jobs[job_id]
             job["last_finished_at"] = datetime.datetime.utcnow().isoformat()
             job["status"] = "completed" if job.get("type") == "once" else "scheduled"
+
+    def lifecycle_snapshot(self) -> dict[str, Any]:
+        """Return a content-free view of in-process scheduler ownership."""
+        jobs = list(self._jobs.values())
+        statuses = {str(job.get("status") or "unknown") for job in jobs}
+        return {
+            "started": bool(self._started),
+            "registered_job_count": len(jobs),
+            "task_count": len(self._tasks),
+            "status_counts": {
+                status: sum(1 for job in jobs if job.get("status") == status)
+                for status in sorted(statuses)
+            },
+            "failed_callback_count": sum(1 for job in jobs if job.get("status") == "failed"),
+        }
