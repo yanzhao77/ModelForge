@@ -1,0 +1,46 @@
+name: ModelForge Release Metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Target platform label for release metadata
+        required: true
+        default: windows-x64
+        type: choice
+        options:
+          - windows-x64
+          - linux-x86_64
+          - macos-arm64
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    name: Generate unsigned release metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Generate SBOM and manifest
+        run: |
+          python scripts/generate_sbom.py --output release-artifacts/sbom.cdx.json
+          python scripts/generate_release_manifest.py \
+            --platform '${{ inputs.platform }}' \
+            --output release-artifacts/release-manifest.json
+      - name: Upload review metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata-${{ inputs.platform }}
+          path: |
+            release-artifacts/sbom.cdx.json
+            release-artifacts/release-manifest.json
+          if-no-files-found: error

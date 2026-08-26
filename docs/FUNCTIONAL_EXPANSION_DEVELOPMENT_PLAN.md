@@ -1,6 +1,6 @@
 # ModelForge 功能扩展技术开发计划
 
-**状态：** 设计稿，尚未进入实现或测试。  
+**状态：** 设计与基础实现已写入工作区；本轮尚未执行测试、构建或发布。
 **目标版本：** `v0.1.2+`，按独立功能切片逐步交付。  
 **适用端：** FastAPI 后端、SQLite/SQLAlchemy 持久层、PySide6 桌面客户端。  
 **核心原则：** 复用已有 Runtime、Agent Run、EventBus、Tool Registry、Scheduler、Memory、Knowledge、Plugin/MCP 和 Models 能力；新增界面及 API 只暴露用户显式授权的控制项，绝不因打开页面、保存草稿或导入模板而自动创建 Agent Run、下载模型或启动训练。
@@ -155,6 +155,8 @@ API 包括按来源/类型/日期搜索、详情、生成脱敏导出、删除�
 现有 `KnowledgeDocument` 与 `KnowledgeChunk` 面向用户全局知识库。新增 `knowledge_collection`（名称、描述、标签、用户、默认检索策略）与 `knowledge_collection_document`（集合、文档、加入时间、标签）实现多集合归档。文档可加入多个集合；删除文档需要明确处理其全部集合关联。第一期不提供跨用户共享或公开集合。
 
 在 Chat/Agent 的 runtime config 中增加 `knowledge_binding`：`all`、`collections`、`disabled`。当选择 `collections` 时，检索 API 必须按集合成员过滤；RAG 回答返回集合、文档、chunk 和得分来源，方便用户追溯引用。
+
+**当前实现补充：** Agent 创建请求已接受既有 `knowledge_config.collection_ids`。服务端在保存定义前逐项校验集合属于当前用户，去重后写入定义快照；该绑定只定义后续检索范围，不会在保存时上传文档、发起检索或创建 Agent Run。Chat 与 RAG 的集合级过滤仍属于后续验证与接入范围。
 
 ### 7.2 API 与桌面端
 

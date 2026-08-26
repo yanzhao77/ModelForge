@@ -3,7 +3,7 @@
 from core.database import SessionLocal, get_db
 from core.security import get_current_user, get_runtime_admin
 from fastapi import APIRouter, Depends, HTTPException, Query
-from models.records import User
+from models.records import KnowledgeCollection, User
 from models.records import AgentDefinitionVersion, AgentTemplate
 from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
@@ -64,6 +64,16 @@ async def create_agent(
         if target is None or target.get("model_name") != req.model_target.model_name:
             raise HTTPException(status_code=422, detail="Selected Agent model target is not ready for this user.")
         model = target["model_name"]
+    knowledge_config = dict(req.knowledge_config or {})
+    collection_ids = list(knowledge_config.get("collection_ids") or [])
+    if collection_ids:
+        owned_count = db.query(KnowledgeCollection).filter(
+            KnowledgeCollection.user_id == user.id,
+            KnowledgeCollection.id.in_(collection_ids),
+        ).count()
+        if owned_count != len(set(collection_ids)):
+            raise HTTPException(status_code=422, detail="Selected knowledge collection is not available to this user.")
+        knowledge_config["collection_ids"] = list(dict.fromkeys(collection_ids))
     try:
         rt.create_agent(AgentConfig(
             name=req.name,
@@ -77,7 +87,7 @@ async def create_agent(
             policy=req.policy,
             runtime_config=req.runtime_config,
             model_target=target,
-            knowledge_config=req.knowledge_config,
+            knowledge_config=knowledge_config,
         ))
     except PermissionError:
         raise HTTPException(status_code=404, detail="Agent not found")

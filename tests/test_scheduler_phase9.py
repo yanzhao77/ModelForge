@@ -119,10 +119,10 @@ class TestScheduler:
             c.post("/api/v1/agent/create", json={"name": "sched-api-bot", "model": "mock"}, headers=h)
             r = c.post("/api/v1/agent/schedules", json={"agent_id": "sched-api-bot", "input": "x", "delay_seconds": 60}, headers=h)
             assert r.status_code == 200, r.text
-            job_id = r.json()["job_id"]
+            job_id = r.json()["id"]
             r = c.get("/api/v1/agent/schedules", headers=h)
             assert any(s["id"] == job_id for s in r.json()["schedules"])
             r = c.delete(f"/api/v1/agent/schedules/{job_id}", headers=h)
             assert r.status_code == 200
             r = c.post("/api/v1/agent/schedules", json={"agent_id": "sched-api-bot", "input": "x"}, headers=h)
-            assert r.status_code == 400
+            assert r.status_code == 422

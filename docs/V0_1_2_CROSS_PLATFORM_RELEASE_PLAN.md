@@ -20,7 +20,9 @@
 
 ### 2.1 版本、命名与来源
 
-在 `client/pyside6/version.py` 将版本提升至 `0.1.2` 后，所有平台构建脚本从该文件读取唯一版本号。新增 `release-manifest.json`，至少包含：版本、Git tag、完整提交 SHA、构建 UTC 时间、Python/PyInstaller/Qt 版本、目标 OS/架构、产物文件名、SHA-256、SBOM 路径与签名状态。
+当前开发基线已在 `client/pyside6/version.py` 提升至 `0.1.2-dev`；所有现有平台构建脚本均从该文件读取唯一版本号。正式候选构建前再将其提升至 `0.1.2`。新增 `scripts/generate_release_manifest.py` 与 `scripts/generate_sbom.py` 作为不触发构建的元数据入口：前者生成版本、Git tag、完整提交 SHA、UTC 时间、目标 OS/架构、可选产物 SHA-256、SBOM 路径与签名状态；后者根据声明式 requirements 生成 CycloneDX 依赖清单。
+
+> 生成 manifest 或 SBOM 不表示资产已经构建、签名或通过验证。签名状态应在受保护签名作业完成后才由 `unsigned` 更新为已验证的签名状态。
 
 构建在干净工作树中只允许以下两种输入：受保护 tag 对应的提交，或 CI 显式传入的完整 SHA。每个产物名必须包含版本和平台/架构，禁止覆盖同名历史资产。`checksums.txt` 由单一任务重建而非使用追加模式，以避免重复或残留的哈希条目。
 
@@ -115,7 +117,15 @@ AppImage 官方文档说明，`--appimage-signature` 只能显示签名，不会
 
 签名和发布环境采用 GitHub Environments 的人工审批、最小权限和审计日志。无签名构建可以并行；签名和发布必须串行、绑定固定 SHA。所有 Runner 使用短生命周期工作目录，在作业结束后清理未签名二进制、临时证书缓存和 GPG agent 会话。
 
+当前仓库已提供 `ModelForge Release Metadata` 手动工作流。它只生成并上传未签名的 `release-manifest.json` 与 `sbom.cdx.json`，权限限制为 `contents: read`，不构建桌面资产、不访问签名密钥、不创建 Release。后续 `desktop-sign-*` 作业必须以该元数据、固定提交 SHA 和已验证资产哈希作为输入，不能直接信任分支名或可变下载链接。
+
 ## 6. v0.1.2 分阶段实施顺序
+
+### 已完成的开发基线
+
+1. `APP_VERSION` 已统一为 `0.1.2-dev`；macOS、Windows 与 Linux 测试构建脚本均从该唯一版本源读取资产名。
+2. 已提供不执行构建的 release manifest 与 CycloneDX SBOM 生成入口，供后续受保护签名流水线消费。
+3. `v0.1.2-dev` 只代表开发快照；它不替代跨平台 Pre-release，也不构成正式 `v0.1.2` 发布结论。
 
 | 阶段 | 工作内容 | 完成定义 |
 |---|---|---|
