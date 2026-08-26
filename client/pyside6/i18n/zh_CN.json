@@ -7,6 +7,8 @@
   "nav.training": "训练",
   "nav.knowledge": "知识库",
   "nav.agents": "智能体",
+  "nav.workbench": "Agent 工作台",
+  "nav.extensions": "扩展治理",
   "nav.tasks": "任务",
   "nav.runtime": "运行时",
   "nav.settings": "设置",

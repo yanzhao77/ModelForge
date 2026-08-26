@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Resolve database path from env or default
@@ -55,23 +54,27 @@ def init_db():
 
 
 def _additive_migrations():
-    """Additive ALTERs for columns added after a DB was first created.
+    """Apply only explicit, safe SQLite ADD COLUMN migrations.
 
-    SQLite supports ADD COLUMN; failures are ignored so fresh DBs (already
-    complete) and read-only engines pass through safely.
+    Fresh databases already have every model column after ``create_all``.  For
+    legacy local databases, inspect the target table first and issue an ALTER
+    only for a truly missing additive column.  Unexpected database failures are
+    deliberately not swallowed: treating a read-only or damaged database as
+    migrated would hide a data-safety failure from the startup path.
     """
-    statements = [
-        "ALTER TABLE agent_runs ADD COLUMN parent_run_id VARCHAR(64)",
-        "ALTER TABLE remote_provider_configs ADD COLUMN last_verified_at DATETIME",
-        "ALTER TABLE remote_provider_configs ADD COLUMN verification_status VARCHAR(32) NOT NULL DEFAULT 'unknown'",
-        "ALTER TABLE remote_provider_configs ADD COLUMN verification_error_code VARCHAR(64)",
-        "ALTER TABLE remote_provider_configs ADD COLUMN verified_models_json TEXT",
-    ]
-    with engine.connect() as conn:
-        for stmt in statements:
-            try:
-                conn.execute(text(stmt))
-            except OperationalError:
-                # Fresh schemas already contain the additive column; legacy or read-only
-                # databases are handled by the surrounding startup validation path.
-                pass
+    additions = (
+        ("agent_runs", "parent_run_id", "VARCHAR(64)"),
+        ("remote_provider_configs", "last_verified_at", "DATETIME"),
+        ("remote_provider_configs", "verification_status", "VARCHAR(32) NOT NULL DEFAULT 'unknown'"),
+        ("remote_provider_configs", "verification_error_code", "VARCHAR(64)"),
+        ("remote_provider_configs", "verified_models_json", "TEXT"),
+        ("scheduled_jobs", "schedule_config", "TEXT NOT NULL DEFAULT '{}'"),
+        ("scheduled_jobs", "misfire_policy", "VARCHAR(24) NOT NULL DEFAULT 'skip'"),
+        ("scheduled_jobs", "pending_trigger", "BOOLEAN NOT NULL DEFAULT 0"),
+    )
+    with engine.begin() as conn:
+        for table, column, definition in additions:
+            rows = conn.execute(text(f"PRAGMA table_info({table})")).mappings().all()
+            if not rows or any(row["name"] == column for row in rows):
+                continue
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))

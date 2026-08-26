@@ -16,12 +16,14 @@ router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 class QueryRequest(BaseModel):
     question: str
     top_k: int = 5
+    knowledge_binding: dict | None = None
 
 
 class AnswerRequest(BaseModel):
     question: str
     top_k: int = 5
     model: str = "default-model"
+    knowledge_binding: dict | None = None
 
 
 _knowledge_base = None
@@ -93,7 +95,10 @@ def knowledge_query(
     req: QueryRequest, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return _get_kb().query(req.question, top_k=req.top_k, db=db, user_id=user.id)
+    try:
+        return _get_kb().query(req.question, top_k=req.top_k, db=db, user_id=user.id, knowledge_binding=req.knowledge_binding)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("/answer")
@@ -102,9 +107,13 @@ async def knowledge_answer(
     user: User = Depends(get_current_user),
 ):
     kb = _get_kb()
-    return await kb.answer(
-        req.question, top_k=req.top_k, db=db, user_id=user.id, runtime=get_runtime(), model=req.model
-    )
+    try:
+        return await kb.answer(
+            req.question, top_k=req.top_k, db=db, user_id=user.id, runtime=get_runtime(), model=req.model,
+            knowledge_binding=req.knowledge_binding,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.get("/stats")

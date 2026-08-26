@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import importlib.util
 import os
+import time
 from typing import Any
 
 from ..logging import get_logger
@@ -152,6 +153,8 @@ class PluginManager:
         return True
 
     def unload(self, name: str) -> bool:
+        if self.dependents_of(name):
+            return False
         state = self._plugins.pop(name, None)
         if state is None:
             return False
@@ -176,6 +179,43 @@ class PluginManager:
     def dependencies_of(self, name: str) -> builtins.list[str]:
         state = self._plugins.get(name)
         return list(state["manifest"].dependencies) if state else []
+
+    def dependents_of(self, name: str) -> builtins.list[str]:
+        """Return loaded plugins that would be impacted by an unload."""
+        return sorted(plugin_name for plugin_name, state in self._plugins.items() if name in state["manifest"].dependencies)
+
+    def impact(self, name: str) -> dict[str, Any] | None:
+        state = self._plugins.get(name)
+        if state is None:
+            return None
+        return {
+            "name": name,
+            "status": state["status"],
+            "tools": sorted(state["scope"].tools().keys()),
+            "dependencies": self.dependencies_of(name),
+            "dependents": self.dependents_of(name),
+            "unload_blocked": bool(self.dependents_of(name)),
+        }
+
+    def health(self, name: str, *, cooldown_seconds: float = 5.0) -> dict[str, Any] | None:
+        """Perform a bounded, non-starting health assessment after an explicit request."""
+        state = self._plugins.get(name)
+        if state is None:
+            return None
+        now = time.monotonic()
+        previous = state.get("last_health")
+        if previous and now - float(previous.get("checked_monotonic", 0.0)) < cooldown_seconds:
+            return {**previous, "rate_limited": True}
+        status = "healthy" if state["status"] in {"loaded", "started"} else "unhealthy"
+        result = {
+            "status": status,
+            "plugin_status": state["status"],
+            "error": state.get("error"),
+            "checked_monotonic": now,
+            "rate_limited": False,
+        }
+        state["last_health"] = result
+        return result
 
     # ---- internals ----
     def _import_entry(self, entry: str) -> Any:

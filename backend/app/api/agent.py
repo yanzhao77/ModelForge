@@ -355,6 +355,11 @@ async def list_tools(user: User = Depends(get_current_user)):
     return {"tools": _get_runtime().list_tools()}
 
 
+def _persistent_schedule_callback(schedule_id: str):
+    """Bind a durable schedule identifier without persisting a callable."""
+    return lambda run_spec: _persistent_schedule_trigger(schedule_id, run_spec)
+
+
 async def _persistent_schedule_trigger(schedule_id: str, run_spec: dict) -> None:
     """Create a scheduled run and write an audit record in a fresh DB session."""
     db = SessionLocal()
@@ -364,6 +369,18 @@ async def _persistent_schedule_trigger(schedule_id: str, run_spec: dict) -> None
         if job is None or not job.enabled:
             return
         rt = _get_runtime()
+        is_queue_recheck = bool(run_spec.get("_schedule_queue_recheck"))
+        decision = service.claim_trigger(job, trigger_kind="queue_recheck" if is_queue_recheck else "schedule")
+        if not is_queue_recheck:
+            service.advance_after_callback(job, rt, _persistent_schedule_callback)
+        if decision == "pending" and is_queue_recheck:
+            service.defer_pending(job, rt, _persistent_schedule_callback)
+            return
+        if decision in {"disabled", "skipped", "pending"}:
+            return
+        if decision == "queued":
+            service.defer_pending(job, rt, _persistent_schedule_callback)
+            return
         run = rt.create_run(
             agent_id=run_spec.get("agent_id", ""),
             input_text=run_spec.get("input", ""),
@@ -372,7 +389,7 @@ async def _persistent_schedule_trigger(schedule_id: str, run_spec: dict) -> None
             metadata={**(run_spec.get("metadata") or {}), "schedule_id": schedule_id},
             execute=True,
         )
-        service.record_execution(job, run.run_id, "triggered")
+        service.record_execution(job, run.run_id, "triggered", trigger_kind="queue_recheck" if is_queue_recheck else "schedule")
     except Exception as exc:
         job = ScheduleService(db).owned(int(run_spec.get("user_id") or 0), schedule_id)
         if job is not None:
@@ -387,7 +404,7 @@ async def create_schedule(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Create a disabled schedule draft; ``enabled=true`` is an explicit opt-in."""
+    """Create a disabled schedule draft; enable is always a separate action."""
     payload = dict(req or {})
     if "schedule_kind" not in payload:
         payload["schedule_kind"] = "once" if payload.get("delay_seconds") is not None else "interval"
@@ -396,11 +413,7 @@ async def create_schedule(
     if not agent_id or rt.get_agent(agent_id, user_id=user.id) is None:
         raise HTTPException(status_code=404, detail="Agent not found")
     try:
-        job = ScheduleService(db).create_draft(user.id, payload)
-        if payload.get("enabled") is True:
-            callback = lambda spec: _persistent_schedule_trigger(job.id, spec)
-            job = ScheduleService(db).enable(job, rt, callback)
-        return job.to_dict()
+        return ScheduleService(db).create_draft(user.id, payload).to_dict()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -427,9 +440,8 @@ async def enable_schedule(schedule_id: str, db: DBSession = Depends(get_db), use
     job = service.owned(user.id, schedule_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    callback = lambda spec: _persistent_schedule_trigger(job.id, spec)
     try:
-        return service.enable(job, _get_runtime(), callback).to_dict()
+        return service.enable(job, _get_runtime(), _persistent_schedule_callback).to_dict()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -463,6 +475,24 @@ async def schedule_executions(schedule_id: str, limit: int = Query(100, ge=1, le
     if job is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
     return {"schedule_id": job.id, "executions": [item.to_dict() for item in service.executions(job, limit)]}
+
+
+@router.get("/schedules/{schedule_id}/preview")
+async def schedule_preview(schedule_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    service = ScheduleService(db)
+    job = service.owned(user.id, schedule_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"schedule_id": job.id, "timezone": job.timezone, "next_runs": service.preview(job)}
+
+
+def restore_persistent_schedules() -> int:
+    """Called once during backend lifespan; never enables draft schedules."""
+    db = SessionLocal()
+    try:
+        return ScheduleService(db).restore_enabled(_get_runtime(), _persistent_schedule_callback)
+    finally:
+        db.close()
 
 
 @router.delete("/schedules/{job_id}")

@@ -245,6 +245,9 @@ class ModelForgeClient:
     def schedule_executions(self, schedule_id: str) -> list[dict]:
         return self._get(f"/api/v1/agent/schedules/{schedule_id}/executions").get("executions", [])
 
+    def schedule_preview(self, schedule_id: str) -> dict:
+        return self._get(f"/api/v1/agent/schedules/{schedule_id}/preview")
+
     # ---- workspace governance ----
 
     def list_artifacts(self) -> list[dict]:
@@ -256,6 +259,9 @@ class ModelForgeClient:
     def delete_artifact(self, artifact_id: str) -> dict:
         return self._delete(f"/api/v1/workspaces/artifacts/{artifact_id}")
 
+    def get_artifact(self, artifact_id: str) -> dict:
+        return self._get(f"/api/v1/workspaces/artifacts/{artifact_id}")
+
     def list_knowledge_collections(self) -> list[dict]:
         return self._get("/api/v1/workspaces/collections").get("collections", [])
 
@@ -265,17 +271,67 @@ class ModelForgeClient:
     def add_document_to_knowledge_collection(self, collection_id: str, document_id: int) -> dict:
         return self._post(f"/api/v1/workspaces/collections/{collection_id}/documents/{document_id}")
 
+    def get_knowledge_collection(self, collection_id: str) -> dict:
+        return self._get(f"/api/v1/workspaces/collections/{collection_id}")
+
+    def remove_document_from_knowledge_collection(self, collection_id: str, document_id: int) -> dict:
+        return self._delete(f"/api/v1/workspaces/collections/{collection_id}/documents/{document_id}")
+
+    def delete_knowledge_collection(self, collection_id: str) -> dict:
+        return self._delete(f"/api/v1/workspaces/collections/{collection_id}")
+
     def list_plugin_profiles(self) -> list[dict]:
         return self._get("/api/v1/workspaces/plugin-profiles").get("profiles", [])
 
     def create_plugin_profile(self, name: str, plugins: list[str] | None = None, mcp_servers: list[str] | None = None) -> dict:
         return self._post("/api/v1/workspaces/plugin-profiles", json={"name": name, "plugins": plugins or [], "mcp_servers": mcp_servers or []})
 
+    def preview_plugin_profile(self, profile_id: str) -> dict:
+        return self._get(f"/api/v1/workspaces/plugin-profiles/{profile_id}/preview")
+
+    def delete_plugin_profile(self, profile_id: str) -> dict:
+        return self._delete(f"/api/v1/workspaces/plugin-profiles/{profile_id}")
+
     def model_insights(self, days: int = 30) -> dict:
         return self._get("/api/v1/workspaces/insights", params={"days": days})
 
+    def update_model_insight_preferences(self, payload: dict) -> dict:
+        return self._put("/api/v1/workspaces/insights/preferences", json=payload)
+
     def delete_memory(self, memory_id: int) -> dict:
         return self._delete(f"/api/v1/memories/{memory_id}")
+
+    def update_memory(self, memory_id: int, *, value: str | None = None, importance: float | None = None) -> dict:
+        payload = {key: item for key, item in {"value": value, "importance": importance}.items() if item is not None}
+        return self._patch(f"/api/v1/memories/{memory_id}", json=payload)
+
+    def list_agent_templates(self) -> list[dict]:
+        return self._get("/api/v1/agent/templates").get("templates", [])
+
+    def create_agent_template(self, name: str, definition: dict, description: str = "") -> dict:
+        return self._post("/api/v1/agent/templates", json={"name": name, "description": description, "definition": definition})
+
+    def delete_agent_template(self, template_id: str) -> dict:
+        return self._delete(f"/api/v1/agent/templates/{template_id}")
+
+    def agent_versions(self, name: str) -> dict:
+        return self._get(f"/api/v1/agent/{name}/versions")
+
+    def list_runtime_plugins(self) -> list[dict]:
+        return self._get("/api/v1/plugins/runtime").get("plugins", [])
+
+    def plugin_impact(self, name: str) -> dict:
+        return self._get(f"/api/v1/plugins/{name}/impact")
+
+    def plugin_health(self, name: str) -> dict:
+        return self._post(f"/api/v1/plugins/{name}/health")
+
+    def plugin_lifecycle(self, name: str, action: str, *, confirm: bool = False) -> dict:
+        if action not in {"start", "stop", "mount", "unmount", "unload"}:
+            raise ValueError("unsupported plugin lifecycle action")
+        if action == "unload":
+            return self._delete(f"/api/v1/plugins/{name}", json={"confirm": confirm})
+        return self._post(f"/api/v1/plugins/{name}/{action}", json={"confirm": confirm})
 
     # ---- agents / knowledge (basic) ----
 

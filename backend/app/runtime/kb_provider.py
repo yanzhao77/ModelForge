@@ -10,14 +10,24 @@ class KBKnowledgeProvider:
     def __init__(self, kb: Any = None):
         self._kb = kb
 
-    async def retrieve(self, query: str, top_k: int = 3) -> list[dict[str, Any]]:
+    async def retrieve(self, query: str, top_k: int = 3, user_id: int | None = None, knowledge_binding: dict | None = None) -> list[dict[str, Any]]:
         kb = self._kb
         if kb is None:
             from services.knowledge_base import get_global_kb
             kb = get_global_kb()
-        result = kb.query(query, top_k=top_k)
+        if user_id is None:
+            return []
+        from core.database import SessionLocal
+        with SessionLocal() as db:
+            result = kb.query(query, top_k=top_k, db=db, user_id=user_id, knowledge_binding=knowledge_binding)
         return [
-            {"text": r.get("text", ""), "source": r.get("source", "?")}
+            {
+                "text": r.get("text", ""),
+                "source": r.get("source", "?"),
+                "document_id": r.get("document_id"),
+                "chunk_id": r.get("chunk_id"),
+                "collections": r.get("collections", []),
+            }
             for r in (result.get("results") or [])
         ]
 

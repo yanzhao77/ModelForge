@@ -667,15 +667,18 @@ class ScheduledJob(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(160), nullable=False)
     enabled = Column(Boolean, nullable=False, default=False, index=True)
-    schedule_kind = Column(String(24), nullable=False)  # once / interval
+    schedule_kind = Column(String(24), nullable=False)  # once / interval / daily / weekly
     delay_seconds = Column(Float, nullable=True)
     interval_seconds = Column(Float, nullable=True)
     timezone = Column(String(64), nullable=False, default="UTC")
+    schedule_config = Column(Text, nullable=False, default="{}")
+    misfire_policy = Column(String(24), nullable=False, default="skip")
     run_spec = Column(Text, nullable=False, default="{}")
     concurrency_policy = Column(String(24), nullable=False, default="skip")
     max_failures = Column(Integer, nullable=False, default=3)
     failure_count = Column(Integer, nullable=False, default=0)
     runtime_job_id = Column(String(64), nullable=True, index=True)
+    pending_trigger = Column(Boolean, nullable=False, default=False)
     next_run_at = Column(DateTime, nullable=True, index=True)
     last_run_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -692,10 +695,13 @@ class ScheduledJob(Base):
             "delay_seconds": self.delay_seconds,
             "interval_seconds": self.interval_seconds,
             "timezone": self.timezone,
+            "schedule_config": _json.loads(self.schedule_config or "{}"),
+            "misfire_policy": self.misfire_policy,
             "run_spec": _json.loads(self.run_spec or "{}"),
             "concurrency_policy": self.concurrency_policy,
             "max_failures": self.max_failures,
             "failure_count": self.failure_count,
+            "pending_trigger": bool(self.pending_trigger),
             "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
             "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -800,3 +806,40 @@ class ModelMetricBucket(Base):
     input_tokens_estimate = Column(Integer, nullable=False, default=0)
     output_tokens_estimate = Column(Integer, nullable=False, default=0)
     cost_estimate = Column(Float, nullable=False, default=0.0)
+
+
+class ModelInsightPreference(Base):
+    """User-editable, non-secret price metadata and notification-only budgets."""
+
+    __tablename__ = "model_insight_preferences"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    prices_json = Column(Text, nullable=False, default="{}")
+    daily_budget = Column(Float, nullable=True)
+    weekly_budget = Column(Float, nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    def price_table(self) -> dict:
+        import json as _json
+        try:
+            value = _json.loads(self.prices_json or "{}")
+            return value if isinstance(value, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+
+    def estimate_cost(self, model_ref: str, input_tokens: int, output_tokens: int) -> float:
+        item = self.price_table().get(model_ref)
+        if not isinstance(item, dict):
+            return 0.0
+        try:
+            return round((input_tokens * float(item.get("input_per_million", 0)) + output_tokens * float(item.get("output_per_million", 0))) / 1_000_000, 8)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "prices": self.price_table(),
+            "daily_budget": self.daily_budget,
+            "weekly_budget": self.weekly_budget,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }

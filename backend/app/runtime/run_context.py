@@ -35,6 +35,7 @@ class RunContext:
     delegation_max_children: int = 5
     memory_config: dict[str, Any] | None = None
     knowledge_sources: list[str] = field(default_factory=list)
+    knowledge_binding: dict[str, Any] | None = None
     contributions: list[dict[str, Any]] = field(default_factory=list)
     variables: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -60,6 +61,7 @@ class RunContext:
             "input": self.input_text,
             "model": self.model,
             "tools": self.tools,
+            "knowledge_binding": self.knowledge_binding or {},
             "max_iterations": self.max_iterations,
             "max_tool_calls": self.max_tool_calls,
             "timeout_seconds": self.timeout_seconds,

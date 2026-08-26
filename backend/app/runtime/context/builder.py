@@ -98,10 +98,13 @@ class ContextBuilder:
     async def _retrieve_knowledge(self, ctx: RunContext) -> list[dict[str, Any]]:
         if self.knowledge_provider is None:
             return []
-        if not ctx.knowledge_sources:
+        binding = dict(ctx.knowledge_binding or {})
+        if binding.get("mode") == "disabled" or not ctx.knowledge_sources:
             return []
         try:
-            return await self.knowledge_provider.retrieve(ctx.input_text, top_k=3)
+            return await self.knowledge_provider.retrieve(
+                ctx.input_text, top_k=3, user_id=ctx.user_id, knowledge_binding=binding,
+            )
         except Exception:
             return []
 

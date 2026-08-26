@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 import numpy as np
-from models.records import KnowledgeChunk, KnowledgeDocument
+from models.records import KnowledgeChunk, KnowledgeCollection, KnowledgeCollectionDocument, KnowledgeDocument
 
 
 class SimpleEmbedder:
@@ -254,16 +254,48 @@ class KnowledgeBase:
             "type": metadata.get("type", "unknown"),
         }
 
-    def query(self, question: str, top_k: int = 5, db=None, user_id: int | None = None) -> dict:
+    @staticmethod
+    def normalize_binding(binding: dict | None = None) -> dict:
+        """Normalize an explicit knowledge range without broadening access."""
+        raw = dict(binding or {})
+        collection_ids = list(dict.fromkeys(str(item) for item in raw.get("collection_ids") or raw.get("collections") or [] if item))
+        mode = str(raw.get("mode") or ("collections" if collection_ids else "all"))
+        if mode not in {"all", "collections", "disabled"}:
+            raise ValueError("knowledge binding mode must be all, collections, or disabled")
+        if mode == "collections" and not collection_ids:
+            raise ValueError("collections knowledge binding requires collection_ids")
+        return {"mode": mode, "collection_ids": collection_ids}
+
+    def query(self, question: str, top_k: int = 5, db=None, user_id: int | None = None, knowledge_binding: dict | None = None) -> dict:
         self._ensure_loaded(db)
+        binding = self.normalize_binding(knowledge_binding)
+        if binding["mode"] == "disabled":
+            return {"question": question, "results": [], "total_results": 0, "knowledge_binding": binding}
         query_vector = self.embedder.embed(question)
         if db is not None and user_id is not None:
-            rows = (
+            query = (
                 db.query(KnowledgeChunk)
                 .join(KnowledgeDocument, KnowledgeChunk.doc_id == KnowledgeDocument.id)
                 .filter(KnowledgeDocument.user_id == user_id)
-                .all()
             )
+            if binding["mode"] == "collections":
+                query = (
+                    query.join(KnowledgeCollectionDocument, KnowledgeCollectionDocument.document_id == KnowledgeDocument.id)
+                    .join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeCollectionDocument.collection_id)
+                    .filter(KnowledgeCollection.user_id == user_id, KnowledgeCollection.id.in_(binding["collection_ids"]))
+                )
+            rows = query.distinct().all()
+            collection_names: dict[int, list[dict]] = {}
+            if rows:
+                doc_ids = {row.doc_id for row in rows}
+                memberships = (
+                    db.query(KnowledgeCollectionDocument.document_id, KnowledgeCollection.id, KnowledgeCollection.name)
+                    .join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeCollectionDocument.collection_id)
+                    .filter(KnowledgeCollectionDocument.document_id.in_(doc_ids), KnowledgeCollection.user_id == user_id)
+                    .all()
+                )
+                for document_id, collection_id, name in memberships:
+                    collection_names.setdefault(document_id, []).append({"id": collection_id, "name": name})
             vectors = self.embedder.embed_batch([row.content for row in rows]) if rows else []
             ranked = sorted(
                 zip(rows, vectors, strict=False),
@@ -275,6 +307,9 @@ class KnowledgeBase:
                     "text": row.content,
                     "score": float(np.dot(query_vector, vector)),
                     "metadata": json.loads(row.meta) if row.meta else {},
+                    "document_id": row.doc_id,
+                    "chunk_id": row.id,
+                    "collections": collection_names.get(row.doc_id, []),
                 }
                 for row, vector in ranked
                 if float(np.dot(query_vector, vector)) > 0
@@ -289,17 +324,21 @@ class KnowledgeBase:
                     "score": round(item["score"], 4),
                     "source": item["metadata"].get("filename", ""),
                     "chunk_index": item["metadata"].get("chunk_index"),
+                    "document_id": item.get("document_id"),
+                    "chunk_id": item.get("chunk_id"),
+                    "collections": item.get("collections", []),
                 }
                 for item in results
             ],
             "total_results": len(results),
+            "knowledge_binding": binding,
         }
 
     async def answer(
-        self, question: str, top_k: int = 5, db=None, user_id: int | None = None, runtime=None, model: str = "default-model"
+        self, question: str, top_k: int = 5, db=None, user_id: int | None = None, runtime=None, model: str = "default-model", knowledge_binding: dict | None = None
     ) -> dict:
         """RAG answer: retrieve relevant chunks, then generate with the runtime."""
-        query_result = self.query(question, top_k=top_k, db=db, user_id=user_id)
+        query_result = self.query(question, top_k=top_k, db=db, user_id=user_id, knowledge_binding=knowledge_binding)
         sources = query_result["results"]
         if not sources:
             return {"answer": "知识库中没有找到相关内容。", "sources": []}

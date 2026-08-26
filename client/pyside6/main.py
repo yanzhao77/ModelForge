@@ -20,9 +20,11 @@ from i18n.ui_localizer import localize_tree
 from pages.activity_page import ActivityPage
 from pages.automation_page import AutomationPage
 from pages.agent_page import AgentPage
+from pages.agent_workbench_page import AgentWorkbenchPage
 from pages.chat_page import ChatPage
 from pages.control_center_page import ControlCenterPage
 from pages.dataset_page import DatasetPage
+from pages.extensions_page import ExtensionsPage
 from pages.knowledge_page import KnowledgePage
 from pages.login_dialog import LoginDialog
 from pages.model_dialogs import DownloadDialog, ModelCenterDialog
@@ -57,6 +59,8 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         "training": "训练",
         "knowledge": "知识库",
         "agents": "智能体",
+        "workbench": "Agent 工作台",
+        "extensions": "扩展治理",
         "tasks": "任务",
         "runtime": "运行时",
         "activity": "活动",
@@ -127,9 +131,12 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.training_page = TrainingPage(self.api)
         self.knowledge_page = KnowledgePage(self.api)
         self.agent_page = AgentPage(self.api, self.readiness_store)
+        self.agent_workbench_page = AgentWorkbenchPage(self.api)
+        self.agent_workbench_page.navigate_requested.connect(self._navigate_to)
         self.activity_page = ActivityPage(self.task_store)
         self.control_center_page = ControlCenterPage(self.api)
         self.automation_page = AutomationPage(self.api)
+        self.extensions_page = ExtensionsPage(self.api)
         self.settings_page = SettingsPage(
             self.api,
             APP_VERSION,
@@ -145,10 +152,12 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             "training": self.training_page,
             "knowledge": self.knowledge_page,
             "agents": self.agent_page,
+            "workbench": self.agent_workbench_page,
             "runtime": self.runtime_page,
             "activity": self.activity_page,
             "control": self.control_center_page,
             "automation": self.automation_page,
+            "extensions": self.extensions_page,
             "settings": self.settings_page,
         }
         for page in dict.fromkeys(self._pages.values()):
@@ -165,6 +174,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
 
     def _retranslate(self, _locale: str) -> None:
         self.shell.retranslate()
+        localize_tree(self, self.translator)
         self._navigate_to(self.active_destination)
 
     def _init_shortcuts(self) -> None:
@@ -188,8 +198,10 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 "training",
                 "knowledge",
                 "agents",
+                "workbench",
                 "automation",
                 "control",
+                "extensions",
                 "activity",
                 "runtime",
                 "settings",

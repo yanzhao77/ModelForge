@@ -61,6 +61,12 @@ class AutomationPage(QWidget):
         self.run_button = QPushButton("立即运行")
         self.run_button.clicked.connect(self._run_now)
         actions.addWidget(self.run_button)
+        self.preview_button = QPushButton("查看下五次")
+        self.preview_button.clicked.connect(self._preview)
+        actions.addWidget(self.preview_button)
+        self.history_button = QPushButton("查看执行历史")
+        self.history_button.clicked.connect(self._history)
+        actions.addWidget(self.history_button)
         self.delete_button = QPushButton("删除计划")
         self.delete_button.clicked.connect(self._delete)
         actions.addWidget(self.delete_button)
@@ -86,7 +92,7 @@ class AutomationPage(QWidget):
         self.list.clear()
         for job in self._jobs:
             state = "已启用" if job.get("enabled") else "草稿/暂停"
-            kind = "一次" if job.get("schedule_kind") == "once" else "间隔"
+            kind = {"once": "一次", "interval": "间隔", "daily": "每日", "weekly": "每周"}.get(job.get("schedule_kind"), "自定义")
             self.list.addItem(QListWidgetItem(f"{job.get('name', '未命名')} · {state} · {kind}"))
         self._render_detail(self.list.currentRow())
 
@@ -103,8 +109,11 @@ class AutomationPage(QWidget):
             f"Agent：{spec.get('agent_id', '—')}\n"
             f"状态：{'已启用' if job.get('enabled') else '草稿/已暂停'}\n"
             f"下次执行：{job.get('next_run_at') or '启用后计算'}\n"
+            f"时区：{job.get('timezone', 'UTC')}\n"
+            f"错过触发：{job.get('misfire_policy', 'skip')}（不补跑）\n"
             f"并发策略：{job.get('concurrency_policy', 'skip')}\n"
-            f"失败次数：{job.get('failure_count', 0)}/{job.get('max_failures', 3)}"
+            f"失败次数：{job.get('failure_count', 0)}/{job.get('max_failures', 3)}\n"
+            f"待处理触发：{'是' if job.get('pending_trigger') else '否'}"
         )
 
     def _create_draft(self):
@@ -134,6 +143,37 @@ class AutomationPage(QWidget):
         if QMessageBox.question(self, "确认立即运行", "这会创建一个新的 Agent Run。是否继续？") != QMessageBox.Yes:
             return
         self._call(lambda: self.api.run_schedule_now(job["id"]), "已创建新的 Agent Run。")
+
+    def _preview(self):
+        job = self._selected()
+        if not job:
+            return
+        worker = ApiWorker(lambda: self.api.schedule_preview(job["id"]))
+        worker.succeeded.connect(lambda data: QMessageBox.information(
+            self,
+            "计划预览",
+            "时区：" + str(data.get("timezone", "UTC")) + "\n\n" + "\n".join(data.get("next_runs") or ["暂无后续执行。"]),
+        ))
+        worker.failed.connect(lambda message: QMessageBox.warning(self, "计划预览", str(message)))
+        worker.start()
+        self._worker = worker
+
+    def _history(self):
+        job = self._selected()
+        if not job:
+            return
+        worker = ApiWorker(lambda: self.api.schedule_executions(job["id"]))
+        worker.succeeded.connect(lambda items: QMessageBox.information(
+            self,
+            "计划执行历史",
+            "\n\n".join(
+                f"{item.get('created_at', '—')}\n状态：{item.get('status', '—')} · 触发：{item.get('trigger_kind', '—')}\nRun：{item.get('run_id') or '—'}\n错误：{item.get('error') or '无'}"
+                for item in items
+            ) or "暂无执行历史。读取历史不会创建 Agent Run。",
+        ))
+        worker.failed.connect(lambda message: QMessageBox.warning(self, "计划执行历史", str(message)))
+        worker.start()
+        self._worker = worker
 
     def _delete(self):
         job = self._selected()

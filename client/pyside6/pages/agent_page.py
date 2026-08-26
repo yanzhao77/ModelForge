@@ -353,6 +353,12 @@ class AgentPage(QWidget, AsyncApiMixin):
         if not task:
             QMessageBox.warning(self, "提示", "请输入任务描述")
             return
+        if QMessageBox.question(
+            self,
+            "确认运行 Agent",
+            f"将为 Agent“{agent}”创建新的 Run 并调用已选模型。\n\n任务：{task[:500]}\n\n是否继续？",
+        ) != QMessageBox.StandardButton.Yes:
+            return
         self._set_run_busy(True)
         self.status.setText(f"正在启动 {agent}…")
         self._run_api(

@@ -225,6 +225,20 @@ class AgentRuntime:
                 finished_at=datetime.datetime.utcnow(),
             )
             self.metrics.on_run_finished(status, duration)
+            try:
+                from services.model_metrics import ModelMetricRecorder
+                target = agent.model_target or {}
+                ModelMetricRecorder.record(
+                    user_id=run.user_id,
+                    model=run.model or agent.model,
+                    remote=target.get("kind") == "remote",
+                    latency_ms=duration * 1000,
+                    success=status == "COMPLETED",
+                    token_usage=outcome.get("token_usage") or {},
+                    error=outcome.get("error") if status != "COMPLETED" else None,
+                )
+            except Exception:
+                pass
         finally:
             # audit P0-5: run bookkeeping is always released even if finalize throws
             self._cancellations.pop(run_id, None)
@@ -619,6 +633,7 @@ class AgentRuntime:
             tool_timeout=float(self.settings.tools.default_timeout_seconds),
             memory_config=profile["memory_config"],
             knowledge_sources=profile["knowledge_sources"],
+            knowledge_binding=profile["knowledge_binding"],
             contributions=profile.get("contributions") or [],
             metadata=meta,
             started_at=time.monotonic(),
@@ -660,6 +675,14 @@ class AgentRuntime:
         tools = list(agent.tools or [])
         sys_prompt = agent.system_prompt
         knowledge = dict(agent.knowledge_config or {})
+        collection_ids = list(dict.fromkeys(str(item) for item in knowledge.get("collection_ids") or [] if item))
+        binding = dict(knowledge.get("binding") or {})
+        if collection_ids and not binding:
+            binding = {"mode": "collections", "collection_ids": collection_ids}
+        if not binding:
+            binding = {"mode": "all"}
+        if binding.get("mode") == "collections":
+            binding["collection_ids"] = list(dict.fromkeys(str(item) for item in binding.get("collection_ids") or collection_ids if item))
         memory = dict(agent.memory_config or {}) if agent.memory_config else None
         policy = dict(agent.policy or {}) if agent.policy else {}
         contributions: list[dict[str, Any]] = []
@@ -693,7 +716,8 @@ class AgentRuntime:
             "tools": tools,
             "system_prompt": sys_prompt,
             "knowledge_config": knowledge,
-            "knowledge_sources": list(knowledge.get("sources") or []),
+            "knowledge_sources": list(knowledge.get("sources") or (["bound_collections"] if binding.get("mode") == "collections" else [])),
+            "knowledge_binding": binding,
             "memory_config": memory,
             "policy": policy,
             "contributions": contributions,

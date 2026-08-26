@@ -1,8 +1,10 @@
 """Unified chat service with optional user-scoped remote provider override."""
+import time
 from collections.abc import AsyncIterator
 
 from models.records import User
 from services.memory_store import MemoryStore
+from services.model_metrics import ModelMetricRecorder
 from services.runtime_registry import RuntimeRegistry
 from services.runtimes.openai_api_runtime import OpenAIRuntime
 from services.session_service import SessionService
@@ -56,7 +58,13 @@ def _persist(db: DBSession, session, user_message: str, response: str) -> None:
 
 async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None) -> dict:
     session, full_messages, user_message = _context(db, user, session_id, messages)
-    result = await _runtime(runtime, provider).chat(model, full_messages)
+    started = time.monotonic()
+    try:
+        result = await _runtime(runtime, provider).chat(model, full_messages)
+    except Exception as exc:
+        ModelMetricRecorder.record(user_id=user.id if user else None, model=model, remote=provider is not None, latency_ms=(time.monotonic() - started) * 1000, success=False, error=exc)
+        raise
+    ModelMetricRecorder.record(user_id=user.id if user else None, model=model, remote=provider is not None, latency_ms=(time.monotonic() - started) * 1000, success=True, token_usage=result.get("usage") or result.get("token_usage"))
     response = result.get("content", "")
     _persist(db, session, user_message, response)
     return {"response": response, "session_id": session.id if session else None, **result}
@@ -67,15 +75,21 @@ async def stream_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messa
     selected = _runtime(runtime, provider)
     stream_fn = getattr(selected, "stream_chat", None)
     parts: list[str] = []
-    if stream_fn is not None:
-        async for chunk in stream_fn(model, full_messages):
-            parts.append(chunk)
-            yield {"type": "delta", "data": chunk}
-    else:
-        result = await selected.chat(model, full_messages)
-        content = result.get("content", "")
-        parts.append(content)
-        yield {"type": "delta", "data": content}
+    started = time.monotonic()
+    try:
+        if stream_fn is not None:
+            async for chunk in stream_fn(model, full_messages):
+                parts.append(chunk)
+                yield {"type": "delta", "data": chunk}
+        else:
+            result = await selected.chat(model, full_messages)
+            content = result.get("content", "")
+            parts.append(content)
+            yield {"type": "delta", "data": content}
+    except Exception as exc:
+        ModelMetricRecorder.record(user_id=user.id if user else None, model=model, remote=provider is not None, latency_ms=(time.monotonic() - started) * 1000, success=False, error=exc)
+        raise
     full_response = "".join(parts)
+    ModelMetricRecorder.record(user_id=user.id if user else None, model=model, remote=provider is not None, latency_ms=(time.monotonic() - started) * 1000, success=True)
     _persist(db, session, user_message, full_response)
     yield {"type": "done", "data": {"response": full_response, "session_id": session.id if session else None}}

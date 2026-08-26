@@ -152,12 +152,16 @@ class MemoryStore:
         return True
 
     @staticmethod
-    def update_memory_importance(
-        db: DBSession, memory_id: int, importance: float
-    ) -> bool:
-        memory = db.query(Memory).filter(Memory.id == memory_id).first()
+    def update_memory(
+        db: DBSession, memory_id: int, user_id: int, *, value: str | None = None, importance: float | None = None
+    ) -> Memory | None:
+        memory = db.query(Memory).filter(Memory.id == memory_id, Memory.user_id == user_id).first()
         if not memory:
-            return False
-        memory.importance = max(0.0, min(1.0, importance))
+            return None
+        if value is not None:
+            memory.value = value
+        if importance is not None:
+            memory.importance = max(0.0, min(1.0, importance))
         db.commit()
-        return True
+        db.refresh(memory)
+        return memory

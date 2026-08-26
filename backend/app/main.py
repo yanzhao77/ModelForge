@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI):
     init_agent_runtime(agent_runtime)
     agent.set_agent_runtime(agent_runtime)
     agent_runtime.start()
+    agent.restore_persistent_schedules()
     try:
         yield
     finally:

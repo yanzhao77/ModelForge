@@ -4,7 +4,7 @@ from core.database import get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from services.memory_store import MemoryStore
 from sqlalchemy.orm import Session as DBSession
 
@@ -19,8 +19,8 @@ class MemoryCreate(BaseModel):
 
 
 class MemoryUpdate(BaseModel):
-    importance: float | None = None
-    value: str | None = None
+    importance: float | None = Field(default=None, ge=0.0, le=1.0)
+    value: str | None = Field(default=None, min_length=1, max_length=200000)
 
 
 @router.get("")
@@ -57,9 +57,10 @@ def update_memory(
     memory_id: int, req: MemoryUpdate, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if req.importance is not None:
-        MemoryStore.update_memory_importance(db, memory_id, req.importance)
-    return {"ok": True}
+    memory = MemoryStore.update_memory(db, memory_id, user.id, value=req.value, importance=req.importance)
+    if memory is None:
+        raise HTTPException(status_code=404, detail="记忆不存在")
+    return memory.to_dict()
 
 
 @router.delete("/{memory_id}")
