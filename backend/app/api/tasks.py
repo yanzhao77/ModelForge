@@ -14,6 +14,8 @@ from services.task_service import TaskConflict, TaskService, project_legacy_task
 from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+_SSE_REPLAY_BATCH = 100
+_SSE_MAX_EVENTS_PER_CONNECTION = 1000
 service = TaskService()
 executor = TaskExecutionService(service)
 
@@ -95,18 +97,24 @@ def stream_tasks(
 
     def event_generator():
         nonlocal cursor
+        delivered = 0
+        yield "retry: 1000\n\n"
         while True:
             db = SessionLocal()
             try:
-                events = service.events_after(db, user.id, cursor)
+                events = service.events_after(db, user.id, cursor, limit=_SSE_REPLAY_BATCH)
             finally:
                 db.close()
             if events:
                 for event in events:
                     cursor = event.id
+                    delivered += 1
                     payload = event.to_dict()
                     import json
                     yield f"id: {event.id}\nevent: {event.event_type}\ndata: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+                    if delivered >= _SSE_MAX_EVENTS_PER_CONNECTION:
+                        yield f"event: resync_required\ndata: {{\"after_id\":{cursor},\"reason\":\"connection_batch_limit\"}}\n\n"
+                        return
                 continue
             # The outbox hub wakes early when a committed event becomes available.
             task_event_hub.wait_for_user(user.id, cursor, timeout=10.0)

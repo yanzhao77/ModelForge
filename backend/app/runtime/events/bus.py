@@ -19,14 +19,15 @@ class EventBus:
     writer (store) so clients can reconnect and resume (spec 30 / 31).
     """
 
-    def __init__(self, store: Any | None = None):
+    def __init__(self, store: Any | None = None, queue_maxsize: int = 512):
         self._store = store
         self._subscribers: list[Subscriber] = []
         self._sequences: dict[str, int] = {}
-        self._queue = asyncio.Queue()
+        self._queue = asyncio.Queue(maxsize=max(1, queue_maxsize))
         self._writer_task: asyncio.Task | None = None
         self._started = False
         self._write_failures = 0
+        self._queue_overflows = 0
 
     # ---- lifecycle ----
     def start(self) -> None:
@@ -74,6 +75,13 @@ class EventBus:
         session_id: int | None = None,
         correlation_id: str | None = None,
     ) -> AgentEvent:
+        if run_id not in self._sequences and self._store is not None:
+            try:
+                self._sequences[run_id] = max(0, int(self._store.last_sequence(run_id)))
+            except Exception:
+                # Store availability must not block live events; the writer
+                # failure counter still exposes any later persistence problem.
+                self._sequences[run_id] = 0
         seq = self._sequences.get(run_id, 0) + 1
         self._sequences[run_id] = seq
         event = AgentEvent(
@@ -84,11 +92,21 @@ class EventBus:
             payload=payload or {},
             session_id=session_id,
             correlation_id=correlation_id,
+            event_key=f"{event_type}:{seq}",
         )
         if self._store is not None:
             if self._writer_task is None:
                 self._writer_task = asyncio.get_running_loop().create_task(self._writer())
-            self._queue.put_nowait(event)
+            try:
+                self._queue.put_nowait(event)
+            except asyncio.QueueFull:
+                # Do not silently discard a durable run fact. The bounded queue
+                # protects memory; overflow falls back to one direct append and
+                # remains observable for operational review.
+                self._queue_overflows += 1
+                result = self._store.append(event)
+                if inspect.isawaitable(result):
+                    await result
         for sub in list(self._subscribers):
             try:
                 await sub(event)
@@ -113,6 +131,11 @@ class EventBus:
     def write_failures(self) -> int:
         """Count of persistence write failures (audit P0-4 observability)."""
         return self._write_failures
+
+    @property
+    def queue_overflows(self) -> int:
+        """Count synchronous overflow fallbacks; non-zero needs operator review."""
+        return self._queue_overflows
 
     def prune(self, run_id: str) -> None:
         """Drop per-run bookkeeping once the run is terminal (audit P0-3)."""

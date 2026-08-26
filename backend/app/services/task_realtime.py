@@ -6,8 +6,9 @@ latency; clients always replay TaskEvent rows from their last cursor on reconnec
 from __future__ import annotations
 
 import threading
+import uuid
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from core.database import SessionLocal
 from models.records import TaskOutbox
@@ -41,9 +42,10 @@ class TaskOutboxPublisher:
     client twice, but SSE event IDs make duplicate application idempotent.
     """
 
-    def __init__(self, poll_interval: float = 0.15, batch_size: int = 100):
+    def __init__(self, poll_interval: float = 0.15, batch_size: int = 100, lease_seconds: float = 15.0):
         self.poll_interval = poll_interval
         self.batch_size = batch_size
+        self.lease_seconds = lease_seconds
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
@@ -73,30 +75,62 @@ class TaskOutboxPublisher:
     def dispatch_once(self) -> int:
         db = SessionLocal()
         try:
+            now = datetime.utcnow()
             rows = (
                 db.query(TaskOutbox)
-                .filter(TaskOutbox.dispatched_at.is_(None))
+                .filter(
+                    TaskOutbox.dispatched_at.is_(None),
+                    (TaskOutbox.lease_expires_at.is_(None) | (TaskOutbox.lease_expires_at < now)),
+                    (TaskOutbox.next_attempt_at.is_(None) | (TaskOutbox.next_attempt_at <= now)),
+                )
                 .order_by(TaskOutbox.id.asc())
                 .limit(self.batch_size)
                 .all()
             )
             if not rows:
                 return 0
+            claimed = []
             for row in rows:
+                token = uuid.uuid4().hex
+                row.lease_token = token
+                row.lease_expires_at = now + timedelta(seconds=max(1.0, self.lease_seconds))
+                claimed.append((row.id, token))
+            db.commit()
+            delivered = 0
+            for row_id, token in claimed:
+                row = (
+                    db.query(TaskOutbox)
+                    .filter(TaskOutbox.id == row_id, TaskOutbox.lease_token == token, TaskOutbox.dispatched_at.is_(None))
+                    .first()
+                )
+                if row is None:
+                    continue
                 row.attempts += 1
                 try:
                     task_event_hub.publish(row.user_id, row.event_id)
                     row.dispatched_at = datetime.utcnow()
                     row.last_error = None
+                    row.lease_token = None
+                    row.lease_expires_at = None
+                    row.next_attempt_at = None
+                    delivered += 1
                 except Exception as exc:  # Keep row pending for a later attempt.
                     row.last_error = str(exc)[:2000]
+                    row.lease_token = None
+                    row.lease_expires_at = None
+                    row.next_attempt_at = datetime.utcnow() + timedelta(seconds=self._backoff_seconds(row.attempts))
             db.commit()
-            return len(rows)
+            return delivered
         except Exception:
             db.rollback()
             return 0
         finally:
             db.close()
+
+    @staticmethod
+    def _backoff_seconds(attempts: int) -> float:
+        """Bound retry delay so a failing notifier cannot spin on one row."""
+        return min(30.0, 0.25 * (2 ** min(7, max(0, attempts - 1))))
 
 
 task_outbox_publisher = TaskOutboxPublisher()

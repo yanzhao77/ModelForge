@@ -112,6 +112,7 @@ class AgentRuntime:
         # per-run bookkeeping (no globals, spec 58)
         self._cancellations: dict[str, CancellationToken] = {}
         self._running: set = set()
+        self._run_tasks: dict[str, asyncio.Task] = {}
         self._approvals: dict[str, asyncio.Event] = {}
         self._approval_grants: dict[str, bool] = {}
         self._created_events: set = set()
@@ -138,6 +139,16 @@ class AgentRuntime:
         self._started = False
         for token in list(self._cancellations.values()):
             token.cancel()
+        if self._run_tasks:
+            pending = list(self._run_tasks.values())
+            try:
+                await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=5.0)
+            except asyncio.TimeoutError:
+                for task in pending:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+        self._run_tasks.clear()
         if self.scheduler is not None and hasattr(self.scheduler, "stop"):
             await self.scheduler.stop()
         if self.event_bus is not None:
@@ -173,7 +184,7 @@ class AgentRuntime:
         self.run_store.create(run)
         self._spawn(self._emit_created(run))
         if execute:
-            self._spawn(self.execute_run(run.run_id))
+            self._spawn(self.execute_run(run.run_id), run_id=run.run_id)
         log_run(self.logger, 20, "run created", run_id=run.run_id, agent_id=agent_id)
         return run
 
@@ -183,8 +194,17 @@ class AgentRuntime:
             raise RunNotFoundError(run_id)
         if run.status in RunStatus.terminal():
             return {"status": run.status, "output": run.output, "error": run.error}
-        # idempotency: another task may already be executing this run (spec 58)
-        if run.status == "RUNNING" or run_id in self._running:
+        lease_id = uuid.uuid4().hex
+        claim = getattr(self.run_store, "claim_execution", None)
+        if callable(claim):
+            claimed = claim(run_id, lease_id=lease_id)
+            if claimed is None:
+                latest = self.run_store.get(run_id) or run
+                return {"status": latest.status, "output": latest.output, "error": latest.error}
+            run = claimed
+        elif run.status == "RUNNING" or run_id in self._running:
+            # Compatibility fallback for non-SQL stores. The SQL store uses the
+            # durable claim above as the execution authority.
             return {"status": run.status, "output": run.output, "error": run.error}
 
         agent = self.agent_store.get(run.agent_id)
@@ -196,8 +216,9 @@ class AgentRuntime:
         self._cancellations[run_id] = token
         self._running.add(run_id)
         await self._emit_created(run)
-        now = datetime.datetime.utcnow()
-        self.run_store.update(run_id, status="RUNNING", started_at=now)
+        if not callable(claim):
+            now = datetime.datetime.utcnow()
+            self.run_store.update(run_id, status="RUNNING", started_at=now)
         await self._publish(run_id, "run.started", {"agent_id": run.agent_id, "model": run.model})
 
         try:
@@ -214,16 +235,36 @@ class AgentRuntime:
             outcome = await self.engine.execute(ctx, provider)
             duration = time.monotonic() - started
             status = outcome["status"]
-            self.run_store.update(
-                run_id,
-                status=status,
-                output=outcome.get("output") or None,
-                error=outcome.get("error"),
-                token_usage=outcome.get("token_usage") or {},
-                tool_call_count=outcome.get("tool_call_count", 0),
-                iteration_count=outcome.get("iteration", 0),
-                finished_at=datetime.datetime.utcnow(),
-            )
+            finalize = getattr(self.run_store, "compare_and_set", None)
+            if callable(finalize):
+                finalized = finalize(
+                    run_id,
+                    expected_version=run.state_version,
+                    to_status=status,
+                    lease_id=lease_id,
+                    terminal=True,
+                    output=outcome.get("output") or None,
+                    error=outcome.get("error"),
+                    token_usage=outcome.get("token_usage") or {},
+                    tool_call_count=outcome.get("tool_call_count", 0),
+                    iteration_count=outcome.get("iteration", 0),
+                )
+                if finalized is None:
+                    latest = self.run_store.get(run_id) or run
+                    return {"status": latest.status, "output": latest.output, "error": latest.error}
+                run = finalized
+                status = run.status
+            else:
+                self.run_store.update(
+                    run_id,
+                    status=status,
+                    output=outcome.get("output") or None,
+                    error=outcome.get("error"),
+                    token_usage=outcome.get("token_usage") or {},
+                    tool_call_count=outcome.get("tool_call_count", 0),
+                    iteration_count=outcome.get("iteration", 0),
+                    finished_at=datetime.datetime.utcnow(),
+                )
             self.metrics.on_run_finished(status, duration)
             try:
                 from services.model_metrics import ModelMetricRecorder
@@ -236,6 +277,9 @@ class AgentRuntime:
                     success=status == "COMPLETED",
                     token_usage=outcome.get("token_usage") or {},
                     error=outcome.get("error") if status != "COMPLETED" else None,
+                    emission_key=f"{run_id}:{run.state_version}",
+                    run_id=run_id,
+                    state_version=run.state_version,
                 )
             except Exception:
                 pass
@@ -288,8 +332,19 @@ class AgentRuntime:
         token = self._cancellations.get(run_id)
         if token is not None:
             token.cancel()
-        finished = datetime.datetime.utcnow()
-        self.run_store.update(run_id, status="CANCELLED", finished_at=finished)
+        approval_event = self._approvals.get(run_id)
+        if approval_event is not None:
+            approval_event.set()
+        cancel = getattr(self.run_store, "cancel_with_cas", None)
+        if callable(cancel):
+            cancelled = cancel(run_id)
+            if cancelled is None:
+                return self.run_store.get(run_id) or run
+            run = cancelled
+        else:
+            finished = datetime.datetime.utcnow()
+            self.run_store.update(run_id, status="CANCELLED", finished_at=finished)
+            run = self.run_store.get(run_id) or run
         self._cancellations.pop(run_id, None)
         self._running.discard(run_id)
         self._delegation_counts.pop(run_id, None)
@@ -303,7 +358,7 @@ class AgentRuntime:
                     await self.cancel_run(child.run_id, user_id=user_id)
                 except Exception:
                     continue
-        return self.run_store.get(run_id)
+        return self.run_store.get(run_id) or run
 
     def get_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.run_store.get(run_id)
@@ -339,7 +394,21 @@ class AgentRuntime:
             return bool(self._approval_grants.pop(run_id, False))
         await self._publish(run_id, "human.approval.required", {"tool": tool_name})
         await self._flush_audit_events()
-        self.run_store.update(run_id, status="WAITING_HUMAN")
+        current = self.run_store.get(run_id)
+        transition = getattr(self.run_store, "compare_and_set", None)
+        if current is None:
+            return False
+        if callable(transition):
+            waiting = transition(
+                run_id,
+                expected_version=current.state_version,
+                to_status="WAITING_HUMAN",
+                lease_id=current.executor_lease_id,
+            )
+            if waiting is None:
+                return False
+        else:
+            self.run_store.update(run_id, status="WAITING_HUMAN")
         event = asyncio.Event()
         self._approvals[run_id] = event
         self._approval_grants[run_id] = False
@@ -352,11 +421,26 @@ class AgentRuntime:
             granted = bool(self._approval_grants.pop(run_id, False))
         self._approvals.pop(run_id, None)
         self._approval_grants.pop(run_id, None)
-        self.run_store.update(run_id, status="RUNNING")
+        current = self.run_store.get(run_id)
+        if current is None or current.status != "WAITING_HUMAN":
+            return False
+        if callable(transition):
+            resumed = transition(
+                run_id,
+                expected_version=current.state_version,
+                to_status="RUNNING",
+                lease_id=current.executor_lease_id,
+            )
+            if resumed is None:
+                return False
+        else:
+            self.run_store.update(run_id, status="RUNNING")
         return granted
 
     async def approve_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.get_run(run_id, user_id=user_id)
+        if run.status != "WAITING_HUMAN":
+            return run
         self._approval_grants[run_id] = True
         await self._publish(run_id, "human.approval.granted", {"tool": None})
         await self._flush_audit_events()
@@ -367,6 +451,8 @@ class AgentRuntime:
 
     async def reject_run(self, run_id: str, user_id: int | None = None) -> RunRecord:
         run = self.get_run(run_id, user_id=user_id)
+        if run.status != "WAITING_HUMAN":
+            return run
         self._approval_grants[run_id] = False
         await self._publish(run_id, "human.approval.denied", {"tool": None})
         await self._flush_audit_events()
@@ -724,9 +810,25 @@ class AgentRuntime:
         }
 
     async def _fail(self, run_id: str, code: str, message: str, status: str) -> None:
-        self.run_store.update(
-            run_id, status=status, error=f"{code}: {message}", finished_at=datetime.datetime.utcnow(),
-        )
+        run = self.run_store.get(run_id)
+        if run is None:
+            return
+        finalize = getattr(self.run_store, "compare_and_set", None)
+        if callable(finalize):
+            finalized = finalize(
+                run_id,
+                expected_version=run.state_version,
+                to_status=status,
+                lease_id=run.executor_lease_id,
+                terminal=True,
+                error=f"{code}: {message}",
+            )
+            if finalized is None:
+                return
+        else:
+            self.run_store.update(
+                run_id, status=status, error=f"{code}: {message}", finished_at=datetime.datetime.utcnow(),
+            )
         await self._publish(run_id, "run.failed", {"code": code, "error": message})
         self._cancellations.pop(run_id, None)
         self._running.discard(run_id)
@@ -744,15 +846,20 @@ class AgentRuntime:
         if self.event_bus is not None:
             await self.event_bus.publish(run_id, event_type, payload=payload)
 
-    def _spawn(self, coro: Any) -> None:
+    def _spawn(self, coro: Any, run_id: str | None = None) -> asyncio.Task | None:
         try:
             loop = asyncio.get_running_loop()
             task = loop.create_task(coro)
-            task.add_done_callback(self._on_task_done)
+            if run_id is not None:
+                self._run_tasks[run_id] = task
+            task.add_done_callback(lambda finished: self._on_task_done(finished, run_id=run_id))
+            return task
         except RuntimeError:
-            pass
+            return None
 
-    def _on_task_done(self, task: asyncio.Task) -> None:
+    def _on_task_done(self, task: asyncio.Task, run_id: str | None = None) -> None:
+        if run_id is not None and self._run_tasks.get(run_id) is task:
+            self._run_tasks.pop(run_id, None)
         if task.cancelled():
             return
         exc = task.exception()

@@ -6,9 +6,10 @@ import json
 import uuid
 from typing import Any
 
+from core.api_contracts import correlation_id, operation_result, problem
 from core.database import get_db
 from core.security import get_current_user
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from models.records import (
     AgentRun,
     KnowledgeCollection,
@@ -21,9 +22,30 @@ from models.records import (
     User,
 )
 from services.redaction import redact_data, redact_text
+from services.audit_log import record_operation
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+class CollectionCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=10000)
+    tags: list[str] = Field(default_factory=list, max_length=32)
+
+
+class PluginProfileCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    plugins: list[str] = Field(default_factory=list, max_length=128)
+    mcp_servers: list[Any] = Field(default_factory=list, max_length=128)
+    tool_allowlist: list[str] = Field(default_factory=list, max_length=256)
+
+
+class ModelInsightPreferenceRequest(BaseModel):
+    prices: dict[str, dict[str, float]] = Field(default_factory=dict)
+    daily_budget: float | None = Field(default=None, ge=0.0)
+    weekly_budget: float | None = Field(default=None, ge=0.0)
 
 
 @router.get("/artifacts")
@@ -36,33 +58,37 @@ async def list_artifacts(db: Session = Depends(get_db), user: User = Depends(get
 async def capture_run_artifact(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     run = db.query(AgentRun).filter(AgentRun.run_id == run_id, AgentRun.user_id == user.id).first()
     if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise problem(404, "RUN_NOT_FOUND", "Run not found")
     try:
         raw_metadata = json.loads(run.meta or "{}")
     except (TypeError, ValueError):
         raw_metadata = {}
     payload = redact_data({"run_id": run.run_id, "agent_id": run.agent_id, "status": run.status, "output": run.output or "", "error": run.error or "", "metadata": raw_metadata})
     item = RunArtifact(id=uuid.uuid4().hex, user_id=user.id, source_kind="agent_run", source_id=run.run_id, artifact_type="run_summary", title=f"Run {run.run_id}", content_json=json.dumps(payload, ensure_ascii=False), content_text=redact_text(run.output or ""), redacted=True)
+    correlation = correlation_id()
     db.add(item)
+    record_operation(db, user_id=user.id, action="artifact.capture", object_type="run_artifact", object_id=item.id, correlation_id=correlation, metadata={"source_kind": item.source_kind, "source_id": item.source_id, "redacted": True})
     db.commit()
-    return {"id": item.id, "title": item.title, "redacted": True}
+    return operation_result({"id": item.id, "title": item.title, "redacted": True}, correlation)
 
 
 @router.delete("/artifacts/{artifact_id}")
 async def delete_artifact(artifact_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     item = db.query(RunArtifact).filter(RunArtifact.id == artifact_id, RunArtifact.user_id == user.id).first()
     if item is None:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise problem(404, "ARTIFACT_NOT_FOUND", "Artifact not found")
+    correlation = correlation_id()
+    record_operation(db, user_id=user.id, action="artifact.delete", object_type="run_artifact", object_id=item.id, correlation_id=correlation, metadata={"title": item.title})
     db.delete(item)
     db.commit()
-    return {"ok": True}
+    return operation_result({"ok": True}, correlation)
 
 
 @router.get("/artifacts/{artifact_id}")
 async def get_artifact(artifact_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     item = db.query(RunArtifact).filter(RunArtifact.id == artifact_id, RunArtifact.user_id == user.id).first()
     if item is None:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise problem(404, "ARTIFACT_NOT_FOUND", "Artifact not found")
     try:
         content = json.loads(item.content_json or "{}")
     except (TypeError, ValueError):
@@ -91,14 +117,16 @@ async def list_collections(db: Session = Depends(get_db), user: User = Depends(g
 
 
 @router.post("/collections")
-async def create_collection(req: dict[str, Any], db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    name = str(req.get("name") or "").strip()
+async def create_collection(req: CollectionCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    name = req.name.strip()
     if not name:
-        raise HTTPException(status_code=422, detail="Collection name required")
-    item = KnowledgeCollection(id=uuid.uuid4().hex, user_id=user.id, name=name, description=req.get("description"), tags_json=json.dumps(req.get("tags") or [], ensure_ascii=False))
+        raise problem(422, "COLLECTION_NAME_REQUIRED", "Collection name required")
+    correlation = correlation_id()
+    item = KnowledgeCollection(id=uuid.uuid4().hex, user_id=user.id, name=name, description=req.description, tags_json=json.dumps(req.tags, ensure_ascii=False))
     db.add(item)
+    record_operation(db, user_id=user.id, action="collection.create", object_type="knowledge_collection", object_id=item.id, correlation_id=correlation, metadata={"name": name, "tag_count": len(req.tags)})
     db.commit()
-    return {"id": item.id, "name": item.name}
+    return operation_result({"id": item.id, "name": item.name}, correlation)
 
 
 @router.post("/collections/{collection_id}/documents/{document_id}")
@@ -106,19 +134,22 @@ async def add_collection_document(collection_id: str, document_id: int, db: Sess
     collection = db.query(KnowledgeCollection).filter(KnowledgeCollection.id == collection_id, KnowledgeCollection.user_id == user.id).first()
     document = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == document_id, KnowledgeDocument.user_id == user.id).first()
     if collection is None or document is None:
-        raise HTTPException(status_code=404, detail="Collection or document not found")
+        raise problem(404, "COLLECTION_OR_DOCUMENT_NOT_FOUND", "Collection or document not found")
     exists = db.query(KnowledgeCollectionDocument).filter(KnowledgeCollectionDocument.collection_id == collection_id, KnowledgeCollectionDocument.document_id == document_id).first()
     if exists is None:
+        correlation = correlation_id()
         db.add(KnowledgeCollectionDocument(id=uuid.uuid4().hex, collection_id=collection_id, document_id=document_id))
+        record_operation(db, user_id=user.id, action="collection.document.add", object_type="knowledge_collection", object_id=collection_id, correlation_id=correlation, metadata={"document_id": document_id})
         db.commit()
-    return {"ok": True}
+        return operation_result({"ok": True}, correlation)
+    return {"ok": True, "already_member": True}
 
 
 @router.get("/collections/{collection_id}")
 async def get_collection(collection_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     collection = db.query(KnowledgeCollection).filter(KnowledgeCollection.id == collection_id, KnowledgeCollection.user_id == user.id).first()
     if collection is None:
-        raise HTTPException(status_code=404, detail="Collection not found")
+        raise problem(404, "COLLECTION_NOT_FOUND", "Collection not found")
     rows = (
         db.query(KnowledgeDocument)
         .join(KnowledgeCollectionDocument, KnowledgeCollectionDocument.document_id == KnowledgeDocument.id)
@@ -133,24 +164,28 @@ async def get_collection(collection_id: str, db: Session = Depends(get_db), user
 async def remove_collection_document(collection_id: str, document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     collection = db.query(KnowledgeCollection).filter(KnowledgeCollection.id == collection_id, KnowledgeCollection.user_id == user.id).first()
     if collection is None:
-        raise HTTPException(status_code=404, detail="Collection not found")
+        raise problem(404, "COLLECTION_NOT_FOUND", "Collection not found")
     membership = db.query(KnowledgeCollectionDocument).filter(KnowledgeCollectionDocument.collection_id == collection.id, KnowledgeCollectionDocument.document_id == document_id).first()
     if membership is None:
-        raise HTTPException(status_code=404, detail="Collection document not found")
+        raise problem(404, "COLLECTION_DOCUMENT_NOT_FOUND", "Collection document not found")
+    correlation = correlation_id()
+    record_operation(db, user_id=user.id, action="collection.document.remove", object_type="knowledge_collection", object_id=collection.id, correlation_id=correlation, metadata={"document_id": document_id})
     db.delete(membership)
     db.commit()
-    return {"ok": True}
+    return operation_result({"ok": True}, correlation)
 
 
 @router.delete("/collections/{collection_id}")
 async def delete_collection(collection_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     collection = db.query(KnowledgeCollection).filter(KnowledgeCollection.id == collection_id, KnowledgeCollection.user_id == user.id).first()
     if collection is None:
-        raise HTTPException(status_code=404, detail="Collection not found")
+        raise problem(404, "COLLECTION_NOT_FOUND", "Collection not found")
+    correlation = correlation_id()
+    record_operation(db, user_id=user.id, action="collection.delete", object_type="knowledge_collection", object_id=collection.id, correlation_id=correlation, metadata={"name": collection.name})
     db.query(KnowledgeCollectionDocument).filter(KnowledgeCollectionDocument.collection_id == collection.id).delete(synchronize_session=False)
     db.delete(collection)
     db.commit()
-    return {"ok": True}
+    return operation_result({"ok": True}, correlation)
 
 
 @router.get("/plugin-profiles")
@@ -160,22 +195,24 @@ async def list_plugin_profiles(db: Session = Depends(get_db), user: User = Depen
 
 
 @router.post("/plugin-profiles")
-async def create_plugin_profile(req: dict[str, Any], db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    name = str(req.get("name") or "").strip()
+async def create_plugin_profile(req: PluginProfileCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    name = req.name.strip()
     if not name:
-        raise HTTPException(status_code=422, detail="Profile name required")
-    profile = {"plugins": req.get("plugins") or [], "mcp_servers": req.get("mcp_servers") or [], "tool_allowlist": req.get("tool_allowlist") or []}
+        raise problem(422, "PLUGIN_PROFILE_NAME_REQUIRED", "Profile name required")
+    profile = {"plugins": req.plugins, "mcp_servers": req.mcp_servers, "tool_allowlist": req.tool_allowlist}
+    correlation = correlation_id()
     item = PluginProfile(id=uuid.uuid4().hex, user_id=user.id, name=name, profile_json=json.dumps(profile, ensure_ascii=False))
     db.add(item)
+    record_operation(db, user_id=user.id, action="plugin_profile.create", object_type="plugin_profile", object_id=item.id, correlation_id=correlation, metadata={"name": name, "plugin_count": len(req.plugins), "mcp_server_count": len(req.mcp_servers)})
     db.commit()
-    return {"id": item.id, "name": item.name}
+    return operation_result({"id": item.id, "name": item.name}, correlation)
 
 
 @router.get("/plugin-profiles/{profile_id}/preview")
 async def preview_plugin_profile(profile_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     item = db.query(PluginProfile).filter(PluginProfile.id == profile_id, PluginProfile.user_id == user.id).first()
     if item is None:
-        raise HTTPException(status_code=404, detail="Plugin profile not found")
+        raise problem(404, "PLUGIN_PROFILE_NOT_FOUND", "Plugin profile not found")
     try:
         profile = json.loads(item.profile_json or "{}")
     except (TypeError, ValueError):
@@ -196,10 +233,12 @@ async def preview_plugin_profile(profile_id: str, db: Session = Depends(get_db),
 async def delete_plugin_profile(profile_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     item = db.query(PluginProfile).filter(PluginProfile.id == profile_id, PluginProfile.user_id == user.id).first()
     if item is None:
-        raise HTTPException(status_code=404, detail="Plugin profile not found")
+        raise problem(404, "PLUGIN_PROFILE_NOT_FOUND", "Plugin profile not found")
+    correlation = correlation_id()
+    record_operation(db, user_id=user.id, action="plugin_profile.delete", object_type="plugin_profile", object_id=item.id, correlation_id=correlation, metadata={"name": item.name})
     db.delete(item)
     db.commit()
-    return {"ok": True}
+    return operation_result({"ok": True}, correlation)
 
 
 @router.get("/insights")
@@ -238,30 +277,28 @@ async def model_insights(days: int = 30, db: Session = Depends(get_db), user: Us
 
 
 @router.put("/insights/preferences")
-async def update_model_insight_preferences(req: dict[str, Any], db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    prices = req.get("prices") or {}
+async def update_model_insight_preferences(req: ModelInsightPreferenceRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    prices = req.prices or {}
     if not isinstance(prices, dict):
-        raise HTTPException(status_code=422, detail="prices must be an object keyed by non-secret model references")
+        raise problem(422, "INSIGHT_PRICES_INVALID", "Prices must be keyed by non-secret model references")
     safe_prices: dict[str, dict[str, float]] = {}
     for ref, item in prices.items():
         if not isinstance(item, dict) or not str(ref).startswith(("local:", "remote:")):
-            raise HTTPException(status_code=422, detail="price entries must use local:/remote: model references")
+            raise problem(422, "INSIGHT_MODEL_REF_INVALID", "Price entries must use local:/remote: model references")
         try:
             safe_prices[str(ref)[:255]] = {"input_per_million": max(0.0, float(item.get("input_per_million", 0))), "output_per_million": max(0.0, float(item.get("output_per_million", 0)))}
         except (TypeError, ValueError):
-            raise HTTPException(status_code=422, detail="price values must be non-negative numbers")
+            raise problem(422, "INSIGHT_PRICE_INVALID", "Price values must be non-negative numbers")
     preference = db.query(ModelInsightPreference).filter(ModelInsightPreference.user_id == user.id).one_or_none()
     if preference is None:
         preference = ModelInsightPreference(user_id=user.id)
         db.add(preference)
     preference.prices_json = json.dumps(safe_prices, ensure_ascii=False)
+    supplied = getattr(req, "model_fields_set", getattr(req, "__fields_set__", set()))
     for key in ("daily_budget", "weekly_budget"):
-        if key in req:
-            value = req.get(key)
-            try:
-                value = None if value is None else max(0.0, float(value))
-            except (TypeError, ValueError):
-                raise HTTPException(status_code=422, detail=f"{key} must be a non-negative number or null")
-            setattr(preference, key, value)
+        if key in supplied:
+            setattr(preference, key, getattr(req, key))
+    correlation = correlation_id()
+    record_operation(db, user_id=user.id, action="model_insight_preferences.update", object_type="model_insight_preference", object_id=str(user.id), correlation_id=correlation, metadata={"price_count": len(safe_prices), "daily_budget_set": "daily_budget" in supplied, "weekly_budget_set": "weekly_budget" in supplied})
     db.commit()
-    return preference.to_dict()
+    return operation_result(preference.to_dict(), correlation)

@@ -586,7 +586,16 @@ class ModelForgeClient:
                 detail = body.get("detail") or body.get("message") or str(error)
             except (TypeError, ValueError):
                 detail = error.response.text or str(error)
-            message = str(detail)
+            if isinstance(detail, dict):
+                message = str(detail.get("message") or detail.get("code") or str(detail))
+                code = detail.get("code")
+                correlation = detail.get("correlation_id")
+                if code:
+                    message = f"{message} [{code}]"
+                if correlation:
+                    message = f"{message} (追踪标识: {correlation})"
+            else:
+                message = str(detail)
             if status == 401:
                 self.set_token(None)
                 self.username = None

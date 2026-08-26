@@ -2,7 +2,7 @@
 
 from core.database import SessionLocal, get_db
 from core.security import get_current_user, get_runtime_admin
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from models.records import KnowledgeCollection, User
 from models.records import AgentDefinitionVersion, AgentTemplate
 from schemas.agent import AgentCreateRequest
@@ -370,13 +370,14 @@ async def _persistent_schedule_trigger(schedule_id: str, run_spec: dict) -> None
             return
         rt = _get_runtime()
         is_queue_recheck = bool(run_spec.get("_schedule_queue_recheck"))
-        decision = service.claim_trigger(job, trigger_kind="queue_recheck" if is_queue_recheck else "schedule")
+        trigger_kind = "queue_recheck" if is_queue_recheck else "schedule"
+        decision, claim = service.claim_occurrence(job, trigger_kind=trigger_kind)
         if not is_queue_recheck:
             service.advance_after_callback(job, rt, _persistent_schedule_callback)
         if decision == "pending" and is_queue_recheck:
             service.defer_pending(job, rt, _persistent_schedule_callback)
             return
-        if decision in {"disabled", "skipped", "pending"}:
+        if decision in {"disabled", "skipped", "pending", "duplicate"}:
             return
         if decision == "queued":
             service.defer_pending(job, rt, _persistent_schedule_callback)
@@ -389,10 +390,13 @@ async def _persistent_schedule_trigger(schedule_id: str, run_spec: dict) -> None
             metadata={**(run_spec.get("metadata") or {}), "schedule_id": schedule_id},
             execute=True,
         )
-        service.record_execution(job, run.run_id, "triggered", trigger_kind="queue_recheck" if is_queue_recheck else "schedule")
+        if claim is not None:
+            service.bind_claim_to_run(claim, run.run_id)
     except Exception as exc:
         job = ScheduleService(db).owned(int(run_spec.get("user_id") or 0), schedule_id)
-        if job is not None:
+        if job is not None and "claim" in locals() and claim is not None:
+            ScheduleService(db).fail_claim(claim, exc)
+        elif job is not None:
             ScheduleService(db).record_execution(job, None, "failed", error=exc)
     finally:
         db.close()
@@ -456,15 +460,39 @@ async def pause_schedule(schedule_id: str, db: DBSession = Depends(get_db), user
 
 
 @router.post("/schedules/{schedule_id}/run-now")
-async def run_schedule_now(schedule_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def run_schedule_now(
+    schedule_id: str,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     service = ScheduleService(db)
     job = service.owned(user.id, schedule_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
     spec = __import__("json").loads(job.run_spec or "{}")
+    decision, claim = service.claim_occurrence(
+        job,
+        trigger_kind="manual",
+        operation_id=idempotency_key,
+        require_enabled=False,
+    )
+    if decision != "run":
+        return {
+            "schedule_id": job.id,
+            "run_id": claim.agent_run_id if claim else None,
+            "status": claim.outcome if claim else decision,
+            "duplicate": decision == "duplicate",
+        }
     rt = _get_runtime()
-    run = rt.create_run(spec.get("agent_id", ""), spec.get("input", ""), user.id, spec.get("session_id"), {**(spec.get("metadata") or {}), "schedule_id": job.id, "trigger_kind": "manual"}, execute=True)
-    service.record_execution(job, run.run_id, "triggered", trigger_kind="manual")
+    try:
+        run = rt.create_run(spec.get("agent_id", ""), spec.get("input", ""), user.id, spec.get("session_id"), {**(spec.get("metadata") or {}), "schedule_id": job.id, "trigger_kind": "manual"}, execute=True)
+        if claim is not None:
+            service.bind_claim_to_run(claim, run.run_id)
+    except Exception as exc:
+        if claim is not None:
+            service.fail_claim(claim, exc)
+        raise
     return {"schedule_id": job.id, "run_id": run.run_id, "status": run.status}
 
 

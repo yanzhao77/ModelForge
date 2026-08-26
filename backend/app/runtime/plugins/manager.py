@@ -3,7 +3,9 @@ from __future__ import annotations
 import builtins
 import importlib.util
 import os
+import threading
 import time
+from functools import wraps
 from typing import Any
 
 from ..logging import get_logger
@@ -13,6 +15,15 @@ PLUGIN_LIFECYCLE_EVENTS = (
     "plugin.discovered", "plugin.loaded", "plugin.started", "plugin.stopped",
     "plugin.mounted", "plugin.unmounted", "plugin.failed", "plugin.unloaded",
 )
+
+
+def _serialized(method):
+    """Serialize mutations of the shared plugin/tool registry."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._lifecycle_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class PluginManager:
@@ -34,6 +45,7 @@ class PluginManager:
         self._event_bus = event_bus or getattr(runtime, "event_bus", None)
         self._logger = logger or get_logger()
         self._plugins: dict[str, dict[str, Any]] = {}
+        self._lifecycle_lock = threading.RLock()
 
     # ---- discovery (audit §16.9) ----
     def discover(self, directory: str | None = None) -> builtins.list[dict[str, Any]]:
@@ -59,6 +71,7 @@ class PluginManager:
         return found
 
     # ---- lifecycle ----
+    @_serialized
     def load(self, manifest: PluginManifest) -> dict[str, Any]:
         """Resolve dependencies, create scope/context, import entry, mount tools."""
         if manifest.name in self._plugins:
@@ -77,6 +90,9 @@ class PluginManager:
             "scope": scope,
             "context": ctx,
             "status": "loaded",
+            "mounted": True,
+            "generation": 1,
+            "audit": [{"action": "loaded", "at": time.time()}],
             "error": None,
         }
         self._plugins[manifest.name] = state
@@ -112,46 +128,63 @@ class PluginManager:
                         ext["tool_names"] = mounted_names
                         state["extension"] = ext
             except Exception as e:
-                state["status"] = "failed"
-                state["error"] = str(e)
+                try:
+                    scope.unmount()
+                except Exception:
+                    pass
+                self._plugins.pop(manifest.name, None)
                 self._emit("plugin.failed", {"name": manifest.name, "error": str(e)})
                 raise
         # manifest-declared tools with entry-provided schemas are registered by
         # the entry itself; plain descriptors are informational here.
         return state
 
+    @_serialized
     def start(self, name: str) -> bool:
         state = self._plugins.get(name)
         if state is None or state["status"] == "failed":
             return False
         state["status"] = "started"
+        self._record(state, "started")
         self._emit("plugin.started", {"name": name})
         return True
 
+    @_serialized
     def stop(self, name: str) -> bool:
         state = self._plugins.get(name)
         if state is None:
             return False
         state["status"] = "loaded"
+        self._record(state, "stopped")
         self._emit("plugin.stopped", {"name": name})
         return True
 
+    @_serialized
     def mount(self, name: str) -> bool:
         """Confirm the plugin tools are active (they are mounted at load time)."""
         state = self._plugins.get(name)
         if state is None:
             return False
+        if not state.get("mounted", True):
+            return False
+        self._record(state, "mounted")
         self._emit("plugin.mounted", {"name": name, "tools": sorted(state["scope"].tools().keys())})
         return True
 
+    @_serialized
     def unmount(self, name: str) -> bool:
         state = self._plugins.get(name)
         if state is None:
             return False
+        if not state.get("mounted", True):
+            return True
         state["scope"].unmount()
+        state["mounted"] = False
+        self._record(state, "unmounted")
         self._emit("plugin.unmounted", {"name": name})
         return True
 
+    @_serialized
     def unload(self, name: str) -> bool:
         if self.dependents_of(name):
             return False
@@ -159,6 +192,7 @@ class PluginManager:
         if state is None:
             return False
         state["scope"].unmount()
+        self._record(state, "unloaded")
         self._emit("plugin.unloaded", {"name": name})
         return True
 
@@ -168,6 +202,8 @@ class PluginManager:
             "version": s["manifest"].version,
             "type": s["manifest"].type,
             "status": s["status"],
+            "mounted": bool(s.get("mounted", True)),
+            "generation": int(s.get("generation") or 1),
             "dependencies": list(s["manifest"].dependencies),
             "tools": sorted(s["scope"].tools().keys()),
             "error": s.get("error"),
@@ -195,6 +231,9 @@ class PluginManager:
             "dependencies": self.dependencies_of(name),
             "dependents": self.dependents_of(name),
             "unload_blocked": bool(self.dependents_of(name)),
+            "mounted": bool(state.get("mounted", True)),
+            "generation": int(state.get("generation") or 1),
+            "recent_actions": list(state.get("audit") or [])[-10:],
         }
 
     def health(self, name: str, *, cooldown_seconds: float = 5.0) -> dict[str, Any] | None:
@@ -218,6 +257,13 @@ class PluginManager:
         return result
 
     # ---- internals ----
+    @staticmethod
+    def _record(state: dict[str, Any], action: str) -> None:
+        state["generation"] = int(state.get("generation") or 0) + 1
+        audit = state.setdefault("audit", [])
+        audit.append({"action": action, "at": time.time()})
+        del audit[:-50]
+
     def _import_entry(self, entry: str) -> Any:
         """Import the plugin entry module from a file path (no sys.path pollution)."""
         if not os.path.isabs(entry) and self._plugins_dir:

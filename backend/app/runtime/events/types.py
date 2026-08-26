@@ -56,6 +56,7 @@ class AgentEvent:
     payload: dict[str, Any] = field(default_factory=dict)
     session_id: int | None = None
     correlation_id: str | None = None
+    event_key: str | None = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -71,4 +72,5 @@ class AgentEvent:
             "payload": self.payload,
             "session_id": self.session_id,
             "correlation_id": self.correlation_id,
+            "event_key": self.event_key,
         }

@@ -34,11 +34,17 @@ class Scheduler:
 
     async def stop(self) -> None:
         self._started = False
+        for job in self._jobs.values():
+            if job.get("status") in {"scheduled", "running"}:
+                job["status"] = "stopping"
         for task in list(self._tasks.values()):
             task.cancel()
         if self._tasks:
             await asyncio.gather(*list(self._tasks.values()), return_exceptions=True)
         self._tasks.clear()
+        for job in self._jobs.values():
+            if job.get("status") == "stopping":
+                job["status"] = "stopped"
 
     def _new_id(self, kind: str) -> str:
         self._seq += 1
@@ -47,7 +53,7 @@ class Scheduler:
     def schedule_once(self, delay: float, run_spec: dict[str, Any], user_id: int | None = None, callback: Callable | None = None) -> str:
         """Run once after `delay` seconds (spec 38)."""
         job_id = self._new_id("once")
-        self._jobs[job_id] = {"type": "once", "delay": delay, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None, "callback": callback}
+        self._jobs[job_id] = {"type": "once", "delay": delay, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None, "last_finished_at": None, "failure_count": 0, "last_error": None, "callback": callback}
         loop = asyncio.get_running_loop()
         self._tasks[job_id] = loop.create_task(self._run_once(job_id, delay, run_spec))
         return job_id
@@ -55,7 +61,7 @@ class Scheduler:
     def schedule_interval(self, interval: float, run_spec: dict[str, Any], user_id: int | None = None, callback: Callable | None = None) -> str:
         """Run every `interval` seconds while started (spec 38 / 39)."""
         job_id = self._new_id("interval")
-        self._jobs[job_id] = {"type": "interval", "interval": interval, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None, "callback": callback}
+        self._jobs[job_id] = {"type": "interval", "interval": interval, "run_spec": run_spec, "user_id": user_id, "status": "scheduled", "triggered_at": None, "last_finished_at": None, "failure_count": 0, "last_error": None, "callback": callback}
         loop = asyncio.get_running_loop()
         self._tasks[job_id] = loop.create_task(self._run_interval(job_id, interval, run_spec))
         return job_id
@@ -108,7 +114,17 @@ class Scheduler:
             return
         if job_id in self._jobs:
             self._jobs[job_id]["triggered_at"] = datetime.datetime.utcnow().isoformat()
+            self._jobs[job_id]["status"] = "running"
         try:
             await callback(run_spec)
-        except Exception:
-            pass
+        except Exception as exc:
+            if job_id in self._jobs:
+                job = self._jobs[job_id]
+                job["failure_count"] = int(job.get("failure_count") or 0) + 1
+                job["last_error"] = str(exc)[:500]
+                job["status"] = "failed"
+            return
+        if job_id in self._jobs:
+            job = self._jobs[job_id]
+            job["last_finished_at"] = datetime.datetime.utcnow().isoformat()
+            job["status"] = "completed" if job.get("type") == "once" else "scheduled"

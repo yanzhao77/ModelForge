@@ -36,6 +36,9 @@ class RunRecord:
     session_id: int | None = None
     parent_run_id: str | None = None
     status: str = RunStatus.PENDING.value
+    state_version: int = 1
+    executor_lease_id: str | None = None
+    lease_expires_at: datetime.datetime | None = None
     input: str | None = None
     output: str | None = None
     model: str | None = None
@@ -56,6 +59,9 @@ class RunRecord:
             "session_id": self.session_id,
             "parent_run_id": self.parent_run_id,
             "status": self.status,
+            "state_version": self.state_version,
+            "executor_lease_id": self.executor_lease_id,
+            "lease_expires_at": self.lease_expires_at.isoformat() if self.lease_expires_at else None,
             "input": self.input,
             "output": self.output,
             "model": self.model,
@@ -86,6 +92,9 @@ class RunRecord:
             session_id=data.get("session_id"),
             parent_run_id=data.get("parent_run_id"),
             status=data.get("status", RunStatus.PENDING.value),
+            state_version=int(data.get("state_version", 1) or 1),
+            executor_lease_id=data.get("executor_lease_id"),
+            lease_expires_at=_dt(data.get("lease_expires_at")),
             input=data.get("input"),
             output=data.get("output"),
             model=data.get("model"),

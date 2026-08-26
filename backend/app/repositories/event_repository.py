@@ -8,6 +8,7 @@ import json
 from core.database import SessionLocal
 from models.records import AgentEventRecord
 from runtime.events.types import AgentEvent
+from sqlalchemy.exc import IntegrityError
 
 
 class SQLAlchemyEventStore:
@@ -23,6 +24,7 @@ class SQLAlchemyEventStore:
             timestamp=row.timestamp,
             payload=json.loads(row.payload) if row.payload else {},
             correlation_id=row.correlation_id,
+            event_key=row.event_key,
         )
 
     def append(self, event: AgentEvent) -> None:
@@ -34,8 +36,14 @@ class SQLAlchemyEventStore:
                 timestamp=event.timestamp or datetime.datetime.utcnow(),
                 payload=json.dumps(event.payload or {}, ensure_ascii=False),
                 correlation_id=event.correlation_id,
+                event_key=event.event_key or f"{event.event_type}:{event.sequence}",
             ))
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                # A retry may re-persist the same immutable fact. The unique
+                # (run_id, event_key) index makes that a successful no-op.
+                db.rollback()
 
     def list(self, run_id: str, after_sequence: int = 0, limit: int = 1000) -> builtins.list[AgentEvent]:
         with SessionLocal() as db:

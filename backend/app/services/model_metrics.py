@@ -6,7 +6,8 @@ import uuid
 from typing import Any
 
 from core.database import SessionLocal
-from models.records import ModelInsightPreference, ModelMetricBucket
+from models.records import ModelInsightPreference, ModelMetricBucket, RunMetricEmission
+from sqlalchemy.exc import IntegrityError
 
 
 def model_ref(model: object, *, remote: bool = False) -> str:
@@ -58,11 +59,28 @@ class ModelMetricRecorder:
         success: bool,
         token_usage: dict[str, Any] | None = None,
         error: BaseException | object | None = None,
+        emission_key: str | None = None,
+        run_id: str | None = None,
+        state_version: int | None = None,
     ) -> None:
         if user_id is None:
             return
         db = SessionLocal()
         try:
+            if emission_key:
+                emission = RunMetricEmission(
+                    id=uuid.uuid4().hex,
+                    emission_key=emission_key[:160],
+                    run_id=(run_id or "")[:64],
+                    state_version=max(1, int(state_version or 1)),
+                    user_id=user_id,
+                )
+                db.add(emission)
+                try:
+                    db.flush()
+                except IntegrityError:
+                    db.rollback()
+                    return
             ref = model_ref(model, remote=remote)
             start = _bucket_start()
             row = (

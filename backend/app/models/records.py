@@ -434,6 +434,10 @@ class AgentRun(Base):
     session_id = Column(Integer, nullable=True, index=True)
     parent_run_id = Column(String(64), nullable=True, index=True)
     status = Column(String(20), nullable=False, default="PENDING", index=True)
+    state_version = Column(Integer, nullable=False, default=1)
+    executor_lease_id = Column(String(64), nullable=True, index=True)
+    lease_expires_at = Column(DateTime, nullable=True, index=True)
+    terminal_event_key = Column(String(128), nullable=True)
     input = Column(Text, nullable=True)
     output = Column(Text, nullable=True)
     model = Column(String(255), nullable=True)
@@ -446,7 +450,11 @@ class AgentRun(Base):
     finished_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
 
-    __table_args__ = (Index("ix_agent_runs_user_created", "user_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_agent_runs_user_created", "user_id", "created_at"),
+        Index("ix_agent_runs_status_lease", "status", "lease_expires_at"),
+        Index("ix_agent_runs_terminal_event_key", "terminal_event_key", unique=True),
+    )
 
     def to_dict(self) -> dict:
         import json as _json
@@ -457,6 +465,7 @@ class AgentRun(Base):
             "session_id": self.session_id,
             "parent_run_id": self.parent_run_id,
             "status": self.status,
+            "state_version": self.state_version or 1,
             "input": self.input,
             "output": self.output,
             "model": self.model,
@@ -482,8 +491,12 @@ class AgentEventRecord(Base):
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
     payload = Column(Text, nullable=True)  # JSON
     correlation_id = Column(String(64), nullable=True)
+    event_key = Column(String(128), nullable=True)
 
-    __table_args__ = (Index("ix_agent_events_run_seq", "run_id", "sequence"),)
+    __table_args__ = (
+        Index("ix_agent_events_run_seq", "run_id", "sequence"),
+        Index("ix_agent_events_run_key", "run_id", "event_key", unique=True),
+    )
 
     def to_dict(self) -> dict:
         import json as _json
@@ -495,6 +508,7 @@ class AgentEventRecord(Base):
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "payload": _json.loads(self.payload) if self.payload else {},
             "correlation_id": self.correlation_id,
+            "event_key": self.event_key,
         }
 
 
@@ -656,6 +670,9 @@ class TaskOutbox(Base):
     dispatched_at = Column(DateTime, nullable=True, index=True)
     attempts = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
+    lease_token = Column(String(64), nullable=True, index=True)
+    lease_expires_at = Column(DateTime, nullable=True, index=True)
+    next_attempt_at = Column(DateTime, nullable=True, index=True)
 
 
 class ScheduledJob(Base):
@@ -719,11 +736,18 @@ class ScheduleExecution(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     agent_run_id = Column(String(64), nullable=True, index=True)
     trigger_kind = Column(String(24), nullable=False, default="schedule")
+    occurrence_key = Column(String(160), nullable=True)
+    claim_token = Column(String(64), nullable=True, index=True)
+    claim_expires_at = Column(DateTime, nullable=True, index=True)
+    state_version = Column(Integer, nullable=False, default=1)
+    attempt_count = Column(Integer, nullable=False, default=0)
     outcome = Column(String(32), nullable=False, default="triggered")
     error_code = Column(String(100), nullable=True)
     error_message = Column(Text, nullable=True)
     triggered_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
     finished_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_schedule_execution_occurrence", "schedule_id", "occurrence_key", unique=True),)
 
     def to_dict(self) -> dict:
         return {
@@ -731,6 +755,8 @@ class ScheduleExecution(Base):
             "schedule_id": self.schedule_id,
             "agent_run_id": self.agent_run_id,
             "trigger_kind": self.trigger_kind,
+            "occurrence_key": self.occurrence_key,
+            "state_version": self.state_version or 1,
             "outcome": self.outcome,
             "error_code": self.error_code,
             "error_message": self.error_message,
@@ -808,6 +834,19 @@ class ModelMetricBucket(Base):
     cost_estimate = Column(Float, nullable=False, default=0.0)
 
 
+class RunMetricEmission(Base):
+    """Idempotency record for one terminal Run metric aggregation attempt."""
+
+    __tablename__ = "run_metric_emissions"
+
+    id = Column(String(64), primary_key=True)
+    emission_key = Column(String(160), nullable=False, unique=True, index=True)
+    run_id = Column(String(64), nullable=False, index=True)
+    state_version = Column(Integer, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+
 class ModelInsightPreference(Base):
     """User-editable, non-secret price metadata and notification-only budgets."""
 
@@ -843,3 +882,19 @@ class ModelInsightPreference(Base):
             "weekly_budget": self.weekly_budget,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class OperationAudit(Base):
+    """Redacted audit metadata for user-initiated control-plane mutations."""
+
+    __tablename__ = "operation_audits"
+    __table_args__ = (Index("ix_operation_audit_user_created", "user_id", "created_at"),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    action = Column(String(100), nullable=False, index=True)
+    object_type = Column(String(100), nullable=False)
+    object_id = Column(String(255), nullable=False, index=True)
+    correlation_id = Column(String(64), nullable=False, index=True)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)

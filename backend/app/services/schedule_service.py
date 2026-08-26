@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from models.records import AgentRun, ScheduleExecution, ScheduledJob
 from services.redaction import redact_data, redact_text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 _CONCURRENCY = {"skip", "queue_one", "allow_parallel"}
@@ -246,6 +247,108 @@ class ScheduleService:
         self.db.add(item)
         return item
 
+    def _occurrence_key(self, job: ScheduledJob, trigger_kind: str, operation_id: str | None = None) -> str:
+        """Build a durable idempotency key without including run input or metadata."""
+        if trigger_kind == "manual":
+            return f"manual:{job.id}:{operation_id or uuid.uuid4().hex}"
+        if trigger_kind == "queue_recheck":
+            return f"queue:{job.id}"
+        planned = job.next_run_at or self._utcnow()
+        return f"schedule:{job.id}:{planned.isoformat()}"
+
+    def claim_occurrence(
+        self,
+        job: ScheduledJob,
+        *,
+        trigger_kind: str = "schedule",
+        operation_id: str | None = None,
+        require_enabled: bool = True,
+    ) -> tuple[str, ScheduleExecution | None]:
+        """Persist one occurrence claim before an Agent Run can be created.
+
+        The unique occurrence index is the authority during duplicate timer
+        callbacks and restart races. This method intentionally does not create
+        a Run or call a model.
+        """
+        if require_enabled and not job.enabled:
+            return "disabled", None
+        now = self._utcnow()
+        occurrence_key = self._occurrence_key(job, trigger_kind, operation_id)
+        existing = (
+            self.db.query(ScheduleExecution)
+            .filter(ScheduleExecution.schedule_id == job.id, ScheduleExecution.occurrence_key == occurrence_key)
+            .first()
+        )
+        if existing is not None:
+            if trigger_kind == "queue_recheck" and existing.outcome == "queued" and not self.active_run_count(job):
+                existing.outcome = "claimed"
+                existing.claim_token = uuid.uuid4().hex
+                existing.claim_expires_at = now + dt.timedelta(minutes=5)
+                existing.state_version = (existing.state_version or 1) + 1
+                existing.attempt_count = (existing.attempt_count or 0) + 1
+                self.db.commit()
+                return "run", existing
+            return "pending" if existing.outcome == "queued" else "duplicate", existing
+        active = self.active_run_count(job)
+        outcome = "claimed"
+        if active and job.concurrency_policy == "skip":
+            outcome = "skipped_concurrency"
+        elif active and job.concurrency_policy == "queue_one":
+            occurrence_key = f"queue:{job.id}"
+            existing = (
+                self.db.query(ScheduleExecution)
+                .filter(ScheduleExecution.schedule_id == job.id, ScheduleExecution.occurrence_key == occurrence_key)
+                .first()
+            )
+            if existing is not None:
+                return "pending", existing
+            outcome = "queued"
+        claim = ScheduleExecution(
+            id=uuid.uuid4().hex,
+            schedule_id=job.id,
+            user_id=job.user_id,
+            trigger_kind=trigger_kind,
+            occurrence_key=occurrence_key,
+            claim_token=uuid.uuid4().hex,
+            claim_expires_at=now + dt.timedelta(minutes=5),
+            outcome=outcome,
+            attempt_count=1,
+        )
+        self.db.add(claim)
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            existing = (
+                self.db.query(ScheduleExecution)
+                .filter(ScheduleExecution.schedule_id == job.id, ScheduleExecution.occurrence_key == occurrence_key)
+                .first()
+            )
+            return "pending" if existing and existing.outcome == "queued" else "duplicate", existing
+        if outcome == "skipped_concurrency":
+            return "skipped", claim
+        return "queued" if outcome == "queued" else "run", claim
+
+    def bind_claim_to_run(self, claim: ScheduleExecution, run_id: str) -> ScheduleExecution:
+        """Attach the single Run produced by a successful occurrence claim."""
+        claim.agent_run_id = run_id
+        claim.outcome = "triggered"
+        claim.claim_expires_at = None
+        claim.state_version = (claim.state_version or 1) + 1
+        self.db.commit()
+        return claim
+
+    def fail_claim(self, claim: ScheduleExecution, error: Exception) -> ScheduleExecution:
+        """Persist a redacted Run-creation failure without replaying the occurrence."""
+        claim.outcome = "failed_to_create"
+        claim.error_code = getattr(error, "code", None) or "SCHEDULE_RUN_CREATE_FAILED"
+        claim.error_message = redact_text(error)
+        claim.finished_at = self._utcnow()
+        claim.claim_expires_at = None
+        claim.state_version = (claim.state_version or 1) + 1
+        self.db.commit()
+        return claim
+
     def active_run_count(self, job: ScheduledJob) -> int:
         return (
             self.db.query(ScheduleExecution)
@@ -256,25 +359,10 @@ class ScheduleService:
 
     def claim_trigger(self, job: ScheduledJob, *, trigger_kind: str = "schedule") -> str:
         """Claim a scheduler callback without creating an Agent Run itself."""
-        if not job.enabled:
-            return "disabled"
-        active = self.active_run_count(job)
-        if active and job.concurrency_policy == "skip":
-            self._append_execution(job, "skipped_concurrency", trigger_kind=trigger_kind)
-            self.db.commit()
-            return "skipped"
-        if active and job.concurrency_policy == "queue_one":
-            if job.pending_trigger:
-                self._append_execution(job, "skipped_concurrency", trigger_kind=trigger_kind)
-                self.db.commit()
-                return "pending"
-            job.pending_trigger = True
-            self._append_execution(job, "queued", trigger_kind=trigger_kind)
-            self.db.commit()
-            return "queued"
-        job.pending_trigger = False
+        decision, _claim = self.claim_occurrence(job, trigger_kind=trigger_kind)
+        job.pending_trigger = decision == "queued"
         self.db.commit()
-        return "run"
+        return decision
 
     def defer_pending(self, job: ScheduledJob, runtime: Any, callback_factory: Callable[[str], Callable[[dict[str, Any]], Any]], seconds: float = 5.0) -> None:
         """Schedule a bounded in-memory recheck for the one permitted pending trigger.
