@@ -250,6 +250,9 @@ class ModelForgeClient:
 
     # ---- workspace governance ----
 
+    def migration_preflight(self) -> dict:
+        return self._get("/api/v1/workspaces/migration-preflight")
+
     def list_artifacts(self) -> list[dict]:
         return self._get("/api/v1/workspaces/artifacts").get("artifacts", [])
 

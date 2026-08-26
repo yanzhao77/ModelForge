@@ -8,7 +8,7 @@ from typing import Any
 
 from core.api_contracts import correlation_id, operation_result, problem
 from core.database import get_db
-from core.security import get_current_user
+from core.security import get_current_user, get_runtime_admin
 from fastapi import APIRouter, Depends
 from models.records import (
     AgentRun,
@@ -23,10 +23,17 @@ from models.records import (
 )
 from services.redaction import redact_data, redact_text
 from services.audit_log import record_operation
+from services.migration_preflight import migration_preflight
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+@router.get("/migration-preflight")
+async def get_migration_preflight(_admin: User = Depends(get_runtime_admin)):
+    """Return read-only migration diagnostics for a runtime administrator."""
+    return migration_preflight()
 
 
 class CollectionCreateRequest(BaseModel):

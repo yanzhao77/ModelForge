@@ -37,6 +37,7 @@ class ControlCenterPage(QWidget):
         self.collection_list = QListWidget()
         self.profile_list = QListWidget()
         self.insight_list = QListWidget()
+        self.database_list = QListWidget()
         self._memories: list[dict] = []
         self._artifacts: list[dict] = []
         self._collections: list[dict] = []
@@ -48,6 +49,7 @@ class ControlCenterPage(QWidget):
         self.tabs.addTab(self._tab(self.collection_list, "新建集合", self._create_collection, "归类现有文档", self._bind_document, "管理所选集合", self._manage_collection), "知识集合")
         self.tabs.addTab(self._tab(self.profile_list, "新建配置档", self._create_profile, "预览所选配置档", self._preview_selected_profile, "删除所选配置档", self._delete_selected_profile), "插件/MCP")
         self.tabs.addTab(self._tab(self.insight_list, "设置洞察预算", self._configure_insight_budget, "查看预算摘要", self._show_budget_summary), "模型洞察")
+        self.tabs.addTab(self._tab(self.database_list, "运行只读迁移预检", self._run_migration_preflight), "数据库")
         layout.addWidget(self.tabs, 1)
         self.refresh_button = QPushButton("刷新控制中心")
         self.refresh_button.clicked.connect(self.refresh)
@@ -244,6 +246,34 @@ class ControlCenterPage(QWidget):
             f"日预算提醒：{'已达到' if status.get('daily_exceeded') else '未达到'}\n"
             f"周预算提醒：{'已达到' if status.get('weekly_exceeded') else '未达到'}\n\n"
             f"{status.get('notice', '只显示聚合信息。')}",
+        )
+
+    def _run_migration_preflight(self):
+        """Request diagnostics only; the action never starts a migration."""
+        worker = ApiWorker(self.api.migration_preflight)
+        worker.succeeded.connect(self._show_migration_preflight)
+        worker.failed.connect(lambda message: QMessageBox.warning(self, "迁移预检", str(message)))
+        worker.start()
+        self._worker = worker
+
+    def _show_migration_preflight(self, data):
+        ledger = data.get("ledger") or {}
+        tables = data.get("tables") or []
+        table_summary = "\n".join(
+            f"{item.get('table')}: 缺列={','.join(item.get('missing_columns') or []) or '无'}；"
+            f"缺索引={','.join(item.get('missing_indexes') or []) or '无'}"
+            for item in tables
+        ) or "未发现需要检查的迁移表。"
+        warnings = "\n".join(f"- {item}" for item in data.get("warnings") or []) or "无。"
+        QMessageBox.information(
+            self,
+            "只读迁移预检",
+            f"状态：{data.get('status')}\n"
+            f"只读：{data.get('read_only')}；迁移执行：{data.get('migration_execution')}\n"
+            f"已记录版本：{', '.join(ledger.get('applied_versions') or []) or '无'}\n"
+            f"缺失版本：{', '.join(ledger.get('missing_versions') or []) or '无'}\n\n"
+            f"表/索引摘要：\n{table_summary}\n\n警告：\n{warnings}\n\n"
+            "该操作未调用 init_db()，未创建表、未修改 schema、未执行迁移。",
         )
 
     def _call(self, action):
