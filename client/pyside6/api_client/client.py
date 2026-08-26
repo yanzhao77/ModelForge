@@ -262,6 +262,9 @@ class ModelForgeClient:
     def create_knowledge_collection(self, name: str, description: str = "", tags: list[str] | None = None) -> dict:
         return self._post("/api/v1/workspaces/collections", json={"name": name, "description": description, "tags": tags or []})
 
+    def add_document_to_knowledge_collection(self, collection_id: str, document_id: int) -> dict:
+        return self._post(f"/api/v1/workspaces/collections/{collection_id}/documents/{document_id}")
+
     def list_plugin_profiles(self) -> list[dict]:
         return self._get("/api/v1/workspaces/plugin-profiles").get("profiles", [])
 

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QListWidget,
+    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -34,9 +35,12 @@ class ControlCenterPage(QWidget):
         self.collection_list = QListWidget()
         self.profile_list = QListWidget()
         self.insight_list = QListWidget()
-        self.tabs.addTab(self._tab(self.memory_list, "新建记忆", self._create_memory), "记忆")
-        self.tabs.addTab(self._tab(self.artifact_list, None, None), "产物")
-        self.tabs.addTab(self._tab(self.collection_list, "新建集合", self._create_collection), "知识集合")
+        self._memories: list[dict] = []
+        self._artifacts: list[dict] = []
+        self._collections: list[dict] = []
+        self.tabs.addTab(self._tab(self.memory_list, "新建记忆", self._create_memory, "删除所选记忆", self._delete_selected_memory), "记忆")
+        self.tabs.addTab(self._tab(self.artifact_list, None, None, "删除所选产物", self._delete_selected_artifact), "产物")
+        self.tabs.addTab(self._tab(self.collection_list, "新建集合", self._create_collection, "归类现有文档", self._bind_document), "知识集合")
         self.tabs.addTab(self._tab(self.profile_list, "新建配置档", self._create_profile), "插件/MCP")
         self.tabs.addTab(self._tab(self.insight_list, None, None), "模型洞察")
         layout.addWidget(self.tabs, 1)
@@ -45,12 +49,16 @@ class ControlCenterPage(QWidget):
         layout.addWidget(self.refresh_button)
         self.refresh()
 
-    def _tab(self, target, action_text, callback):
+    def _tab(self, target, action_text, callback, secondary_text=None, secondary_callback=None):
         page = QWidget()
         layout = QVBoxLayout(page)
         if callback:
             button = QPushButton(action_text)
             button.clicked.connect(callback)
+            layout.addWidget(button)
+        if secondary_callback:
+            button = QPushButton(secondary_text)
+            button.clicked.connect(secondary_callback)
             layout.addWidget(button)
         layout.addWidget(target, 1)
         return page
@@ -71,9 +79,12 @@ class ControlCenterPage(QWidget):
         self._worker = worker
 
     def _loaded(self, data):
-        self._fill(self.memory_list, [f"{item.get('key')} · {item.get('type')} · 重要性 {item.get('importance')}" for item in data.get("memories", [])], "暂无记忆。")
-        self._fill(self.artifact_list, [f"{item.get('title')} · {item.get('source_kind')} · 已脱敏={item.get('redacted')}" for item in data.get("artifacts", [])], "暂无运行产物。")
-        self._fill(self.collection_list, [f"{item.get('name')} · {item.get('document_count', 0)} 个文档" for item in data.get("collections", [])], "暂无知识集合。")
+        self._memories = data.get("memories", [])
+        self._artifacts = data.get("artifacts", [])
+        self._collections = data.get("collections", [])
+        self._fill(self.memory_list, [f"{item.get('key')} · {item.get('type')} · 重要性 {item.get('importance')}" for item in self._memories], "暂无记忆。")
+        self._fill(self.artifact_list, [f"{item.get('title')} · {item.get('source_kind')} · 已脱敏={item.get('redacted')}" for item in self._artifacts], "暂无运行产物。")
+        self._fill(self.collection_list, [f"{item.get('name')} · {item.get('document_count', 0)} 个文档" for item in self._collections], "暂无知识集合。")
         self._fill(self.profile_list, [item.get("name", "未命名配置档") for item in data.get("profiles", [])], "暂无插件/MCP 配置档。")
         self._fill(self.insight_list, [f"{item.get('model_ref')} · 成功 {item.get('success_count')}/{item.get('request_count')} · 平均延迟 {item.get('average_latency_ms') or '—'} ms" for item in data.get("insights", [])], "尚无脱敏聚合调用指标。")
 
@@ -95,10 +106,34 @@ class ControlCenterPage(QWidget):
         if ok and name.strip():
             self._call(lambda: self.api.create_knowledge_collection(name.strip()))
 
+    def _bind_document(self):
+        row = self.collection_list.currentRow()
+        if row < 0 or row >= len(self._collections):
+            return
+        document_id, ok = QInputDialog.getInt(self, "归类现有文档", "知识文档 ID", minimum=1)
+        if ok:
+            self._call(lambda: self.api.add_document_to_knowledge_collection(self._collections[row]["id"], document_id))
+
     def _create_profile(self):
         name, ok = QInputDialog.getText(self, "新建插件/MCP 配置档", "名称")
         if ok and name.strip():
             self._call(lambda: self.api.create_plugin_profile(name.strip()))
+
+    def _delete_selected_memory(self):
+        row = self.memory_list.currentRow()
+        if row < 0 or row >= len(self._memories):
+            return
+        memory = self._memories[row]
+        if QMessageBox.question(self, "删除记忆", f"删除记忆“{memory.get('key')}”？") == QMessageBox.StandardButton.Yes:
+            self._call(lambda: self.api.delete_memory(memory["id"]))
+
+    def _delete_selected_artifact(self):
+        row = self.artifact_list.currentRow()
+        if row < 0 or row >= len(self._artifacts):
+            return
+        artifact = self._artifacts[row]
+        if QMessageBox.question(self, "删除产物", f"删除产物“{artifact.get('title')}”？原始运行不会被删除。") == QMessageBox.StandardButton.Yes:
+            self._call(lambda: self.api.delete_artifact(artifact["id"]))
 
     def _call(self, action):
         worker = ApiWorker(action)

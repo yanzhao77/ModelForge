@@ -119,6 +119,8 @@ AppImage 官方文档说明，`--appimage-signature` 只能显示签名，不会
 
 当前仓库已提供 `ModelForge Release Metadata` 手动工作流。它只生成并上传未签名的 `release-manifest.json` 与 `sbom.cdx.json`，权限限制为 `contents: read`，不构建桌面资产、不访问签名密钥、不创建 Release。后续 `desktop-sign-*` 作业必须以该元数据、固定提交 SHA 和已验证资产哈希作为输入，不能直接信任分支名或可变下载链接。
 
+仓库也提供 `scripts/check_release_signing_env.py` 与 [签名配置说明](RELEASE_SIGNING_CONFIGURATION.md)。它们只检查所需变量名称是否齐全，不能读取、输出或保存任何秘密值；真实签名仍只能在受保护 Environment 批准后执行。
+
 ## 6. v0.1.2 分阶段实施顺序
 
 ### 已完成的开发基线
