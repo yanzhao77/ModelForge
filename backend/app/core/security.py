@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+from core.api_contracts import correlation_id, problem
 from core.config import settings
 from core.database import get_db
 from fastapi import Depends, HTTPException, Request, status
@@ -96,8 +97,10 @@ def get_runtime_admin(user: User = Depends(get_current_user)) -> User:
     """Require an explicitly configured administrator for shared runtime state."""
     admins = {name.strip() for name in settings.runtime_admin_usernames.split(",") if name.strip()}
     if user.username not in admins:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Runtime administrator privileges are required",
+        raise problem(
+            status.HTTP_403_FORBIDDEN,
+            "RUNTIME_ADMIN_REQUIRED",
+            "Runtime administrator privileges are required.",
+            correlation=correlation_id(),
         )
     return user

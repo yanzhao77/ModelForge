@@ -612,6 +612,53 @@
 - [x] 复核当前工作区差异、暂存范围和远端 `master` 基线后，创建仅含 EI1–EI15 静态实现与治理文档的本地归档提交：`61b210946ad6af7ca1b6d22b924c08dd85c92533`。
 - [x] 以正常 Git 协议推送归档提交至 GitHub `master` 并核对远端引用：`61b210946ad6af7ca1b6d22b924c08dd85c92533`；未创建或变更标签、Release。
 
+### 下一阶段规划与静态开发
+
+- [x] 盘点 `7d8fdc1d2adfbb55458b2032ca4d7ebc327b60d5` 已归档基线的未完成待办、控制面技术债务与桌面客户端遗留项；不运行验证或控制面动作。
+- [x] 编写下一阶段顺序化技术开发计划，标明静态可实施项、必须单独授权的行为验证项和正式发行 No-Go 条件；见 `docs/NEXT_STAGE_CONTROL_PLANE_ASSURANCE_PLAN.md`。
+- [x] 按计划实施首个无运行性副作用的工作包：CP1 控制面契约目录；不调用端点、运行时或数据库。
+
+### CP1 静态审阅记录
+
+- [x] 已新增 `backend/app/core/control_plane_contracts.py` 与 `docs/CONTROL_PLANE_CONTRACT_CATALOG.md`，将 19 个已迁移高风险动作交叉映射到风险策略、确认/不可用/审计未知错误码、所有权语义和只读预览资格。
+- [x] CP1 目录仅依赖已有的动作风险与错误目录查询，不导入 HTTP、数据库、运行时、provider 或插件管理器；静态扫描未发现执行、审计写入或提交调用。
+- [ ] 后续 CP2–CP8 需逐项静态实施；任何端点行为、跨用户范围、预览过期、运行性协调和正式发行验证均需固定候选 SHA 与单独授权。
+
+### CP2 所有权与不可枚举语义
+
+- [x] 审阅 Agent Run、Task、Training、Memory、Workspace、Plugin/MCP 等资源的当前用户范围、管理员范围和版本冲突路径；不探测跨用户对象。
+- [x] 编写统一的可用性、不可枚举、版本冲突与管理员范围设计，并新增仅描述策略的静态辅助契约；见 `docs/CONTROL_PLANE_OWNERSHIP_SEMANTICS.md`。
+- [x] 静态核对 CP2 代码不查询或泄露跨用户资源，不创建测试用户、不启动服务或触发控制面动作。
+
+### CP2 静态审阅记录
+
+- [x] 已新增 `backend/app/core/resource_access.py`：为 Agent Run、Task、Training、Memory、Workspace、Plugin 与 MCP 资源登记当前用户/运行时管理员范围、不可用代码与适用冲突代码；辅助函数不执行查询或状态变更。
+- [x] 错误目录新增管理员、Agent Run、训练、插件和 MCP 的不可用/范围代码；`get_runtime_admin()` 现返回带关联标识的 `RUNTIME_ADMIN_REQUIRED`，不回显管理员配置列表。
+- [x] 静态扫描显示资源辅助模块未导入数据库、网络或插件执行依赖，未包含查询、提交或全局对象查找调用；`git diff --check` 通过。
+- [ ] 未来获得固定候选 SHA、隔离用户和明确授权后，验证跨用户不可枚举、管理员拒绝、版本冲突刷新与端点兼容字段；当前未创建用户、查询他人资源、启动服务或触发控制面动作。
+
+### CP3 审计与运行性协调边界
+
+- [x] 审阅 Agent runtime、任务发布器、训练服务、插件/MCP 生命周期和审计服务的提交/内存/外部副作用边界；不启动或调用任何组件。
+- [x] 编写领域状态、审计持久化、独立运行性副作用与稳定未知回执的协调设计，并新增仅描述分类的静态辅助契约；见 `docs/CONTROL_PLANE_COORDINATION_BOUNDARIES.md`。
+- [x] 静态核对 CP3 代码不执行提交、发布、运行、训练、插件或 MCP 动作；实际协调语义仍待固定候选 SHA 和单独授权验证。
+
+### CP3 静态审阅记录
+
+- [x] 已新增 `backend/app/core/control_plane_coordination.py`，为 21 个受控动作分类 `same_session_persistence`、`post_commit_dispatch`、`independent_runtime_side_effect` 或 `read_only`，并固定 `persisted`、`accepted`、`durability_unknown` 与 `read_only` 回执的真实语义。
+- [x] 协调目录不导入数据库、网络、子进程、运行时或插件执行依赖，不包含提交、发布、启动、停止、加载或连接调用；所有不确定回执都标记不可安全重放。
+- [ ] 后续获得固定候选 SHA 与明确授权后，必须以最小化脱敏证据验证任务发布、训练内部提交、Agent runtime、插件和 MCP 的实际协调结果；当前不得将 `accepted`、`pending` 或 `durability_unknown` 视为执行完成、已回滚或可自动重试。
+
+### CP2/CP3 归档与 CP4 准备
+
+- [ ] 复核并归档 CP2/CP3 所有权与协调边界的静态实现，推送至 GitHub `master`；不创建或变更标签、Release。
+- [ ] 为 CP4 意图/预览生命周期实施盘点令牌动作、范围、过期、摘要哈希与确认语义；预览不得变为执行令牌。
+
+### CP3 初步静态发现
+
+- [x] `TrainingService.start()` 在写配置、创建训练记录、启动子进程及更新运行状态之间存在多次内部提交；`stop()` 会终止子进程并提交状态。因此 API 审计只能准确表达协调持久化状态，不得虚称跨资源原子性、回滚或安全重放。
+- [x] 插件生命周期、MCP 连接与任务发布路径可能先改变运行时/发布器的独立状态，再进入 API 层审计与数据库提交；审计持久化未知回执只能表达协调未知，不能指示操作未发生或可无条件重试。
+
 ### AC4 静态审阅记录
 
 - [x] 远程 provider 对话框和模型卡当前仍优先展示原始 base URL，且验证动作未在客户端确认后传递 `confirm=true`；应改为后端生成的 endpoint、凭据状态与明确确认对话框。
