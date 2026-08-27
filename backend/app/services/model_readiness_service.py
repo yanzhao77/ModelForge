@@ -57,6 +57,7 @@ class ModelReadinessService:
         kind: str,
         model_ref: str,
         provider_id: int | None = None,
+        commit: bool = True,
     ) -> dict:
         target = self._find_target(kind, model_ref, provider_id, self._targets(user_id))
         if target is None:
@@ -68,14 +69,18 @@ class ModelReadinessService:
         preference.default_kind = target["kind"]
         preference.default_model_ref = target["model_ref"]
         preference.default_provider_id = target.get("provider_id")
-        self.db.commit()
+        self.db.flush()
+        if commit:
+            self.db.commit()
         return self.snapshot(user_id)
 
-    def clear_default(self, user_id: int) -> dict:
+    def clear_default(self, user_id: int, *, commit: bool = True) -> dict:
         preference = self.db.get(UserModelPreference, user_id)
         if preference is not None:
             self.db.delete(preference)
-            self.db.commit()
+            self.db.flush()
+            if commit:
+                self.db.commit()
         return self.snapshot(user_id)
 
     def target_for(

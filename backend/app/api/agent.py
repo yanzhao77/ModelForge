@@ -148,6 +148,7 @@ async def create_agent(
         plugins=req.plugins,
         memory_config=req.memory,
         system_prompt=req.system_prompt,
+        user_id=user.id,
     )
     result["model_target"] = target or {}
     previous = db.query(AgentDefinitionVersion).filter(AgentDefinitionVersion.user_id == user.id, AgentDefinitionVersion.agent_name == req.name).count()
@@ -223,6 +224,7 @@ async def agent_chat(name: str, req: dict, user: User = Depends(get_current_user
         llm_callback=None,
         policy=policy,
         tool_registry=rt.tool_registry,
+        user_id=user.id,
     )
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
@@ -241,6 +243,7 @@ async def delete_agent(name: str, db: DBSession = Depends(get_db), user: User = 
     ok = _get_runtime().delete_agent(name, user_id=user.id)
     if not ok:
         raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr)
+    _get_engine().delete_agent(name, user_id=user.id)
     record_operation(db, user_id=user.id, action="agent.delete", object_type="agent", object_id=name, correlation_id=corr)
     db.commit()
     return operation_result({"ok": True}, corr)
@@ -493,19 +496,23 @@ async def create_schedule(
     if not agent_id or rt.get_agent(agent_id, user_id=user.id) is None:
         raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr)
     try:
-        item = ScheduleService(db).create_draft(user.id, payload)
+        item = ScheduleService(db).create_draft(user.id, payload, commit=False)
     except ValueError as exc:
         raise problem(422, "SCHEDULE_DRAFT_INVALID", "Schedule draft is invalid", correlation=corr) from exc
-    record_operation(
-        db,
-        user_id=user.id,
-        action="schedule.draft.create",
-        object_type="schedule",
-        object_id=item.id,
-        correlation_id=corr,
-        metadata={"agent_id": agent_id, "schedule_kind": payload.get("schedule_kind"), "enabled": False},
-    )
-    db.commit()
+    try:
+        record_operation(
+            db,
+            user_id=user.id,
+            action="schedule.draft.create",
+            object_type="schedule",
+            object_id=item.id,
+            correlation_id=corr,
+            metadata={"agent_id": agent_id, "schedule_kind": payload.get("schedule_kind"), "enabled": False},
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise problem(500, "SCHEDULE_DRAFT_PERSIST_FAILED", "Schedule draft could not be persisted", correlation=corr) from exc
     return operation_result(item.to_dict(), corr)
 
 
@@ -521,19 +528,23 @@ async def update_schedule(schedule_id: str, req: ScheduleDraftRequest, db: DBSes
     if job is None:
         raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
     try:
-        item = ScheduleService(db).update_draft(job, req.schedule_payload(partial=True))
+        item = ScheduleService(db).update_draft(job, req.schedule_payload(partial=True), commit=False)
     except ValueError as exc:
         raise problem(409, "SCHEDULE_DRAFT_CONFLICT", "Schedule draft cannot be updated", correlation=corr) from exc
-    record_operation(
-        db,
-        user_id=user.id,
-        action="schedule.draft.update",
-        object_type="schedule",
-        object_id=item.id,
-        correlation_id=corr,
-        metadata={"updated_fields": sorted(req.model_fields_set - {"request_id"})[:40]},
-    )
-    db.commit()
+    try:
+        record_operation(
+            db,
+            user_id=user.id,
+            action="schedule.draft.update",
+            object_type="schedule",
+            object_id=item.id,
+            correlation_id=corr,
+            metadata={"updated_fields": sorted(req.model_fields_set - {"request_id"})[:40]},
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise problem(500, "SCHEDULE_DRAFT_PERSIST_FAILED", "Schedule draft could not be persisted", correlation=corr) from exc
     return operation_result(item.to_dict(), corr)
 
 
@@ -547,12 +558,21 @@ async def enable_schedule(schedule_id: str, req: ScheduleActionRequest | None = 
     if job is None:
         raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
     try:
-        item = service.enable(job, _get_runtime(), _persistent_schedule_callback)
+        item = service.enable_desired(job, commit=False)
+        record_operation(db, user_id=user.id, action="schedule.enable", object_type="schedule", object_id=item.id, correlation_id=corr, metadata={"explicit_confirm": True, "runtime_sync": "requested"})
+        db.commit()
     except Exception as exc:
-        raise problem(400, "SCHEDULE_ENABLE_FAILED", "Schedule could not be enabled", correlation=corr) from exc
-    record_operation(db, user_id=user.id, action="schedule.enable", object_type="schedule", object_id=item.id, correlation_id=corr, metadata={"explicit_confirm": True})
-    db.commit()
-    return operation_result(item.to_dict(), corr)
+        db.rollback()
+        raise problem(500, "SCHEDULE_ENABLE_PERSIST_FAILED", "Schedule enable state could not be persisted", correlation=corr) from exc
+    runtime_sync = "pending"
+    try:
+        item = service.arm_enabled(item, _get_runtime(), _persistent_schedule_callback)
+        runtime_sync = "armed" if item.runtime_job_id else "not_required"
+    except Exception:
+        # The committed desired state is safe: a future callback sees it, while
+        # no new run is created by this error path.
+        runtime_sync = "pending"
+    return operation_result({**item.to_dict(), "runtime_sync": runtime_sync}, corr)
 
 
 @router.post("/schedules/{schedule_id}/pause")
@@ -564,10 +584,23 @@ async def pause_schedule(schedule_id: str, req: ScheduleActionRequest | None = N
     job = service.owned(user.id, schedule_id)
     if job is None:
         raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
-    item = service.pause(job, _get_runtime())
-    record_operation(db, user_id=user.id, action="schedule.pause", object_type="schedule", object_id=item.id, correlation_id=corr, metadata={"explicit_confirm": True})
-    db.commit()
-    return operation_result(item.to_dict(), corr)
+    try:
+        item, runtime_job_id = service.pause_desired(job, commit=False)
+        record_operation(db, user_id=user.id, action="schedule.pause", object_type="schedule", object_id=item.id, correlation_id=corr, metadata={"explicit_confirm": True, "runtime_sync": "requested"})
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise problem(500, "SCHEDULE_PAUSE_PERSIST_FAILED", "Schedule pause state could not be persisted", correlation=corr) from exc
+    runtime_sync = "not_required"
+    if runtime_job_id:
+        try:
+            cancelled = _get_runtime().cancel_schedule(runtime_job_id, user_id=user.id)
+            runtime_sync = "cancelled" if cancelled else "pending"
+        except Exception:
+            # A stale callback is still harmless: it rechecks the committed
+            # disabled job state before attempting any Run creation.
+            runtime_sync = "pending"
+    return operation_result({**item.to_dict(), "runtime_sync": runtime_sync}, corr)
 
 
 @router.post("/schedules/{schedule_id}/run-now")
@@ -649,10 +682,21 @@ async def cancel_schedule(job_id: str, req: ScheduleActionRequest | None = None,
     job = service.owned(user.id, job_id)
     if job is None:
         raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=corr)
-    service.delete(job, _get_runtime())
-    record_operation(db, user_id=user.id, action="schedule.delete", object_type="schedule", object_id=job_id, correlation_id=corr, metadata={"explicit_confirm": True})
-    db.commit()
-    return operation_result({"ok": True}, corr)
+    try:
+        runtime_job_id = service.delete_desired(job, commit=False)
+        record_operation(db, user_id=user.id, action="schedule.delete", object_type="schedule", object_id=job_id, correlation_id=corr, metadata={"explicit_confirm": True, "runtime_sync": "requested"})
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise problem(500, "SCHEDULE_DELETE_PERSIST_FAILED", "Schedule deletion could not be persisted", correlation=corr) from exc
+    runtime_sync = "not_required"
+    if runtime_job_id:
+        try:
+            cancelled = _get_runtime().cancel_schedule(runtime_job_id, user_id=user.id)
+            runtime_sync = "cancelled" if cancelled else "pending"
+        except Exception:
+            runtime_sync = "pending"
+    return operation_result({"ok": True, "runtime_sync": runtime_sync}, corr)
 
 
 @router.get("/metrics")

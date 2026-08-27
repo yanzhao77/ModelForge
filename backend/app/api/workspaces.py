@@ -17,6 +17,7 @@ from models.records import (
     KnowledgeDocument,
     ModelInsightPreference,
     ModelMetricBucket,
+    OperationAudit,
     PluginProfile,
     RunArtifact,
     User,
@@ -55,6 +56,50 @@ async def get_lifecycle_diagnostics(
 ):
     """Return lifecycle and retention diagnostics without performing recovery."""
     return lifecycle_diagnostics(db, retention_days=retention_days)
+
+
+@router.get("/operation-audits")
+async def list_operation_audits(
+    limit: int = 100,
+    user_id: int | None = None,
+    action: str | None = None,
+    correlation: str | None = None,
+    before: datetime.datetime | None = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_runtime_admin),
+):
+    """List redacted control-plane audit headers without metadata or request bodies."""
+    safe_limit = max(1, min(int(limit), 200))
+    query = db.query(OperationAudit)
+    if user_id is not None:
+        query = query.filter(OperationAudit.user_id == user_id)
+    if action:
+        query = query.filter(OperationAudit.action == action[:100])
+    if correlation:
+        query = query.filter(OperationAudit.correlation_id == correlation[:64])
+    if before is not None:
+        query = query.filter(OperationAudit.created_at < before)
+    rows = query.order_by(OperationAudit.created_at.desc(), OperationAudit.id.desc()).limit(safe_limit + 1).all()
+    page = rows[:safe_limit]
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+                "user_id": item.user_id,
+                "action": item.action,
+                "object_type": item.object_type,
+                "object_id": item.object_id,
+                "correlation_id": item.correlation_id,
+            }
+            for item in page
+        ],
+        "limit": safe_limit,
+        "has_more": len(rows) > safe_limit,
+        "next_before": page[-1].created_at.isoformat() if len(rows) > safe_limit and page[-1].created_at else None,
+        "read_only": True,
+        "metadata_included": False,
+    }
 
 
 @router.post("/lifecycle-preview")

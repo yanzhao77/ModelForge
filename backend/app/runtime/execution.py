@@ -132,11 +132,15 @@ class ExecutionEngine:
                         })
                         continue
 
+                    registry = getattr(self.tool_runner, "registry", None)
+                    tool = registry.get(tc.name) if registry is not None else None
+                    declared_permissions = list(getattr(tool, "permissions", []) or [])
                     tctx = ToolExecutionContext(
                         user_id=ctx.user_id,
                         agent_id=ctx.agent_id,
                         run_id=ctx.run_id,
                         session_id=ctx.session_id,
+                        permissions=declared_permissions,
                         timeout=ctx.tool_timeout,
                         policy=ctx.policy,
                         cancellation_token=ctx.cancellation,

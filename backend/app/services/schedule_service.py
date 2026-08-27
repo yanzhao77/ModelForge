@@ -106,7 +106,7 @@ class ScheduleService:
             raise ValueError("misfire_policy must be skip")
         return kind, delay, interval, timezone, config, concurrency, misfire
 
-    def create_draft(self, user_id: int, payload: dict[str, Any]) -> ScheduledJob:
+    def create_draft(self, user_id: int, payload: dict[str, Any], *, commit: bool = True) -> ScheduledJob:
         kind, delay, interval, timezone, config, concurrency, misfire = self._validate_payload(payload)
         agent_id = str(payload.get("agent_id") or "")
         if not agent_id:
@@ -135,8 +135,10 @@ class ScheduleService:
         )
         job.next_run_at = self._next_run(job)
         self.db.add(job)
-        self.db.commit()
-        self.db.refresh(job)
+        self.db.flush()
+        if commit:
+            self.db.commit()
+            self.db.refresh(job)
         return job
 
     def list(self, user_id: int) -> list[ScheduledJob]:
@@ -145,7 +147,7 @@ class ScheduleService:
     def owned(self, user_id: int, schedule_id: str) -> ScheduledJob | None:
         return self.db.query(ScheduledJob).filter(ScheduledJob.id == schedule_id, ScheduledJob.user_id == user_id).first()
 
-    def update_draft(self, job: ScheduledJob, payload: dict[str, Any]) -> ScheduledJob:
+    def update_draft(self, job: ScheduledJob, payload: dict[str, Any], *, commit: bool = True) -> ScheduledJob:
         if job.enabled:
             raise ValueError("pause schedule before editing")
         prior_config = json.loads(job.schedule_config or "{}")
@@ -177,8 +179,10 @@ class ScheduleService:
                     spec[key] = payload[key]
             job.run_spec = json.dumps(spec, ensure_ascii=False)
         job.next_run_at = self._next_run(job)
-        self.db.commit()
-        self.db.refresh(job)
+        self.db.flush()
+        if commit:
+            self.db.commit()
+            self.db.refresh(job)
         return job
 
     def preview(self, job: ScheduledJob, count: int = 5) -> list[str]:
@@ -217,6 +221,50 @@ class ScheduleService:
         self.db.refresh(job)
         return job
 
+    def enable_desired(self, job: ScheduledJob, *, commit: bool = True) -> ScheduledJob:
+        """Persist desired enabled state before a caller reconciles runtime state.
+
+        This deliberately does not call ``runtime.schedule_once``. API callers
+        use it with ``commit=False`` so the user-intended state and its redacted
+        audit record either commit together or roll back together.
+        """
+        if job.enabled:
+            return job
+        now = self._utcnow()
+        job.enabled = True
+        job.pending_trigger = False
+        job.runtime_job_id = None
+        if job.next_run_at is None or job.next_run_at <= now:
+            job.next_run_at = self._next_run(job, after=now)
+        self.db.flush()
+        if commit:
+            self.db.commit()
+            self.db.refresh(job)
+        return job
+
+    def arm_enabled(self, job: ScheduledJob, runtime: Any, callback_factory: Callable[[str], Callable[[dict[str, Any]], Any]]) -> ScheduledJob:
+        """Best-effort post-commit runtime reconciliation for an enabled job."""
+        if not job.enabled or job.runtime_job_id:
+            return job
+        runtime_job_id = None
+        try:
+            self._arm(job, runtime, callback_factory)
+            runtime_job_id = job.runtime_job_id
+            self.db.commit()
+            self.db.refresh(job)
+            return job
+        except Exception:
+            # The desired enabled state was committed by the caller already.
+            # Compensate only this newly-created in-memory registration so a
+            # later recovery cannot produce a duplicate callback.
+            self.db.rollback()
+            if runtime_job_id:
+                try:
+                    runtime.cancel_schedule(runtime_job_id, user_id=job.user_id)
+                except Exception:
+                    pass
+            raise
+
     def pause(self, job: ScheduledJob, runtime: Any) -> ScheduledJob:
         if job.runtime_job_id:
             runtime.cancel_schedule(job.runtime_job_id, user_id=job.user_id)
@@ -227,11 +275,32 @@ class ScheduleService:
         self.db.refresh(job)
         return job
 
+    def pause_desired(self, job: ScheduledJob, *, commit: bool = True) -> tuple[ScheduledJob, str | None]:
+        """Persist a disabled desired state and return a runtime job for later cancellation."""
+        runtime_job_id = job.runtime_job_id
+        job.enabled = False
+        job.runtime_job_id = None
+        job.pending_trigger = False
+        self.db.flush()
+        if commit:
+            self.db.commit()
+            self.db.refresh(job)
+        return job, runtime_job_id
+
     def delete(self, job: ScheduledJob, runtime: Any) -> None:
         if job.runtime_job_id:
             runtime.cancel_schedule(job.runtime_job_id, user_id=job.user_id)
         self.db.delete(job)
         self.db.commit()
+
+    def delete_desired(self, job: ScheduledJob, *, commit: bool = True) -> str | None:
+        """Delete a schedule in the database and return any later-cancel runtime ID."""
+        runtime_job_id = job.runtime_job_id
+        self.db.delete(job)
+        self.db.flush()
+        if commit:
+            self.db.commit()
+        return runtime_job_id
 
     def _append_execution(self, job: ScheduledJob, outcome: str, *, trigger_kind: str = "schedule", run_id: str | None = None, error: Exception | None = None) -> ScheduleExecution:
         item = ScheduleExecution(

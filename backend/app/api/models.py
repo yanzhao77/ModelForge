@@ -130,11 +130,16 @@ def set_default_model(
             kind=req.kind,
             model_ref=req.model_ref,
             provider_id=req.provider_id,
+            commit=False,
         )
     except ModelReadinessError as exc:
         raise problem(400, "MODEL_DEFAULT_INVALID", "Selected default model is not available", correlation=corr) from exc
-    record_operation(db, user_id=user.id, action="model.default.set", object_type="model_default", object_id=req.model_ref, correlation_id=corr, metadata={"kind": req.kind, "provider_id": req.provider_id})
-    db.commit()
+    try:
+        record_operation(db, user_id=user.id, action="model.default.set", object_type="model_default", object_id=req.model_ref, correlation_id=corr, metadata={"kind": req.kind, "provider_id": req.provider_id})
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise problem(500, "MODEL_DEFAULT_PERSIST_FAILED", "Default model could not be persisted", correlation=corr) from exc
     return operation_result(result, corr)
 
 
@@ -143,9 +148,13 @@ def clear_default_model(
     request_id: str | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     corr = request_id or correlation_id()
-    result = _readiness(db).clear_default(user.id)
-    record_operation(db, user_id=user.id, action="model.default.clear", object_type="model_default", object_id=str(user.id), correlation_id=corr)
-    db.commit()
+    result = _readiness(db).clear_default(user.id, commit=False)
+    try:
+        record_operation(db, user_id=user.id, action="model.default.clear", object_type="model_default", object_id=str(user.id), correlation_id=corr)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise problem(500, "MODEL_DEFAULT_PERSIST_FAILED", "Default model could not be persisted", correlation=corr) from exc
     return operation_result(result, corr)
 
 

@@ -39,6 +39,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         self.profile_list = QListWidget()
         self.insight_list = QListWidget()
         self.database_list = QListWidget()
+        self.audit_list = QListWidget()
         self._memories: list[dict] = []
         self._artifacts: list[dict] = []
         self._collections: list[dict] = []
@@ -51,6 +52,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         self.tabs.addTab(self._tab(self.profile_list, "新建配置档", self._create_profile, "预览所选配置档", self._preview_selected_profile, "删除所选配置档", self._delete_selected_profile), "插件/MCP")
         self.tabs.addTab(self._tab(self.insight_list, "设置洞察预算", self._configure_insight_budget, "查看预算摘要", self._show_budget_summary), "模型洞察")
         self.tabs.addTab(self._tab(self.database_list, "运行只读迁移预检", self._run_migration_preflight, "查看并发/事件诊断", self._run_runtime_diagnostics, "查看生命周期/保留诊断", self._run_lifecycle_diagnostics), "数据库")
+        self.tabs.addTab(self._tab(self.audit_list, "查看操作审计", self._run_operation_audits), "审计")
         layout.addWidget(self.tabs, 1)
         self.refresh_button = QPushButton("刷新控制中心")
         self.refresh_button.clicked.connect(self.refresh)
@@ -305,6 +307,25 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
             f"保留候选执行记录：{retention.get('execution_candidates', 0)}（策略 {retention.get('policy_days', 30)} 天）\n\n"
             f"{data.get('notice', '只显示状态。')}",
         )
+
+    def _run_operation_audits(self):
+        """Read only audit headers; metadata and request bodies are never displayed."""
+        worker = self._run_api(
+            self.api.operation_audits,
+            self._show_operation_audits,
+            lambda message: QMessageBox.warning(self, "操作审计", str(message)),
+            request_key="operation-audits",
+        )
+        self._worker = worker
+
+    def _show_operation_audits(self, data):
+        rows = data.get("items") or []
+        lines = [
+            f"{item.get('created_at') or '—'} · #{item.get('user_id')} · {item.get('action')} · "
+            f"{item.get('object_type')}:{item.get('object_id')} · {item.get('correlation_id')}"
+            for item in rows
+        ]
+        self._fill(self.audit_list, lines, "暂无脱敏操作审计记录。")
 
     def _call(self, action):
         worker = self._run_api(action, lambda _result: self.refresh(), lambda message: QMessageBox.warning(self, "控制中心", str(message)), request_key="control-mutation")

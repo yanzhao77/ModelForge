@@ -259,6 +259,13 @@ class ModelForgeClient:
     def lifecycle_diagnostics(self, retention_days: int = 30) -> dict:
         return self._get("/api/v1/workspaces/lifecycle-diagnostics", params={"retention_days": retention_days})
 
+    def operation_audits(self, *, limit: int = 100, user_id: int | None = None, action: str | None = None, correlation: str | None = None, before: str | None = None) -> dict:
+        params = {"limit": max(1, min(int(limit), 200))}
+        for key, value in {"user_id": user_id, "action": action, "correlation": correlation, "before": before}.items():
+            if value not in (None, ""):
+                params[key] = value
+        return self._get("/api/v1/workspaces/operation-audits", params=params)
+
     def preview_lifecycle(self, retention_days: int = 30, *, action: str = "retention.cleanup", target_id: str | None = None) -> dict:
         payload = {"retention_days": retention_days, "action": action}
         if target_id:

@@ -161,6 +161,7 @@ class AgentRuntime:
         snapshot = getattr(self.scheduler, "lifecycle_snapshot", None) if self.scheduler is not None else None
         if callable(snapshot):
             scheduler_snapshot = snapshot()
+        event_bus = self.event_bus
         return {
             "started": bool(self._started),
             "running_run_count": len(self._running),
@@ -168,6 +169,11 @@ class AgentRuntime:
             "cancellation_token_count": len(self._cancellations),
             "awaiting_approval_count": len(self._approvals),
             "scheduler": scheduler_snapshot,
+            "event_bus": {
+                "available": event_bus is not None,
+                "write_failure_count": int(getattr(event_bus, "write_failures", 0)) if event_bus is not None else 0,
+                "queue_overflow_count": int(getattr(event_bus, "queue_overflows", 0)) if event_bus is not None else 0,
+            },
         }
 
     # ---- run lifecycle (spec 65) ----

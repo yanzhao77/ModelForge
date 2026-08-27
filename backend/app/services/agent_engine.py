@@ -68,15 +68,21 @@ def _policy_guard(name: str, func: Callable, policy, tool_registry) -> Callable:
 
 
 class AgentEngine:
-    """Manages AI agents with tool-calling via LangGraph."""
+    """Manages legacy LangGraph conversation state in explicit user scopes."""
 
     def __init__(self):
-        self.agents: dict[str, dict] = {}
+        self.agents: dict[tuple[int | None, str], dict] = {}
+
+    @staticmethod
+    def _key(name: str, user_id: int | None = None) -> tuple[int | None, str]:
+        """Keep unscoped legacy callers compatible without mixing real users."""
+        return (int(user_id) if user_id is not None else None, name)
 
     def create_agent(
         self, name: str, model_name: str, tools: list[str] | None = None,
         plugins: list[str] | None = None,
         memory_config: dict | None = None, system_prompt: str | None = None,
+        user_id: int | None = None,
     ) -> dict:
         """Create and register a new agent."""
         agent_info = {
@@ -88,13 +94,14 @@ class AgentEngine:
             "system_prompt": system_prompt,
             "messages": [],
         }
-        self.agents[name] = agent_info
+        self.agents[self._key(name, user_id)] = agent_info
         return {"name": name, "model": model_name, "tools": tools or []}
 
     def chat(
         self, name: str, user_message: str,
         llm_callback: Callable | None = None, llm: Any = None,
         policy: Any = None, tool_registry: Any = None,
+        user_id: int | None = None,
     ) -> dict:
         """Run a chat turn with the agent.
 
@@ -105,7 +112,7 @@ class AgentEngine:
         `policy` + `tool_registry` (3.x hardening): when supplied, the legacy
         LangGraph tool path is policy-enforced (audit R2).
         """
-        agent = self.agents.get(name)
+        agent = self.agents.get(self._key(name, user_id))
         if agent is None:
             return {"error": f"Agent '{name}' not found"}
 
@@ -165,17 +172,18 @@ class AgentEngine:
             graph.add_conditional_edges("agent", should_continue, {END: END})
         return graph.compile()
 
-    def list_agents(self) -> list[dict]:
+    def list_agents(self, user_id: int | None = None) -> list[dict]:
         return [
             {"name": a["name"], "model": a["model"], "tools": a["tools"], "plugins": a.get("plugins") or []}
-            for a in self.agents.values()
+            for (scope, _name), a in self.agents.items()
+            if scope == (int(user_id) if user_id is not None else None)
         ]
 
-    def get_agent(self, name: str) -> dict | None:
-        return self.agents.get(name)
+    def get_agent(self, name: str, user_id: int | None = None) -> dict | None:
+        return self.agents.get(self._key(name, user_id))
 
-    def delete_agent(self, name: str) -> bool:
-        return self.agents.pop(name, None) is not None
+    def delete_agent(self, name: str, user_id: int | None = None) -> bool:
+        return self.agents.pop(self._key(name, user_id), None) is not None
 
 
 _engine = None
