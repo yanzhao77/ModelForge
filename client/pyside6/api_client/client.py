@@ -9,6 +9,12 @@ import httpx
 class ApiClientError(RuntimeError):
     """Base error displayed safely by desktop UI boundaries."""
 
+    def __init__(self, code: str, correlation_id: str | None = None):
+        self.code = code
+        self.correlation_id = correlation_id
+        suffix = f" (request_id: {correlation_id})" if correlation_id else ""
+        super().__init__(f"{code}{suffix}")
+
 
 class AuthenticationError(ApiClientError):
     """The current session is missing, expired, or rejected by the service."""
@@ -281,14 +287,42 @@ class ModelForgeClient:
             json={"action": action, "preview_token": preview_token, "confirm": confirm},
         )
 
+    def preview_execution_intent(
+        self,
+        action: str,
+        target_ids: list[str],
+        *,
+        expected_versions: list[int] | None = None,
+        request_id: str | None = None,
+    ) -> dict:
+        """Request a read-only confirmation summary; this never executes the action."""
+        payload = {"action": action, "target_ids": target_ids, "expected_versions": expected_versions or []}
+        if request_id:
+            payload["request_id"] = request_id
+        return self._post("/api/v1/workspaces/execution-intent-preview", json=payload)
+
+    def check_execution_intent_confirmation(
+        self,
+        action: str,
+        preview_token: str,
+        *,
+        confirm: bool = False,
+        request_id: str | None = None,
+    ) -> dict:
+        """Check the signed preview contract while the server still blocks execution."""
+        payload = {"action": action, "preview_token": preview_token, "confirm": confirm}
+        if request_id:
+            payload["request_id"] = request_id
+        return self._post("/api/v1/workspaces/execution-intent-confirmation-check", json=payload)
+
     def list_artifacts(self) -> list[dict]:
         return self._get("/api/v1/workspaces/artifacts").get("artifacts", [])
 
     def capture_run_artifact(self, run_id: str) -> dict:
         return self._post(f"/api/v1/workspaces/artifacts/from-run/{run_id}")
 
-    def delete_artifact(self, artifact_id: str) -> dict:
-        return self._delete(f"/api/v1/workspaces/artifacts/{artifact_id}")
+    def delete_artifact(self, artifact_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._delete(f"/api/v1/workspaces/artifacts/{artifact_id}", json={"confirm": confirm, "request_id": request_id})
 
     def get_artifact(self, artifact_id: str) -> dict:
         return self._get(f"/api/v1/workspaces/artifacts/{artifact_id}")
@@ -296,44 +330,48 @@ class ModelForgeClient:
     def list_knowledge_collections(self) -> list[dict]:
         return self._get("/api/v1/workspaces/collections").get("collections", [])
 
-    def create_knowledge_collection(self, name: str, description: str = "", tags: list[str] | None = None) -> dict:
-        return self._post("/api/v1/workspaces/collections", json={"name": name, "description": description, "tags": tags or []})
+    def create_knowledge_collection(self, name: str, description: str = "", tags: list[str] | None = None, *, request_id: str | None = None) -> dict:
+        return self._post("/api/v1/workspaces/collections", json={"name": name, "description": description, "tags": tags or [], "request_id": request_id})
 
-    def add_document_to_knowledge_collection(self, collection_id: str, document_id: int) -> dict:
-        return self._post(f"/api/v1/workspaces/collections/{collection_id}/documents/{document_id}")
+    def add_document_to_knowledge_collection(self, collection_id: str, document_id: int, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._post(f"/api/v1/workspaces/collections/{collection_id}/documents/{document_id}", json={"confirm": confirm, "request_id": request_id})
 
     def get_knowledge_collection(self, collection_id: str) -> dict:
         return self._get(f"/api/v1/workspaces/collections/{collection_id}")
 
-    def remove_document_from_knowledge_collection(self, collection_id: str, document_id: int) -> dict:
-        return self._delete(f"/api/v1/workspaces/collections/{collection_id}/documents/{document_id}")
+    def remove_document_from_knowledge_collection(self, collection_id: str, document_id: int, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._delete(f"/api/v1/workspaces/collections/{collection_id}/documents/{document_id}", json={"confirm": confirm, "request_id": request_id})
 
-    def delete_knowledge_collection(self, collection_id: str) -> dict:
-        return self._delete(f"/api/v1/workspaces/collections/{collection_id}")
+    def delete_knowledge_collection(self, collection_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._delete(f"/api/v1/workspaces/collections/{collection_id}", json={"confirm": confirm, "request_id": request_id})
 
     def list_plugin_profiles(self) -> list[dict]:
         return self._get("/api/v1/workspaces/plugin-profiles").get("profiles", [])
 
-    def create_plugin_profile(self, name: str, plugins: list[str] | None = None, mcp_servers: list[str] | None = None) -> dict:
-        return self._post("/api/v1/workspaces/plugin-profiles", json={"name": name, "plugins": plugins or [], "mcp_servers": mcp_servers or []})
+    def create_plugin_profile(self, name: str, plugins: list[str] | None = None, mcp_servers: list[str] | None = None, *, request_id: str | None = None) -> dict:
+        return self._post("/api/v1/workspaces/plugin-profiles", json={"name": name, "plugins": plugins or [], "mcp_servers": mcp_servers or [], "request_id": request_id})
 
     def preview_plugin_profile(self, profile_id: str) -> dict:
         return self._get(f"/api/v1/workspaces/plugin-profiles/{profile_id}/preview")
 
-    def delete_plugin_profile(self, profile_id: str) -> dict:
-        return self._delete(f"/api/v1/workspaces/plugin-profiles/{profile_id}")
+    def delete_plugin_profile(self, profile_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._delete(f"/api/v1/workspaces/plugin-profiles/{profile_id}", json={"confirm": confirm, "request_id": request_id})
 
     def model_insights(self, days: int = 30) -> dict:
         return self._get("/api/v1/workspaces/insights", params={"days": days})
 
-    def update_model_insight_preferences(self, payload: dict) -> dict:
-        return self._put("/api/v1/workspaces/insights/preferences", json=payload)
+    def control_plane_budget(self) -> dict:
+        """Read the informational budget summary; this does not start or alter work."""
+        return self._get("/api/v1/workspaces/control-plane-budget")
 
-    def delete_memory(self, memory_id: int) -> dict:
-        return self._delete(f"/api/v1/memories/{memory_id}")
+    def update_model_insight_preferences(self, payload: dict, *, request_id: str | None = None) -> dict:
+        return self._put("/api/v1/workspaces/insights/preferences", json={**payload, "request_id": request_id})
 
-    def update_memory(self, memory_id: int, *, value: str | None = None, importance: float | None = None) -> dict:
-        payload = {key: item for key, item in {"value": value, "importance": importance}.items() if item is not None}
+    def delete_memory(self, memory_id: int, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._delete(f"/api/v1/memories/{memory_id}", json={"confirm": confirm, "request_id": request_id})
+
+    def update_memory(self, memory_id: int, *, value: str | None = None, importance: float | None = None, request_id: str | None = None) -> dict:
+        payload = {key: item for key, item in {"value": value, "importance": importance, "request_id": request_id}.items() if item is not None}
         return self._patch(f"/api/v1/memories/{memory_id}", json=payload)
 
     def list_agent_templates(self) -> list[dict]:
@@ -394,10 +432,11 @@ class ModelForgeClient:
 
     # ---- agent runs (3.0) ----
 
-    def create_agent_run(self, agent_id: str, input_text: str, session_id: int | None = None, metadata: dict | None = None, execute: bool = True) -> dict:
+    def create_agent_run(self, agent_id: str, input_text: str, session_id: int | None = None, metadata: dict | None = None, execute: bool = False, confirm: bool = False, request_id: str | None = None) -> dict:
         return self._post("/api/v1/agent/runs", json={
             "agent_id": agent_id, "input": input_text,
             "session_id": session_id, "metadata": metadata, "execute": execute,
+            "confirm": confirm, "request_id": request_id,
         })
 
     def list_agent_runs(self, agent_id: str | None = None, status: str | None = None, limit: int = 50) -> list[dict]:
@@ -411,14 +450,14 @@ class ModelForgeClient:
     def get_agent_run(self, run_id: str) -> dict:
         return self._get(f"/api/v1/agent/runs/{run_id}")
 
-    def cancel_agent_run(self, run_id: str) -> dict:
-        return self._post(f"/api/v1/agent/runs/{run_id}/cancel")
+    def cancel_agent_run(self, run_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._post(f"/api/v1/agent/runs/{run_id}/cancel", json={"confirm": confirm, "request_id": request_id})
 
-    def approve_agent_run(self, run_id: str) -> dict:
-        return self._post(f"/api/v1/agent/runs/{run_id}/approve")
+    def approve_agent_run(self, run_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._post(f"/api/v1/agent/runs/{run_id}/approve", json={"confirm": confirm, "request_id": request_id})
 
-    def reject_agent_run(self, run_id: str) -> dict:
-        return self._post(f"/api/v1/agent/runs/{run_id}/reject")
+    def reject_agent_run(self, run_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._post(f"/api/v1/agent/runs/{run_id}/reject", json={"confirm": confirm, "request_id": request_id})
 
     def get_agent_run_events(self, run_id: str, after_sequence: int = 0) -> list[dict]:
         data = self._get(f"/api/v1/agent/runs/{run_id}/events", params={"after_sequence": after_sequence})
@@ -466,12 +505,15 @@ class ModelForgeClient:
     def agent_metrics(self) -> dict:
         return self._get("/api/v1/agent/metrics")
 
-    def register_mcp_server(self, name: str, endpoint: str) -> dict:
-        return self._post("/api/v1/agent/mcp/servers", json={"name": name, "endpoint": endpoint})
+    def register_mcp_server(self, name: str, endpoint: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._post("/api/v1/agent/mcp/servers", json={"name": name, "endpoint": endpoint, "confirm": confirm, "request_id": request_id})
 
     def list_mcp_servers(self) -> list[dict]:
         data = self._get("/api/v1/agent/mcp/servers")
         return data.get("servers", [])
+
+    def unregister_mcp_server(self, name: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._delete(f"/api/v1/agent/mcp/servers/{name}", json={"confirm": confirm, "request_id": request_id})
 
     def create_agent_config(self, name: str, model: str, tools: list[str], system_prompt: str | None = None, policy: dict | None = None, runtime_config: dict | None = None, model_target: dict | None = None) -> dict:
         return self._post("/api/v1/agent/create", json={
@@ -511,8 +553,9 @@ class ModelForgeClient:
     def train_templates(self) -> dict:
         return self._get("/api/v1/train/templates")
 
-    def train_start(self, config: dict) -> dict:
-        return self._post("/api/v1/train/start", json=config)
+    def train_start(self, config: dict, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        payload = {**config, "confirm": confirm, "request_id": request_id}
+        return self._post("/api/v1/train/start", json=payload)
 
     def train_status(self, task_id: str) -> dict:
         return self._get(f"/api/v1/train/status/{task_id}")
@@ -520,11 +563,11 @@ class ModelForgeClient:
     def train_tasks(self) -> list[dict]:
         return self._get("/api/v1/train/tasks")
 
-    def train_stop(self, task_id: str) -> dict:
-        return self._post(f"/api/v1/train/stop/{task_id}")
+    def train_stop(self, task_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._post(f"/api/v1/train/stop/{task_id}", json={"confirm": confirm, "request_id": request_id})
 
-    def train_register_model(self, task_id: str) -> dict:
-        return self._post(f"/api/v1/train/{task_id}/register-model")
+    def train_register_model(self, task_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._post(f"/api/v1/train/{task_id}/register-model", json={"confirm": confirm, "request_id": request_id})
 
     def train_stream(self, task_id: str) -> Iterator[dict]:
         """Yield training SSE events: {type: log|progress|done, data: ...}."""
@@ -573,14 +616,14 @@ class ModelForgeClient:
     def get_task(self, task_id: str) -> dict:
         return self._get(f"/api/v1/tasks/{task_id}")
 
-    def cancel_task(self, task_id: str) -> dict:
-        return self._post(f"/api/v1/tasks/{task_id}/cancel")
+    def cancel_task(self, task_id: str, *, confirm: bool = False, expected_version: int | None = None, request_id: str | None = None) -> dict:
+        return self._post(f"/api/v1/tasks/{task_id}/cancel", json={"confirm": confirm, "expected_version": expected_version, "request_id": request_id})
 
-    def retry_task(self, task_id: str) -> dict:
-        return self._post(f"/api/v1/tasks/{task_id}/retry")
+    def retry_task(self, task_id: str, *, confirm: bool = False, expected_version: int | None = None, request_id: str | None = None) -> dict:
+        return self._post(f"/api/v1/tasks/{task_id}/retry", json={"confirm": confirm, "expected_version": expected_version, "request_id": request_id})
 
-    def retry_tasks_batch(self, task_ids: list[str]) -> dict:
-        return self._post("/api/v1/tasks/retry-batch", json={"task_ids": task_ids})
+    def retry_tasks_batch(self, task_ids: list[str], *, expected_versions: dict[str, int] | None = None, confirm: bool = False, request_id: str | None = None) -> dict:
+        return self._post("/api/v1/tasks/retry-batch", json={"task_ids": task_ids, "expected_versions": expected_versions or {}, "confirm": confirm, "request_id": request_id})
 
     def task_events(self, task_id: str, limit: int = 200) -> list[dict]:
         return self._get(f"/api/v1/tasks/{task_id}/events", params={"limit": limit}).get("events", [])
@@ -625,32 +668,30 @@ class ModelForgeClient:
             response.raise_for_status()
         except httpx.HTTPStatusError as error:
             status = error.response.status_code
+            code = f"HTTP_{status}"
+            correlation = error.response.headers.get("X-Request-ID")
             try:
                 body = error.response.json()
-                detail = body.get("detail") or body.get("message") or str(error)
+                detail = body.get("detail") if isinstance(body, dict) else None
             except (TypeError, ValueError):
-                detail = error.response.text or str(error)
+                detail = None
             if isinstance(detail, dict):
-                message = str(detail.get("message") or detail.get("code") or str(detail))
-                code = detail.get("code")
-                correlation = detail.get("correlation_id")
-                if code:
-                    message = f"{message} [{code}]"
-                if correlation:
-                    message = f"{message} (追踪标识: {correlation})"
-            else:
-                message = str(detail)
+                code = str(detail.get("code") or code)
+                correlation = str(detail.get("correlation_id") or correlation or "") or None
+            code = "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in code.upper())[:96] or f"HTTP_{status}"
+            if correlation:
+                correlation = "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in correlation)[:128] or None
             if status == 401:
                 self.set_token(None)
                 self.username = None
-                raise AuthenticationError(f"会话已失效，请重新登录：{message}") from error
+                raise AuthenticationError(code or "AUTHENTICATION_REQUIRED", correlation) from error
             if status == 403:
-                raise AuthorizationError(f"当前账号无权执行此操作：{message}") from error
+                raise AuthorizationError(code or "AUTHORIZATION_DENIED", correlation) from error
             if status in {400, 404, 409, 422}:
-                raise ValidationError(f"请求未被服务接受：{message}") from error
-            raise ServiceUnavailableError(f"服务请求失败（HTTP {status}）：{message}") from error
+                raise ValidationError(code, correlation) from error
+            raise ServiceUnavailableError(code, correlation) from error
         except httpx.HTTPError as error:
-            raise ServiceUnavailableError(f"无法连接 ModelForge 服务：{error}") from error
+            raise ServiceUnavailableError("SERVICE_UNAVAILABLE") from error
 
     # ---- HTTP helpers ----
 
@@ -679,4 +720,4 @@ class ModelForgeClient:
         except ApiClientError:
             raise
         except httpx.HTTPError as error:
-            raise ServiceUnavailableError(f"无法连接 ModelForge 服务：{error}") from error
+            raise ServiceUnavailableError("SERVICE_UNAVAILABLE") from error

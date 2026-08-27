@@ -4,6 +4,7 @@ from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
+from i18n.ui_localizer import format_api_error, format_text
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -183,7 +184,7 @@ class TrainingPage(QWidget, AsyncApiMixin):
     def start(self):
         dataset_id = self.dataset_combo.currentData()
         if dataset_id is None:
-            QMessageBox.warning(self, "提示", "请先在数据集页上传并选择一个数据集")
+            QMessageBox.warning(self, format_text("提示"), format_text("请先在数据集页上传并选择一个数据集"))
             return
         try:
             config = {
@@ -193,13 +194,15 @@ class TrainingPage(QWidget, AsyncApiMixin):
                 "lora_r": int(self.lora_r.text()), "lora_alpha": int(self.lora_alpha.text()),
                 "output_dir": self.output_dir.text().strip() or "./outputs",
             }
-        except ValueError as error:
-            QMessageBox.warning(self, "配置错误", str(error))
+        except ValueError:
+            QMessageBox.warning(self, format_text("配置错误"), format_text("训练配置无效。请检查轮次、学习率和批量大小。"))
             return
-        self._run_api(lambda: self.api.train_start(config), self._on_started, lambda error: QMessageBox.warning(self, "启动失败", error))
+        if QMessageBox.question(self, format_text("确认启动训练"), format_text("训练将读取所选数据集并启动后台训练进程，是否继续？")) != QMessageBox.Yes:
+            return
+        self._run_api(lambda: self.api.train_start(config, confirm=True), self._on_started, lambda error: QMessageBox.warning(self, format_text("启动失败"), format_api_error(error)))
 
     def _on_started(self, result):
-        QMessageBox.information(self, "已启动", f"训练任务已启动: {result.get('task_id')}")
+        QMessageBox.information(self, format_text("已启动"), format_text("训练任务已提交。任务标识：{task_id}", task_id=result.get("task_id", "-")))
         self._load_tasks()
 
     def _on_task_selected(self):
@@ -217,7 +220,7 @@ class TrainingPage(QWidget, AsyncApiMixin):
         for task in self._tasks:
             if task.get("task_id") == self._current_task_id:
                 self.progress_bar.setValue(int(task.get("progress", 0) or 0))
-                self.status_label.setText(f"状态: {task.get('status')} | Epoch {task.get('current_epoch')}/{task.get('total_epochs')} | loss: {task.get('loss') if task.get('loss') is not None else '-'}")
+                self.status_label.setText(format_text("训练状态：{status}｜轮次 {current_epoch}/{total_epochs}｜损失：{loss}", status=task.get("status", "-"), current_epoch=task.get("current_epoch", "-"), total_epochs=task.get("total_epochs", "-"), loss=task.get("loss") if task.get("loss") is not None else "-"))
                 return
 
     def _poll(self):
@@ -244,21 +247,25 @@ class TrainingPage(QWidget, AsyncApiMixin):
         if task.get("status") in ("done", "error", "stopped"):
             self._timer.stop()
             if task.get("status") == "done":
-                QMessageBox.information(self, "训练完成", "可以点击“注册到模型列表”")
+                QMessageBox.information(self, format_text("训练完成"), format_text("可以点击“注册到模型列表”"))
         self._load_tasks()
 
     def stop_task(self):
         if self._current_task_id:
-            self._run_api(lambda: self.api.train_stop(self._current_task_id), self._on_stopped, lambda error: QMessageBox.warning(self, "失败", error))
+            if QMessageBox.question(self, format_text("确认停止训练"), format_text("确定请求停止当前训练任务？")) != QMessageBox.Yes:
+                return
+            self._run_api(lambda: self.api.train_stop(self._current_task_id, confirm=True), self._on_stopped, lambda error: QMessageBox.warning(self, format_text("停止失败"), format_api_error(error)))
 
     def _on_stopped(self, _result):
-        QMessageBox.information(self, "已请求停止", "正在终止训练进程...")
+        QMessageBox.information(self, format_text("已请求停止"), format_text("已向训练进程发送停止请求。"))
         self._load_tasks()
 
     def register_model(self):
         if self._current_task_id:
-            self._run_api(lambda: self.api.train_register_model(self._current_task_id), self._on_registered, lambda error: QMessageBox.warning(self, "注册失败", error))
+            if QMessageBox.question(self, format_text("确认注册模型"), format_text("确定将当前训练产物注册到本地模型列表？")) != QMessageBox.Yes:
+                return
+            self._run_api(lambda: self.api.train_register_model(self._current_task_id, confirm=True), self._on_registered, lambda error: QMessageBox.warning(self, format_text("注册失败"), format_api_error(error)))
 
     def _on_registered(self, model):
-        QMessageBox.information(self, "已注册", f"模型已注册: {model.get('name')}")
+        QMessageBox.information(self, format_text("已注册"), format_text("模型已注册：{name}", name=model.get("name", "-")))
         self._load_models()

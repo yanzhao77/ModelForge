@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from core.action_risk import requires_confirmation
 from core.api_contracts import correlation_id, operation_result, problem
 from core.database import SessionLocal, get_db
 from core.security import get_current_user, get_runtime_admin
@@ -13,7 +14,14 @@ from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
 from services.model_readiness_service import ModelReadinessService
 from services.schedule_service import ScheduleService
-from services.audit_log import record_operation
+from services.audit_log import (
+    AuditMetadataRejected,
+    AuditPersistenceError,
+    commit_control_plane_audit,
+    record_control_plane_operation,
+    record_operation,
+    validate_control_plane_audit_metadata,
+)
 from sqlalchemy.orm import Session as DBSession
 import json
 import uuid
@@ -38,6 +46,12 @@ class MCPServerRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=160)
     endpoint: str = Field(min_length=1, max_length=2048)
+    confirm: bool = False
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+class MCPActionRequest(BaseModel):
+    confirm: bool = False
     request_id: str | None = Field(default=None, max_length=64)
 
 
@@ -61,6 +75,13 @@ class ScheduleDraftRequest(BaseModel):
 
 class ScheduleActionRequest(BaseModel):
     """Explicit confirmation boundary for schedule state transitions."""
+
+    confirm: bool = False
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+class RunActionRequest(BaseModel):
+    """Explicit confirmation boundary for Agent Run state changes."""
 
     confirm: bool = False
     request_id: str | None = Field(default=None, max_length=64)
@@ -255,12 +276,21 @@ async def delete_agent(name: str, db: DBSession = Depends(get_db), user: User = 
 @router.post("/runs")
 async def create_run(
     req: RunCreateRequest,
+    db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Create an agent run; optionally start execution (async)."""
+    """Create an Agent Run only after a caller explicitly confirms the intent."""
+    corr = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "AGENT_RUN_CONFIRMATION_REQUIRED", "Confirm before creating an Agent Run.", correlation=corr)
+    audit_metadata = {"confirmed": True, "execute_requested": bool(req.execute), "session_bound": req.session_id is not None}
+    try:
+        validate_control_plane_audit_metadata("agent.run.create", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     rt = _get_runtime()
     if rt.get_agent(req.agent_id, user_id=user.id) is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise problem(404, "AGENT_NOT_FOUND", "Agent not found.", correlation=corr)
     try:
         run = rt.create_run(
             agent_id=req.agent_id,
@@ -270,12 +300,17 @@ async def create_run(
             metadata=req.metadata,
             execute=req.execute,
         )
-    except Exception as e:
-        code = getattr(e, "code", None)
+    except Exception as exc:
+        code = getattr(exc, "code", None)
         if code == "AGENT_NOT_FOUND":
-            raise HTTPException(status_code=404, detail=str(e))
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"run_id": run.run_id, "status": run.status, "agent_id": run.agent_id}
+            raise problem(404, "AGENT_NOT_FOUND", "Agent not found.", correlation=corr)
+        raise problem(400, "AGENT_RUN_CREATE_FAILED", "Agent Run could not be created.", correlation=corr)
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="agent.run.create", object_type="agent_run", object_id=run.run_id, correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "AGENT_RUN_AUDIT_DURABILITY_UNKNOWN", "Agent Run was accepted, but audit durability is unknown.", correlation=corr) from exc
+    return operation_result({"run_id": run.run_id, "status": run.status, "agent_id": run.agent_id}, corr)
 
 
 @router.get("/runs")
@@ -303,47 +338,92 @@ async def get_run(
 ):
     try:
         run = _get_runtime().get_run(run_id, user_id=user.id)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        raise problem(404, "AGENT_RUN_NOT_FOUND", "Agent Run not found.", correlation=correlation_id())
     return run.to_dict()
 
 
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(
     run_id: str,
+    req: RunActionRequest,
+    db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    corr = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "AGENT_RUN_CANCEL_CONFIRMATION_REQUIRED", "Confirm before cancelling an Agent Run.", correlation=corr)
+    audit_metadata = {"confirmed": True}
+    try:
+        validate_control_plane_audit_metadata("agent.run.cancel", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     try:
         run = await _get_runtime().cancel_run(run_id, user_id=user.id)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return run.to_dict()
+    except Exception:
+        raise problem(404, "AGENT_RUN_NOT_FOUND", "Agent Run not found.", correlation=corr)
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="agent.run.cancel", object_type="agent_run", object_id=run.run_id, correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "AGENT_RUN_AUDIT_DURABILITY_UNKNOWN", "Agent Run cancellation was accepted, but audit durability is unknown.", correlation=corr) from exc
+    return operation_result(run.to_dict(), corr)
 
 
 @router.post("/runs/{run_id}/approve")
 async def approve_run(
     run_id: str,
+    req: RunActionRequest,
+    db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Approve a pending human-approval request (spec 32)."""
+    corr = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "AGENT_RUN_APPROVAL_CONFIRMATION_REQUIRED", "Confirm before approving an Agent Run.", correlation=corr)
+    audit_metadata = {"confirmed": True}
+    try:
+        validate_control_plane_audit_metadata("agent.run.approve", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     try:
         run = await _get_runtime().approve_run(run_id, user_id=user.id)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return run.to_dict()
+    except Exception:
+        raise problem(404, "AGENT_RUN_NOT_FOUND", "Agent Run not found.", correlation=corr)
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="agent.run.approve", object_type="agent_run", object_id=run.run_id, correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "AGENT_RUN_AUDIT_DURABILITY_UNKNOWN", "Agent Run approval was accepted, but audit durability is unknown.", correlation=corr) from exc
+    return operation_result(run.to_dict(), corr)
 
 
 @router.post("/runs/{run_id}/reject")
 async def reject_run(
     run_id: str,
+    req: RunActionRequest,
+    db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Reject a pending human-approval request (spec 32)."""
+    corr = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "AGENT_RUN_REJECTION_CONFIRMATION_REQUIRED", "Confirm before rejecting an Agent Run.", correlation=corr)
+    audit_metadata = {"confirmed": True}
+    try:
+        validate_control_plane_audit_metadata("agent.run.reject", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     try:
         run = await _get_runtime().reject_run(run_id, user_id=user.id)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return run.to_dict()
+    except Exception:
+        raise problem(404, "AGENT_RUN_NOT_FOUND", "Agent Run not found.", correlation=corr)
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="agent.run.reject", object_type="agent_run", object_id=run.run_id, correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "AGENT_RUN_AUDIT_DURABILITY_UNKNOWN", "Agent Run rejection was accepted, but audit durability is unknown.", correlation=corr) from exc
+    return operation_result(run.to_dict(), corr)
 
 
 @router.get("/runs/{run_id}/events")
@@ -420,17 +500,27 @@ async def run_stream(
 
 @router.post("/mcp/servers")
 async def register_mcp(req: MCPServerRequest, db: DBSession = Depends(get_db), user: User = Depends(get_runtime_admin)):
-    """Register an MCP server; its tools land in the Tool Registry (spec 70)."""
+    """Connect/register an MCP server only after explicit administrator confirmation."""
     corr = req.request_id or correlation_id()
+    if requires_confirmation("mcp.connect") and not req.confirm:
+        raise problem(409, "MCP_CONNECTION_CONFIRMATION_REQUIRED", "Confirm before connecting an MCP server.", correlation=corr)
+    audit_metadata = {"confirmed": True, "request_id_supplied": bool(req.request_id)}
+    try:
+        validate_control_plane_audit_metadata("mcp.connect", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     name = req.name
     endpoint = req.endpoint
     try:
         result = await _get_runtime().register_mcp_server(name, endpoint)
     except Exception:
         raise problem(400, "MCP_REGISTER_FAILED", "MCP register failed", correlation=corr)
-    record_operation(db, user_id=user.id, action="mcp.register", object_type="mcp_server", object_id=name, correlation_id=corr, metadata={"endpoint_configured": True})
-    db.commit()
-    return operation_result(result if isinstance(result, dict) else {"ok": True, "name": name}, corr)
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="mcp.connect", object_type="mcp_server", object_id=name, correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "MCP_AUDIT_DURABILITY_UNKNOWN", "MCP connection was accepted, but audit durability is unknown.", correlation=corr) from exc
+    return operation_result({"ok": True, "name": name, "connection_requested": True}, corr)
 
 
 @router.get("/mcp/servers")
@@ -439,13 +529,23 @@ async def list_mcp_servers(user: User = Depends(get_runtime_admin)):
 
 
 @router.delete("/mcp/servers/{name}")
-async def unregister_mcp(name: str, request_id: str | None = Header(default=None, alias="X-Request-ID"), db: DBSession = Depends(get_db), user: User = Depends(get_runtime_admin)):
-    corr = request_id or correlation_id()
+async def unregister_mcp(name: str, req: MCPActionRequest, db: DBSession = Depends(get_db), user: User = Depends(get_runtime_admin)):
+    corr = req.request_id or correlation_id()
+    if requires_confirmation("mcp.unregister") and not req.confirm:
+        raise problem(409, "MCP_UNREGISTER_CONFIRMATION_REQUIRED", "Confirm before unregistering an MCP server.", correlation=corr)
+    audit_metadata = {"confirmed": True, "request_id_supplied": bool(req.request_id)}
+    try:
+        validate_control_plane_audit_metadata("mcp.unregister", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     ok = await _get_runtime().unregister_mcp_server(name)
     if not ok:
         raise problem(404, "MCP_SERVER_NOT_FOUND", "MCP server not found", correlation=corr)
-    record_operation(db, user_id=user.id, action="mcp.unregister", object_type="mcp_server", object_id=name, correlation_id=corr)
-    db.commit()
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="mcp.unregister", object_type="mcp_server", object_id=name, correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "MCP_AUDIT_DURABILITY_UNKNOWN", "MCP removal was accepted, but audit durability is unknown.", correlation=corr) from exc
     return operation_result({"ok": True}, corr)
 
 

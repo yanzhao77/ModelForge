@@ -338,7 +338,5 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.worker = None
         if worker and worker.isRunning():
             worker.requestInterruption()
-            if not worker.wait(2500):
-                worker.terminate()
-                worker.wait(500)
+            worker.wait(2500)
         self.shutdown_async_api()

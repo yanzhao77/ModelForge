@@ -11,6 +11,16 @@ from typing import Any
 from PySide6.QtCore import QThread, Signal
 
 
+def safe_api_error_text(exc: Exception) -> str:
+    """Return only the stable desktop error code and optional request identifier."""
+    code = getattr(exc, "code", None)
+    correlation = getattr(exc, "correlation_id", None)
+    if isinstance(code, str) and code:
+        suffix = f" (request_id: {correlation})" if isinstance(correlation, str) and correlation else ""
+        return f"{code}{suffix}"
+    return "CLIENT_REQUEST_FAILED"
+
+
 class ApiWorker(QThread):
     """Run one blocking API callable outside the GUI event loop."""
 
@@ -36,7 +46,7 @@ class ApiWorker(QThread):
             if self.isInterruptionRequested():
                 self.cancelled.emit()
                 return
-            self.failed.emit(str(exc))
+            self.failed.emit(safe_api_error_text(exc))
 
 
 class AsyncApiMixin:

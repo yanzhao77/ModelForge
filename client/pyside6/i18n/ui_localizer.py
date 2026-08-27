@@ -136,6 +136,28 @@ _TEXT = {
     "推理服务": ("推理服务", "Inference Service", "推論サービス"), "模型生命周期、权限响应和运行时诊断均来自已连接服务。": ("模型生命周期、权限响应和运行时诊断均来自已连接服务。", "Model lifecycle, permission responses, and runtime diagnostics come from the connected service.", "モデルのライフサイクル、権限応答、ランタイム診断は接続済みサービスから取得されます。"), "运行时状态将在此显示。": ("运行时状态将在此显示。", "Runtime status will appear here.", "ランタイムの状態がここに表示されます。"),
     "运行记录": ("运行记录", "Run History", "実行履歴"), "暂无活动记录": ("暂无活动记录", "No Activity Yet", "アクティビティはまだありません"), "已连接的 ModelForge 服务发布任务事件后，将显示在这里。": ("已连接的 ModelForge 服务发布任务事件后，将显示在这里。", "Task events from the connected ModelForge service will appear here.", "接続済みの ModelForge サービスがタスクイベントを公開すると、ここに表示されます。"),
     "选择已加载扩展查看详情。": ("选择已加载扩展查看详情。", "Select a loaded extension to view details.", "読み込み済みの拡張機能を選択して詳細を確認します。"), "尚无已加载扩展。此页面不会自动发现、加载或安装扩展。": ("尚无已加载扩展。此页面不会自动发现、加载或安装扩展。", "No extensions are loaded. This page never discovers, loads, or installs extensions automatically.", "読み込み済みの拡張機能はありません。この画面で自動検出、読み込み、インストールは行われません。"),
+    "请求未完成（{code}）。": ("请求未完成（{code}）。", "The request did not complete ({code}).", "要求は完了しませんでした（{code}）。"),
+    "请求未完成（{code}）。关联标识：{correlation}": ("请求未完成（{code}）。关联标识：{correlation}", "The request did not complete ({code}). Correlation ID: {correlation}", "要求は完了しませんでした（{code}）。相関 ID：{correlation}"),
+    "确认重试": ("确认重试", "Confirm Retry", "再試行の確認"), "确定重试“{title}”？": ("确定重试“{title}”？", "Retry “{title}”?", "「{title}」を再試行しますか？"),
+    "确认批量重试": ("确认批量重试", "Confirm Batch Retry", "一括再試行の確認"), "将为所选的 {count} 个失败任务创建受审计的重试任务，是否继续？": ("将为所选的 {count} 个失败任务创建受审计的重试任务，是否继续？", "Create audited retry tasks for {count} selected failures?", "選択した {count} 件の失敗タスクについて、監査対象の再試行タスクを作成しますか？"),
+    "批量重试结果": ("批量重试结果", "Batch Retry Result", "一括再試行の結果"), "已创建 {count} 个重试任务。": ("已创建 {count} 个重试任务。", "Created {count} retry task(s).", "{count} 件の再試行タスクを作成しました。"), "未创建：": ("未创建：", "Not created:", "作成されませんでした："), "任务 {task_id} 未创建（{code}）。": ("任务 {task_id} 未创建（{code}）。", "Task {task_id} was not created ({code}).", "タスク {task_id} は作成されませんでした（{code}）。"),
+    "确认取消": ("确认取消", "Confirm Cancellation", "キャンセルの確認"), "确定请求取消“{title}”？": ("确定请求取消“{title}”？", "Request cancellation of “{title}”?", "「{title}」のキャンセルを要求しますか？"),
+    "任务未成功完成（{code}）。请查看脱敏日志或在确认后重试。": ("任务未成功完成（{code}）。请查看脱敏日志或在确认后重试。", "The task did not complete successfully ({code}). Review redacted logs or retry after confirmation.", "タスクは正常に完了しませんでした（{code}）。匿名化されたログを確認するか、確認後に再試行してください。"),
+    "日志加载失败": ("日志加载失败", "Log Loading Failed", "ログの読み込みに失敗しました"), "导出失败": ("导出失败", "Export Failed", "エクスポートに失敗しました"), "无法写入所选文件。请检查文件路径和权限后重试。": ("无法写入所选文件。请检查文件路径和权限后重试。", "The selected file could not be written. Check its path and permissions, then retry.", "選択したファイルに書き込めませんでした。パスと権限を確認して再試行してください。"),
+    "提示": ("提示", "Notice", "お知らせ"), "请先在数据集页上传并选择一个数据集": ("请先在数据集页上传并选择一个数据集", "Upload and select a dataset on the Datasets page first.", "先に［データセット］画面でデータセットをアップロードして選択してください。"),
+    "配置错误": ("配置错误", "Configuration Error", "設定エラー"), "训练配置无效。请检查轮次、学习率和批量大小。": ("训练配置无效。请检查轮次、学习率和批量大小。", "The training configuration is invalid. Check epochs, learning rate, and batch size.", "トレーニング設定が無効です。エポック数、学習率、バッチサイズを確認してください。"),
+    "确认启动训练": ("确认启动训练", "Confirm Training Start", "トレーニング開始の確認"), "训练将读取所选数据集并启动后台训练进程，是否继续？": ("训练将读取所选数据集并启动后台训练进程，是否继续？", "Training will read the selected dataset and start a background training process. Continue?", "トレーニングでは選択したデータセットを読み込み、バックグラウンドのトレーニングプロセスを開始します。続行しますか？"),
+    "启动失败": ("启动失败", "Start Failed", "開始に失敗しました"), "训练任务已提交。任务标识：{task_id}": ("训练任务已提交。任务标识：{task_id}", "Training task submitted. Task ID: {task_id}", "トレーニングタスクを送信しました。タスク ID：{task_id}"),
+    "训练完成": ("训练完成", "Training Complete", "トレーニング完了"), "可以点击“注册到模型列表”": ("可以点击“注册到模型列表”", "You can select “Register Model” to add the result to the model list.", "［モデルを登録］を選択して、結果をモデル一覧に追加できます。"),
+    "确认停止训练": ("确认停止训练", "Confirm Training Stop", "トレーニング停止の確認"), "确定请求停止当前训练任务？": ("确定请求停止当前训练任务？", "Request that the current training task stop?", "現在のトレーニングタスクの停止を要求しますか？"), "停止失败": ("停止失败", "Stop Failed", "停止に失敗しました"), "已请求停止": ("已请求停止", "Stop Requested", "停止を要求しました"), "已向训练进程发送停止请求。": ("已向训练进程发送停止请求。", "A stop request was sent to the training process.", "トレーニングプロセスに停止要求を送信しました。"),
+    "确认注册模型": ("确认注册模型", "Confirm Model Registration", "モデル登録の確認"), "确定将当前训练产物注册到本地模型列表？": ("确定将当前训练产物注册到本地模型列表？", "Register the current training artifact in the local model list?", "現在のトレーニング成果物をローカルモデル一覧に登録しますか？"), "注册失败": ("注册失败", "Registration Failed", "登録に失敗しました"), "已注册": ("已注册", "Registered", "登録済み"), "模型已注册：{name}": ("模型已注册：{name}", "Model registered: {name}", "モデルを登録しました：{name}"),
+    "训练状态：{status}｜轮次 {current_epoch}/{total_epochs}｜损失：{loss}": ("训练状态：{status}｜轮次 {current_epoch}/{total_epochs}｜损失：{loss}", "Training status: {status} | Epoch {current_epoch}/{total_epochs} | Loss: {loss}", "トレーニング状態：{status}｜エポック {current_epoch}/{total_epochs}｜損失：{loss}"),
+    "确认运行 Agent": ("确认运行 Agent", "Confirm Agent Run", "Agent 実行の確認"), "将为 Agent“{agent}”创建新的 Run 并调用已选模型，是否继续？": ("将为 Agent“{agent}”创建新的 Run 并调用已选模型，是否继续？", "Create a new Run for Agent “{agent}” and call the selected model?", "Agent「{agent}」の新しい Run を作成し、選択したモデルを呼び出します。続行しますか？"),
+    "正在创建 Agent Run：{agent}…": ("正在创建 Agent Run：{agent}…", "Creating Agent Run: {agent}…", "Agent Run を作成中：{agent}…"), "Agent Run 已创建。运行标识：{run_id}": ("Agent Run 已创建。运行标识：{run_id}", "Agent Run created. Run ID: {run_id}", "Agent Run を作成しました。Run ID：{run_id}"),
+    "确认取消 Agent Run": ("确认取消 Agent Run", "Confirm Agent Run Cancellation", "Agent Run キャンセルの確認"), "确定请求取消 Run“{run_id}”？": ("确定请求取消 Run“{run_id}”？", "Request cancellation of Run “{run_id}”?", "Run「{run_id}」のキャンセルを要求しますか？"), "正在请求取消 Run：{run_id}…": ("正在请求取消 Run：{run_id}…", "Requesting cancellation of Run: {run_id}…", "Run のキャンセルを要求中：{run_id}…"), "取消请求已提交，正在刷新运行记录。": ("取消请求已提交，正在刷新运行记录。", "Cancellation request submitted. Refreshing run history.", "キャンセル要求を送信しました。実行履歴を更新しています。"),
+    "控制面操作未完成：{action}。{error}": ("控制面操作未完成：{action}。{error}", "Control-plane action did not complete: {action}. {error}", "コントロールプレーン操作は完了しませんでした：{action}。{error}"), "启动 Agent Run": ("启动 Agent Run", "Start Agent Run", "Agent Run を開始"), "取消 Agent Run": ("取消 Agent Run", "Cancel Agent Run", "Agent Run をキャンセル"), "获取运行记录": ("获取运行记录", "Load Run History", "実行履歴を取得"), "运行记录刷新未完成。{error}": ("运行记录刷新未完成。{error}", "Run history refresh did not complete. {error}", "実行履歴の更新は完了しませんでした。{error}"),
+    "任务快照不可达。{error}": ("任务快照不可达。{error}", "Task snapshot is unavailable. {error}", "タスクスナップショットを利用できません。{error}"), "实时任务流已断开，正在重连。{error}": ("实时任务流已断开，正在重连。{error}", "Live task stream is disconnected and reconnecting. {error}", "リアルタイムタスクストリームは切断され、再接続中です。{error}"), "任务同步未完成。{error}": ("任务同步未完成。{error}", "Task synchronization did not complete. {error}", "タスク同期は完了しませんでした。{error}"),
+    "已启动": ("已启动", "Started", "開始済み"),
 }
 
 # Make English source literals equivalent to their Chinese migration counterparts.
@@ -149,6 +171,22 @@ def text(source: str, locale: str) -> str:
     if not value:
         return source
     return value[{"zh_CN": 0, "en_US": 1, "ja_JP": 2}.get(locale, 0)]
+
+
+def format_text(source: str, **values) -> str:
+    """Format a dynamic UI string through the active locale without exposing raw errors."""
+    translator = current()
+    locale = translator.locale if translator is not None else "zh_CN"
+    return text(source, locale).format(**values)
+
+
+def format_api_error(error) -> str:
+    """Render only the stable code and optional correlation identifier at UI boundaries."""
+    code = getattr(error, "code", None) or "OPERATION_FAILED"
+    correlation = getattr(error, "correlation_id", None)
+    if correlation:
+        return format_text("请求未完成（{code}）。关联标识：{correlation}", code=code, correlation=correlation)
+    return format_text("请求未完成（{code}）。", code=code)
 
 
 def _source(obj, attr: str, value: str) -> str:

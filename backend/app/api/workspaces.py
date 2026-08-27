@@ -20,14 +20,24 @@ from models.records import (
     OperationAudit,
     PluginProfile,
     RunArtifact,
+    TaskRecord,
     User,
 )
 from services.redaction import redact_data, redact_text
-from services.audit_log import record_operation
+from services.audit_log import (
+    AuditMetadataRejected,
+    AuditPersistenceError,
+    commit_control_plane_audit,
+    record_control_plane_operation,
+    record_operation,
+    validate_control_plane_audit_metadata,
+)
 from services.migration_preflight import migration_preflight
 from services.runtime_diagnostics import runtime_diagnostics
 from services.lifecycle_diagnostics import lifecycle_diagnostics
 from services.lifecycle_preview import check_lifecycle_confirmation, create_lifecycle_preview
+from services.execution_intent_preview import check_execution_intent_preview, create_execution_intent_preview
+from services.control_plane_budget import control_plane_budget_summary
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -137,10 +147,46 @@ async def lifecycle_confirmation_check(
     return operation_result(result, corr)
 
 
+@router.post("/execution-intent-preview")
+async def get_execution_intent_preview(
+    req: ExecutionIntentPreviewRequest,
+    user: User = Depends(get_current_user),
+):
+    """Return a signed, non-persistent summary for a future high-risk user action."""
+    corr = req.request_id or correlation_id()
+    try:
+        result = create_execution_intent_preview(
+            user_id=user.id,
+            action=req.action,
+            target_ids=req.target_ids,
+            expected_versions=req.expected_versions,
+        )
+    except ValueError as exc:
+        raise problem(400, "EXECUTION_INTENT_PREVIEW_ACTION_INVALID", "This action cannot be previewed.", correlation=corr) from exc
+    return operation_result(result, corr)
+
+
+@router.post("/execution-intent-confirmation-check")
+async def execution_intent_confirmation_check(
+    req: ExecutionIntentConfirmationRequest,
+    user: User = Depends(get_current_user),
+):
+    """Validate only the future confirmation contract; execution remains disabled."""
+    corr = req.request_id or correlation_id()
+    result = check_execution_intent_preview(
+        token=req.preview_token,
+        user_id=user.id,
+        action=req.action,
+        confirm=req.confirm,
+    )
+    return operation_result(result, corr)
+
+
 class CollectionCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=10000)
     tags: list[str] = Field(default_factory=list, max_length=32)
+    request_id: str | None = Field(default=None, max_length=64)
 
 
 class PluginProfileCreateRequest(BaseModel):
@@ -148,12 +194,14 @@ class PluginProfileCreateRequest(BaseModel):
     plugins: list[str] = Field(default_factory=list, max_length=128)
     mcp_servers: list[Any] = Field(default_factory=list, max_length=128)
     tool_allowlist: list[str] = Field(default_factory=list, max_length=256)
+    request_id: str | None = Field(default=None, max_length=64)
 
 
 class ModelInsightPreferenceRequest(BaseModel):
     prices: dict[str, dict[str, float]] = Field(default_factory=dict)
     daily_budget: float | None = Field(default=None, ge=0.0)
     weekly_budget: float | None = Field(default=None, ge=0.0)
+    request_id: str | None = Field(default=None, max_length=64)
 
 
 class LifecyclePreviewRequest(BaseModel):
@@ -168,6 +216,52 @@ class LifecycleConfirmationRequest(BaseModel):
     preview_token: str = Field(min_length=1, max_length=4096)
     confirm: bool = False
     request_id: str | None = Field(default=None, max_length=64)
+
+
+class ExecutionIntentPreviewRequest(BaseModel):
+    action: str = Field(min_length=3, max_length=100)
+    target_ids: list[str] = Field(min_length=1, max_length=50)
+    expected_versions: list[int] = Field(default_factory=list, max_length=50)
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+class ExecutionIntentConfirmationRequest(BaseModel):
+    action: str = Field(min_length=3, max_length=100)
+    preview_token: str = Field(min_length=1, max_length=4096)
+    confirm: bool = False
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+class WorkspaceActionRequest(BaseModel):
+    """Explicit confirmation for destructive or association-changing user actions."""
+
+    confirm: bool = False
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+def _workspace_unavailable(correlation: str):
+    raise problem(404, "WORKSPACE_RESOURCE_UNAVAILABLE", "Workspace resource is unavailable.", correlation=correlation)
+
+
+def _workspace_audit_or_problem(
+    db: Session,
+    *,
+    user_id: int,
+    action: str,
+    object_type: str,
+    object_id: str,
+    correlation: str,
+    metadata: dict[str, Any],
+) -> None:
+    """Stage and commit fixed-summary Workspace audit data without raw DB details."""
+    try:
+        validate_control_plane_audit_metadata(action, metadata)
+        record_control_plane_operation(db, user_id=user_id, action=action, object_type=object_type, object_id=object_id, correlation_id=correlation, metadata=metadata)
+        commit_control_plane_audit(db)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=correlation) from exc
+    except AuditPersistenceError as exc:
+        raise problem(503, "WORKSPACE_AUDIT_DURABILITY_UNKNOWN", "Workspace action was accepted, but audit durability is unknown.", correlation=correlation) from exc
 
 
 @router.get("/artifacts")
@@ -195,14 +289,19 @@ async def capture_run_artifact(run_id: str, db: Session = Depends(get_db), user:
 
 
 @router.delete("/artifacts/{artifact_id}")
-async def delete_artifact(artifact_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def delete_artifact(artifact_id: str, req: WorkspaceActionRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    correlation = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "ARTIFACT_DELETE_CONFIRMATION_REQUIRED", "Confirm before deleting an artifact.", correlation=correlation)
+    try:
+        validate_control_plane_audit_metadata("artifact.delete", {"confirmed": True})
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=correlation) from exc
     item = db.query(RunArtifact).filter(RunArtifact.id == artifact_id, RunArtifact.user_id == user.id).first()
     if item is None:
-        raise problem(404, "ARTIFACT_NOT_FOUND", "Artifact not found")
-    correlation = correlation_id()
-    record_operation(db, user_id=user.id, action="artifact.delete", object_type="run_artifact", object_id=item.id, correlation_id=correlation, metadata={"title": item.title})
+        _workspace_unavailable(correlation)
     db.delete(item)
-    db.commit()
+    _workspace_audit_or_problem(db, user_id=user.id, action="artifact.delete", object_type="run_artifact", object_id=item.id, correlation=correlation, metadata={"confirmed": True})
     return operation_result({"ok": True}, correlation)
 
 
@@ -243,7 +342,7 @@ async def create_collection(req: CollectionCreateRequest, db: Session = Depends(
     name = req.name.strip()
     if not name:
         raise problem(422, "COLLECTION_NAME_REQUIRED", "Collection name required")
-    correlation = correlation_id()
+    correlation = req.request_id or correlation_id()
     item = KnowledgeCollection(id=uuid.uuid4().hex, user_id=user.id, name=name, description=req.description, tags_json=json.dumps(req.tags, ensure_ascii=False))
     db.add(item)
     record_operation(db, user_id=user.id, action="collection.create", object_type="knowledge_collection", object_id=item.id, correlation_id=correlation, metadata={"name": name, "tag_count": len(req.tags)})
@@ -252,19 +351,24 @@ async def create_collection(req: CollectionCreateRequest, db: Session = Depends(
 
 
 @router.post("/collections/{collection_id}/documents/{document_id}")
-async def add_collection_document(collection_id: str, document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def add_collection_document(collection_id: str, document_id: int, req: WorkspaceActionRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    correlation = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "COLLECTION_ASSOCIATION_CONFIRMATION_REQUIRED", "Confirm before changing a collection association.", correlation=correlation)
+    try:
+        validate_control_plane_audit_metadata("collection.document.add", {"confirmed": True, "document_bound": True})
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=correlation) from exc
     collection = db.query(KnowledgeCollection).filter(KnowledgeCollection.id == collection_id, KnowledgeCollection.user_id == user.id).first()
     document = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == document_id, KnowledgeDocument.user_id == user.id).first()
     if collection is None or document is None:
-        raise problem(404, "COLLECTION_OR_DOCUMENT_NOT_FOUND", "Collection or document not found")
+        _workspace_unavailable(correlation)
     exists = db.query(KnowledgeCollectionDocument).filter(KnowledgeCollectionDocument.collection_id == collection_id, KnowledgeCollectionDocument.document_id == document_id).first()
     if exists is None:
-        correlation = correlation_id()
         db.add(KnowledgeCollectionDocument(id=uuid.uuid4().hex, collection_id=collection_id, document_id=document_id))
-        record_operation(db, user_id=user.id, action="collection.document.add", object_type="knowledge_collection", object_id=collection_id, correlation_id=correlation, metadata={"document_id": document_id})
-        db.commit()
+        _workspace_audit_or_problem(db, user_id=user.id, action="collection.document.add", object_type="knowledge_collection", object_id=collection_id, correlation=correlation, metadata={"confirmed": True, "document_bound": True})
         return operation_result({"ok": True}, correlation)
-    return {"ok": True, "already_member": True}
+    return operation_result({"ok": True, "already_member": True}, correlation)
 
 
 @router.get("/collections/{collection_id}")
@@ -283,30 +387,40 @@ async def get_collection(collection_id: str, db: Session = Depends(get_db), user
 
 
 @router.delete("/collections/{collection_id}/documents/{document_id}")
-async def remove_collection_document(collection_id: str, document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def remove_collection_document(collection_id: str, document_id: int, req: WorkspaceActionRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    correlation = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "COLLECTION_ASSOCIATION_CONFIRMATION_REQUIRED", "Confirm before changing a collection association.", correlation=correlation)
+    try:
+        validate_control_plane_audit_metadata("collection.document.remove", {"confirmed": True, "document_bound": True})
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=correlation) from exc
     collection = db.query(KnowledgeCollection).filter(KnowledgeCollection.id == collection_id, KnowledgeCollection.user_id == user.id).first()
     if collection is None:
-        raise problem(404, "COLLECTION_NOT_FOUND", "Collection not found")
+        _workspace_unavailable(correlation)
     membership = db.query(KnowledgeCollectionDocument).filter(KnowledgeCollectionDocument.collection_id == collection.id, KnowledgeCollectionDocument.document_id == document_id).first()
     if membership is None:
-        raise problem(404, "COLLECTION_DOCUMENT_NOT_FOUND", "Collection document not found")
-    correlation = correlation_id()
-    record_operation(db, user_id=user.id, action="collection.document.remove", object_type="knowledge_collection", object_id=collection.id, correlation_id=correlation, metadata={"document_id": document_id})
+        _workspace_unavailable(correlation)
     db.delete(membership)
-    db.commit()
+    _workspace_audit_or_problem(db, user_id=user.id, action="collection.document.remove", object_type="knowledge_collection", object_id=collection.id, correlation=correlation, metadata={"confirmed": True, "document_bound": True})
     return operation_result({"ok": True}, correlation)
 
 
 @router.delete("/collections/{collection_id}")
-async def delete_collection(collection_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def delete_collection(collection_id: str, req: WorkspaceActionRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    correlation = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "COLLECTION_DELETE_CONFIRMATION_REQUIRED", "Confirm before deleting a collection.", correlation=correlation)
+    try:
+        validate_control_plane_audit_metadata("collection.delete", {"confirmed": True})
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=correlation) from exc
     collection = db.query(KnowledgeCollection).filter(KnowledgeCollection.id == collection_id, KnowledgeCollection.user_id == user.id).first()
     if collection is None:
-        raise problem(404, "COLLECTION_NOT_FOUND", "Collection not found")
-    correlation = correlation_id()
-    record_operation(db, user_id=user.id, action="collection.delete", object_type="knowledge_collection", object_id=collection.id, correlation_id=correlation, metadata={"name": collection.name})
+        _workspace_unavailable(correlation)
     db.query(KnowledgeCollectionDocument).filter(KnowledgeCollectionDocument.collection_id == collection.id).delete(synchronize_session=False)
     db.delete(collection)
-    db.commit()
+    _workspace_audit_or_problem(db, user_id=user.id, action="collection.delete", object_type="knowledge_collection", object_id=collection.id, correlation=correlation, metadata={"confirmed": True})
     return operation_result({"ok": True}, correlation)
 
 
@@ -322,7 +436,7 @@ async def create_plugin_profile(req: PluginProfileCreateRequest, db: Session = D
     if not name:
         raise problem(422, "PLUGIN_PROFILE_NAME_REQUIRED", "Profile name required")
     profile = {"plugins": req.plugins, "mcp_servers": req.mcp_servers, "tool_allowlist": req.tool_allowlist}
-    correlation = correlation_id()
+    correlation = req.request_id or correlation_id()
     item = PluginProfile(id=uuid.uuid4().hex, user_id=user.id, name=name, profile_json=json.dumps(profile, ensure_ascii=False))
     db.add(item)
     record_operation(db, user_id=user.id, action="plugin_profile.create", object_type="plugin_profile", object_id=item.id, correlation_id=correlation, metadata={"name": name, "plugin_count": len(req.plugins), "mcp_server_count": len(req.mcp_servers)})
@@ -352,14 +466,19 @@ async def preview_plugin_profile(profile_id: str, db: Session = Depends(get_db),
 
 
 @router.delete("/plugin-profiles/{profile_id}")
-async def delete_plugin_profile(profile_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def delete_plugin_profile(profile_id: str, req: WorkspaceActionRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    correlation = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "PLUGIN_PROFILE_DELETE_CONFIRMATION_REQUIRED", "Confirm before deleting a plugin profile.", correlation=correlation)
+    try:
+        validate_control_plane_audit_metadata("plugin_profile.delete", {"confirmed": True})
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=correlation) from exc
     item = db.query(PluginProfile).filter(PluginProfile.id == profile_id, PluginProfile.user_id == user.id).first()
     if item is None:
-        raise problem(404, "PLUGIN_PROFILE_NOT_FOUND", "Plugin profile not found")
-    correlation = correlation_id()
-    record_operation(db, user_id=user.id, action="plugin_profile.delete", object_type="plugin_profile", object_id=item.id, correlation_id=correlation, metadata={"name": item.name})
+        _workspace_unavailable(correlation)
     db.delete(item)
-    db.commit()
+    _workspace_audit_or_problem(db, user_id=user.id, action="plugin_profile.delete", object_type="plugin_profile", object_id=item.id, correlation=correlation, metadata={"confirmed": True})
     return operation_result({"ok": True}, correlation)
 
 
@@ -398,6 +517,31 @@ async def model_insights(days: int = 30, db: Session = Depends(get_db), user: Us
     return {"days": days, "insights": list(aggregate.values()), "preferences": preferences, "budget_status": budget_status, "notice": "Only aggregated, redacted metrics are retained."}
 
 
+@router.get("/control-plane-budget")
+async def get_control_plane_budget(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Return a content-free, informational summary of user-scoped control limits."""
+    now = datetime.datetime.utcnow()
+    rows = db.query(ModelMetricBucket).filter(
+        ModelMetricBucket.user_id == user.id,
+        ModelMetricBucket.bucket_start >= now - datetime.timedelta(days=7),
+    ).all()
+    preference = db.query(ModelInsightPreference).filter(ModelInsightPreference.user_id == user.id).one_or_none()
+    active_task_count = db.query(TaskRecord).filter(
+        TaskRecord.user_id == user.id,
+        TaskRecord.status.in_(["QUEUED", "SCHEDULED", "RUNNING", "WAITING_INPUT", "CANCEL_REQUESTED", "RETRYING"]),
+    ).count()
+    daily_used = sum(row.cost_estimate for row in rows if row.bucket_start >= now - datetime.timedelta(days=1))
+    weekly_used = sum(row.cost_estimate for row in rows)
+    result = control_plane_budget_summary(
+        daily_budget=preference.daily_budget if preference else None,
+        weekly_budget=preference.weekly_budget if preference else None,
+        daily_used=daily_used,
+        weekly_used=weekly_used,
+        active_task_count=active_task_count,
+    )
+    return operation_result(result, correlation_id())
+
+
 @router.put("/insights/preferences")
 async def update_model_insight_preferences(req: ModelInsightPreferenceRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     prices = req.prices or {}
@@ -420,7 +564,7 @@ async def update_model_insight_preferences(req: ModelInsightPreferenceRequest, d
     for key in ("daily_budget", "weekly_budget"):
         if key in supplied:
             setattr(preference, key, getattr(req, key))
-    correlation = correlation_id()
+    correlation = req.request_id or correlation_id()
     record_operation(db, user_id=user.id, action="model_insight_preferences.update", object_type="model_insight_preference", object_id=str(user.id), correlation_id=correlation, metadata={"price_count": len(safe_prices), "daily_budget_set": "daily_budget" in supplied, "weekly_budget_set": "weekly_budget" in supplied})
     db.commit()
     return operation_result(preference.to_dict(), correlation)

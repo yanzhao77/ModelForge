@@ -5,6 +5,7 @@ import json
 
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
+from i18n.ui_localizer import format_api_error, format_text
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -131,7 +132,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
             self.connection.setText("● 任务快照已同步")
             self.connection.setStyleSheet("color: #2e7d32;")
         else:
-            self.connection.setText(f"● 任务快照不可达：{error}")
+            self.connection.setText(f"● {format_text('任务快照不可达。{error}', error=format_api_error(error))}")
             self.connection.setStyleSheet("color: #c62828;")
 
     def _stream_state_changed(self, online, error):
@@ -139,14 +140,14 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
             self.connection.setText("● 实时任务流已连接")
             self.connection.setStyleSheet("color: #1565c0;")
         else:
-            self.connection.setText(f"◌ 实时流已断开，正在重连：{error}")
+            self.connection.setText(f"◌ {format_text('实时任务流已断开，正在重连。{error}', error=format_api_error(error))}")
             self.connection.setStyleSheet("color: #ef6c00;")
 
     def refresh(self):
         active = self.store.summary.get("active", 0)
         attention = self.store.summary.get("needs_attention", 0)
         suffix = f" · {attention} 项需要处理" if attention else ""
-        self.summary.setText(f"{active} 项正在进行{suffix}" if not self.store.last_error else f"任务同步失败：{self.store.last_error}")
+        self.summary.setText(f"{active} 项正在进行{suffix}" if not self.store.last_error else format_text("任务同步未完成。{error}", error=format_api_error(self.store.last_error)))
         selected = self._selected_task_id()
         checked = self._checked_retry_task_ids()
         status = self.status_filter.currentData()
@@ -227,10 +228,8 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         if task.get("error_code"):
             fields.append(("Failure category", task["error_code"]))
         lines = [f"{label}: {value}" for label, value in fields if value is not None]
-        if task.get("error_message"):
-            lines.append(f"Error: {task['error_message']}")
-        if task.get("required_action"):
-            lines.append(f"Required action: {task['required_action']}")
+        if task.get("status") in {"FAILED", "PARTIAL", "CANCELLED"}:
+            lines.append(format_text("任务未成功完成（{code}）。请查看脱敏日志或在确认后重试。", code=task.get("error_code") or "TASK_NOT_COMPLETED"))
         self.detail.setPlainText("\n".join(lines))
         cached = self._logs_by_task.get(task.get("task_id"))
         if cached:
@@ -243,34 +242,34 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         task_id = task.get("task_id")
         if not task_id:
             return
-        if QMessageBox.question(self, "确认重试", f"确定重试“{task.get('title', '该任务')}”？") == QMessageBox.Yes:
-            self.store.retry(task_id)
+        if QMessageBox.question(self, format_text("确认重试"), format_text("确定重试“{title}”？", title=task.get("title", "该任务"))) == QMessageBox.Yes:
+            self.store.retry(task_id, confirm=True)
 
     def _retry_checked(self):
         task_ids = self._checked_retry_task_ids()
         if not task_ids:
             return
-        message = f"Create audited retry tasks for {len(task_ids)} selected failures?"
-        if QMessageBox.question(self, "Confirm batch retry", message) == QMessageBox.Yes:
+        message = format_text("将为所选的 {count} 个失败任务创建受审计的重试任务，是否继续？", count=len(task_ids))
+        if QMessageBox.question(self, format_text("确认批量重试"), message) == QMessageBox.Yes:
             self.batch_retry_btn.setEnabled(False)
-            self.store.retry_many(task_ids)
+            self.store.retry_many(task_ids, confirm=True)
 
     def _batch_retry_completed(self, result):
         succeeded = len(result.get("tasks", []))
         failures = result.get("failures", [])
-        details = "\n".join(f"- {item.get('task_id')}: {item.get('message', item.get('code', 'rejected'))}" for item in failures)
-        message = f"Created {succeeded} retry task(s)."
+        details = "\n".join(f"- {format_text('任务 {task_id} 未创建（{code}）。', task_id=item.get('task_id', '-'), code=item.get('code', 'OPERATION_REJECTED'))}" for item in failures)
+        message = format_text("已创建 {count} 个重试任务。", count=succeeded)
         if details:
-            message += f"\n\nNot created:\n{details}"
-        QMessageBox.information(self, "批量重试结果", message)
+            message += f"\n\n{format_text('未创建：')}\n{details}"
+        QMessageBox.information(self, format_text("批量重试结果"), message)
 
     def _cancel_selected(self):
         task = self._selected_task()
         task_id = task.get("task_id")
         if not task_id:
             return
-        if QMessageBox.question(self, "确认取消", f"确定请求取消“{task.get('title', '该任务')}”？") == QMessageBox.Yes:
-            self.store.cancel(task_id)
+        if QMessageBox.question(self, format_text("确认取消"), format_text("确定请求取消“{title}”？", title=task.get("title", "该任务"))) == QMessageBox.Yes:
+            self.store.cancel(task_id, confirm=True)
 
     def _load_selected_logs(self):
         task_id = self._selected_task_id()
@@ -296,7 +295,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
     def _logs_failed(self, error):
         self.logs_btn.setEnabled(True)
         self._loading_logs = False
-        self.logs.setPlainText(f"日志加载失败：{error}")
+        self.logs.setPlainText(f"{format_text('日志加载失败')}：{format_api_error(error)}")
         self._show_selected()
 
     def _render_logs(self, payload):
@@ -334,7 +333,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         try:
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(content)
-        except OSError as error:
-            QMessageBox.warning(self, "导出失败", str(error))
+        except OSError:
+            QMessageBox.warning(self, format_text("导出失败"), format_text("无法写入所选文件。请检查文件路径和权限后重试。"))
             return
         QMessageBox.information(self, "导出完成", f"已保存到：{path}")

@@ -136,16 +136,19 @@ class TaskStore(QObject, AsyncApiMixin):
             "by_status": counts,
         }
 
-    def cancel(self, task_id: str):
-        self._run_api(lambda: self.api.cancel_task(task_id), self._apply_task, self._apply_error)
+    def cancel(self, task_id: str, *, confirm: bool = False):
+        task = self.tasks.get(task_id) or {}
+        self._run_api(lambda: self.api.cancel_task(task_id, confirm=confirm, expected_version=task.get("version")), self._apply_task, self._apply_error)
 
-    def retry(self, task_id: str):
-        self._run_api(lambda: self.api.retry_task(task_id), self._apply_task, self._apply_error)
+    def retry(self, task_id: str, *, confirm: bool = False):
+        task = self.tasks.get(task_id) or {}
+        self._run_api(lambda: self.api.retry_task(task_id, confirm=confirm, expected_version=task.get("version")), self._apply_task, self._apply_error)
 
-    def retry_many(self, task_ids: list[str]):
+    def retry_many(self, task_ids: list[str], *, confirm: bool = False):
         unique_ids = list(dict.fromkeys(task_ids))
         if unique_ids:
-            self._run_api(lambda: self.api.retry_tasks_batch(unique_ids), self._apply_batch_retry, self._apply_error)
+            expected_versions = {task_id: self.tasks[task_id]["version"] for task_id in unique_ids if task_id in self.tasks and self.tasks[task_id].get("version") is not None}
+            self._run_api(lambda: self.api.retry_tasks_batch(unique_ids, expected_versions=expected_versions, confirm=confirm), self._apply_batch_retry, self._apply_error)
 
     def _apply_batch_retry(self, result):
         for task in result.get("tasks", []):

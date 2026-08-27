@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from components.api_worker import AsyncApiMixin
 from i18n.ui_localizer import current, localize_tree, text
 from PySide6.QtCore import Qt
@@ -226,12 +224,9 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
             self._failed,
         )
 
-    def _failed(self, error: str) -> None:
-        value = str(error)
-        code_match = re.search(r"\[([A-Z][A-Z0-9_]+)\]", value)
-        correlation_match = re.search(r"\(追踪标识:\s*([^)]+)\)", value)
-        code = code_match.group(1) if code_match else "REMOTE_PROVIDER_REQUEST_FAILED"
-        correlation = correlation_match.group(1) if correlation_match else "-"
+    def _failed(self, error) -> None:
+        code = getattr(error, "code", None) or "REMOTE_PROVIDER_REQUEST_FAILED"
+        correlation = getattr(error, "correlation_id", None) or "-"
         self.state.setText(
             self._tr("远程模型服务请求未完成（{code}）。关联标识：{correlation}", code=code, correlation=correlation)
         )

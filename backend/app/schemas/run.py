@@ -11,7 +11,9 @@ class RunCreateRequest(BaseModel):
     input: str = Field(..., description="Task given to the agent")
     session_id: int | None = None
     metadata: dict[str, Any] | None = None
-    execute: bool = True
+    execute: bool = False
+    confirm: bool = False
+    request_id: str | None = Field(default=None, max_length=64)
 
 
 class RunResponse(BaseModel):

@@ -6,7 +6,8 @@ shows "Generating...".
 """
 import json
 
-from components.api_worker import AsyncApiMixin
+from components.api_worker import AsyncApiMixin, safe_api_error_text
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QFrame,
@@ -40,7 +41,7 @@ class EventStreamWorker(QThread):
                     self.finished_run.emit(event.get("event_type", ""))
                     return
         except Exception as e:
-            self.failed.emit(str(e))
+            self.failed.emit(safe_api_error_text(e))
 
 
 class ToolCallCard(QFrame):
@@ -192,7 +193,7 @@ class RunTimeline(QWidget, AsyncApiMixin):
         self._approval_pending = False
         if run_id != self.run_id:
             return
-        self.view.append(f"<span style='color:#D32F2F'>[{action}失败] {error}</span>")
+        self.view.append(f"<span style='color:#D32F2F'>[{action}失败] {format_api_error(error)}</span>")
         self.approve_btn.setEnabled(True)
         self.reject_btn.setEnabled(True)
 
@@ -202,7 +203,5 @@ class RunTimeline(QWidget, AsyncApiMixin):
         self.worker = None
         if worker and worker.isRunning():
             worker.requestInterruption()
-            if not worker.wait(2500):
-                worker.terminate()
-                worker.wait(500)
+            worker.wait(2500)
         self.shutdown_async_api()

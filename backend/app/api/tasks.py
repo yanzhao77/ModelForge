@@ -1,7 +1,7 @@
 """Global persisted task center and onboarding API routes."""
 from __future__ import annotations
 
-from core.api_contracts import correlation_id, problem
+from core.api_contracts import correlation_id, operation_result, problem
 from core.database import SessionLocal, get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -10,6 +10,13 @@ from models.records import AgentRun, ModelRecord, TaskRecord, User
 from models.records import Session as ChatSession
 from pydantic import BaseModel, Field
 from services.task_execution import RetryExecutionError, TaskExecutionService
+from services.audit_log import (
+    AuditMetadataRejected,
+    AuditPersistenceError,
+    commit_control_plane_audit,
+    record_control_plane_operation,
+    validate_control_plane_audit_metadata,
+)
 from services.task_realtime import task_event_hub, task_outbox_publisher
 from services.task_service import TaskConflict, TaskService, project_legacy_tasks
 from sqlalchemy.orm import Session as DBSession
@@ -50,18 +57,31 @@ class TaskTransitionRequest(BaseModel):
 
 class TaskBatchRetryRequest(BaseModel):
     task_ids: list[str] = Field(min_length=1, max_length=50)
+    expected_versions: dict[str, int] = Field(default_factory=dict, max_length=50)
+    confirm: bool = False
+    request_id: str | None = Field(default=None, max_length=64)
 
-def _task_or_404(db: DBSession, task_id: str, user_id: int) -> TaskRecord:
+
+class TaskActionRequest(BaseModel):
+    """Explicit confirmation boundary for user-initiated task actions."""
+
+    confirm: bool = False
+    expected_version: int | None = Field(default=None, ge=1)
+    request_id: str | None = Field(default=None, max_length=64)
+
+
+def _task_or_404(db: DBSession, task_id: str, user_id: int, *, correlation: str | None = None) -> TaskRecord:
     task = service.get(db, task_id, user_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise problem(404, "TASK_UNAVAILABLE", "Task is unavailable.", correlation=correlation)
     return task
 
 
-def _conflict(error: TaskConflict):
+def _conflict(error: TaskConflict, *, correlation: str | None = None):
     code = str(error)
     status = 409 if code in {"TASK_VERSION_CONFLICT", "TASK_ALREADY_TERMINAL"} else 400
-    raise HTTPException(status_code=status, detail={"code": code, "message": "任务状态不允许该操作"})
+    safe_code = code if code in {"TASK_VERSION_CONFLICT", "TASK_ALREADY_TERMINAL", "TASK_NOT_RETRYABLE", "TASK_NOT_RETRYABLE_STATE", "TASK_RETRY_LIMIT_REACHED"} else "TASK_ACTION_REJECTED"
+    raise problem(status, safe_code, "Task action was not accepted.", correlation=correlation)
 
 
 def _task_stream_cursor(after_id: int, last_event_id: str | None, correlation: str) -> int:
@@ -203,30 +223,64 @@ def transition_task(task_id: str, req: TaskTransitionRequest, db: DBSession = De
 
 @router.post("/retry-batch")
 def retry_tasks_batch(req: TaskBatchRetryRequest, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = req.request_id or correlation_id()
+    if not req.confirm:
+        raise problem(409, "TASK_RETRY_CONFIRMATION_REQUIRED", "Confirm before retrying tasks.", correlation=corr)
     task_ids = list(dict.fromkeys(req.task_ids))
+    audit_metadata = {"confirmed": True, "requested_count": len(task_ids), "accepted_count": 0, "rejected_count": 0}
+    try:
+        validate_control_plane_audit_metadata("task.retry_batch", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     succeeded = []
     failures = []
     for task_id in task_ids:
         task = service.get(db, task_id, user.id)
         if task is None:
-            failures.append({"task_id": task_id, "code": "TASK_NOT_FOUND", "message": "任务不存在或不属于当前账号"})
+            failures.append({"task_id": task_id, "code": "TASK_UNAVAILABLE", "message": "Task is unavailable."})
+            continue
+        expected_version = req.expected_versions.get(task_id)
+        if expected_version is not None and task.version != expected_version:
+            failures.append({"task_id": task_id, "code": "TASK_VERSION_CONFLICT", "message": "Task action was not accepted."})
             continue
         try:
-            succeeded.append(_retry_with_execution(db, task).to_dict())
+            retry = _retry_with_execution(db, task)
+            succeeded.append({"task_id": retry.task_id, "status": retry.status, "version": retry.version})
         except TaskConflict as error:
-            failures.append({"task_id": task_id, "code": str(error), "message": "任务状态不允许重试"})
+            failures.append({"task_id": task_id, "code": str(error), "message": "Task retry was not accepted."})
     task_outbox_publisher.nudge()
-    return {"tasks": succeeded, "failures": failures}
+    audit_metadata.update(accepted_count=len(succeeded), rejected_count=len(failures))
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="task.retry_batch", object_type="task_batch", object_id=f"count:{len(task_ids)}", correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "TASK_RETRY_AUDIT_DURABILITY_UNKNOWN", "Task retry was accepted, but audit durability is unknown.", correlation=corr) from exc
+    return operation_result({"tasks": succeeded, "failures": failures}, corr)
 
 @router.post("/{task_id}/retry")
-def retry_task(task_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
-    task = _task_or_404(db, task_id, user.id)
+def retry_task(task_id: str, req: TaskActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = (req.request_id if req else None) or correlation_id()
+    if req is None or not req.confirm:
+        raise problem(409, "TASK_RETRY_CONFIRMATION_REQUIRED", "Confirm before retrying a task.", correlation=corr)
+    audit_metadata = {"confirmed": True}
+    try:
+        validate_control_plane_audit_metadata("task.retry", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
+    task = _task_or_404(db, task_id, user.id, correlation=corr)
+    if req.expected_version is not None and task.version != req.expected_version:
+        raise problem(409, "TASK_VERSION_CONFLICT", "Task action was not accepted.", correlation=corr)
     try:
         retry = _retry_with_execution(db, task)
     except TaskConflict as error:
-        _conflict(error)
+        _conflict(error, correlation=corr)
     task_outbox_publisher.nudge()
-    return retry.to_dict()
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="task.retry", object_type="task", object_id=retry.task_id, correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "TASK_RETRY_AUDIT_DURABILITY_UNKNOWN", "Task retry was accepted, but audit durability is unknown.", correlation=corr) from exc
+    return operation_result(retry.to_dict(), corr)
 
 
 @router.get("/{task_id}/logs")
@@ -235,14 +289,29 @@ def task_logs(task_id: str, limit: int = Query(default=200, ge=1, le=500), db: D
     return executor.logs(db, task, limit=limit)
 
 @router.post("/{task_id}/cancel")
-def cancel_task(task_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
-    task = _task_or_404(db, task_id, user.id)
+def cancel_task(task_id: str, req: TaskActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    corr = (req.request_id if req else None) or correlation_id()
+    if req is None or not req.confirm:
+        raise problem(409, "TASK_CANCEL_CONFIRMATION_REQUIRED", "Confirm before cancelling a task.", correlation=corr)
+    audit_metadata = {"confirmed": True}
+    try:
+        validate_control_plane_audit_metadata("task.cancel", audit_metadata)
+    except AuditMetadataRejected as exc:
+        raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
+    task = _task_or_404(db, task_id, user.id, correlation=corr)
+    if req.expected_version is not None and task.version != req.expected_version:
+        raise problem(409, "TASK_VERSION_CONFLICT", "Task action was not accepted.", correlation=corr)
     try:
         task = service.request_cancel(db, task)
     except TaskConflict as error:
-        _conflict(error)
+        _conflict(error, correlation=corr)
     task_outbox_publisher.nudge()
-    return task.to_dict()
+    try:
+        record_control_plane_operation(db, user_id=user.id, action="task.cancel", object_type="task", object_id=task.task_id, correlation_id=corr, metadata=audit_metadata)
+        commit_control_plane_audit(db)
+    except (AuditMetadataRejected, AuditPersistenceError) as exc:
+        raise problem(503, "TASK_CANCEL_AUDIT_DURABILITY_UNKNOWN", "Task cancellation was accepted, but audit durability is unknown.", correlation=corr) from exc
+    return operation_result(task.to_dict(), corr)
 
 
 @router.get("/onboarding/state")

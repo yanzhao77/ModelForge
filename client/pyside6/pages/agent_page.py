@@ -4,6 +4,7 @@ from __future__ import annotations
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
+from i18n.ui_localizer import format_api_error, format_text
 from pages.run_timeline import RunTimeline
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -238,10 +239,11 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.refresh_btn.setEnabled(not busy)
         self.replay_btn.setEnabled(not busy and bool(self.current_run_id))
 
-    def _report_error(self, action: str, error: str, popup: bool = True):
-        self.status.setText(f"{action}失败：{error}")
+    def _report_error(self, action: str, error, popup: bool = True):
+        message = format_text("控制面操作未完成：{action}。{error}", action=format_text(action), error=format_api_error(error))
+        self.status.setText(message)
         if popup:
-            QMessageBox.warning(self, action, error)
+            QMessageBox.warning(self, format_text(action), message)
 
     def _render_readiness(self, snapshot: dict) -> None:
         self._model_ready = snapshot.get("level") == "READY"
@@ -357,14 +359,14 @@ class AgentPage(QWidget, AsyncApiMixin):
             return
         if QMessageBox.question(
             self,
-            "确认运行 Agent",
-            f"将为 Agent“{agent}”创建新的 Run 并调用已选模型。\n\n任务：{task[:500]}\n\n是否继续？",
+            format_text("确认运行 Agent"),
+            format_text("将为 Agent“{agent}”创建新的 Run 并调用已选模型，是否继续？", agent=agent),
         ) != QMessageBox.StandardButton.Yes:
             return
         self._set_run_busy(True)
-        self.status.setText(f"正在启动 {agent}…")
+        self.status.setText(format_text("正在创建 Agent Run：{agent}…", agent=agent))
         self._run_api(
-            lambda: self.api.create_agent_run(agent, task),
+            lambda: self.api.create_agent_run(agent, task, execute=True, confirm=True),
             self._run_created,
             lambda error: self._run_action_failed("启动 Agent Run", error),
             request_key="agent.run.lifecycle",
@@ -374,7 +376,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         self._set_run_busy(False)
         self.current_run_id = result["run_id"]
         self.task_input.clear()
-        self.status.setText(f"已创建 Run {self.current_run_id[:8]}，正在订阅事件流。")
+        self.status.setText(format_text("Agent Run 已创建。运行标识：{run_id}", run_id=self.current_run_id[:8]))
         self.timeline.watch(self.current_run_id)
         self.refresh_runs()
 
@@ -390,17 +392,23 @@ class AgentPage(QWidget, AsyncApiMixin):
         if not run_id:
             QMessageBox.information(self, "提示", "请先选择需要取消的 Run。")
             return
+        if QMessageBox.question(
+            self,
+            format_text("确认取消 Agent Run"),
+            format_text("确定请求取消 Run“{run_id}”？", run_id=run_id[:8]),
+        ) != QMessageBox.StandardButton.Yes:
+            return
         self._set_run_busy(True)
-        self.status.setText(f"正在请求取消 Run {run_id[:8]}…")
+        self.status.setText(format_text("正在请求取消 Run：{run_id}…", run_id=run_id[:8]))
         self._run_api(
-            lambda: self.api.cancel_agent_run(run_id),
+            lambda: self.api.cancel_agent_run(run_id, confirm=True),
             self._run_cancelled,
             lambda error: self._run_action_failed("取消 Agent Run", error),
             request_key="agent.run.lifecycle",
         )
     def _run_cancelled(self):
         self._set_run_busy(False)
-        self.status.setText("取消请求已提交，正在刷新运行记录。")
+        self.status.setText(format_text("取消请求已提交，正在刷新运行记录。"))
         self.refresh_runs()
 
     def _run_action_failed(self, action: str, error: str):
@@ -440,7 +448,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         if not silent:
             self._report_error("获取运行记录", error)
         else:
-            self.status.setText(f"运行记录刷新失败：{error}")
+            self.status.setText(format_text("运行记录刷新未完成。{error}", error=format_api_error(error)))
 
     def _on_run_selected(self):
         rows = self.runs_table.selectionModel().selectedRows()

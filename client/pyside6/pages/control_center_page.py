@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from components.api_worker import AsyncApiMixin
-from i18n.ui_localizer import current, text
+from i18n.ui_localizer import current, format_api_error, text
 
 
 class ControlCenterPage(QWidget, AsyncApiMixin):
@@ -133,15 +133,15 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         if row < 0 or row >= len(self._collections):
             return
         document_id, ok = QInputDialog.getInt(self, "归类现有文档", "知识文档 ID", minimum=1)
-        if ok:
-            self._call(lambda: self.api.add_document_to_knowledge_collection(self._collections[row]["id"], document_id))
+        if ok and QMessageBox.question(self, "确认归类文档", "将现有文档关联到所选知识集合。文档本体不会被复制或删除。是否继续？") == QMessageBox.StandardButton.Yes:
+            self._call(lambda: self.api.add_document_to_knowledge_collection(self._collections[row]["id"], document_id, confirm=True))
 
     def _manage_collection(self):
         row = self.collection_list.currentRow()
         if row < 0 or row >= len(self._collections):
             return
         collection = self._collections[row]
-        worker = self._run_api(lambda: self.api.get_knowledge_collection(collection["id"]), lambda data: self._show_collection_dialog(collection, data), lambda message: QMessageBox.warning(self, "知识集合", str(message)), request_key="collection-detail")
+        worker = self._run_api(lambda: self.api.get_knowledge_collection(collection["id"]), lambda data: self._show_collection_dialog(collection, data), lambda message: QMessageBox.warning(self, "知识集合", format_api_error(message)), request_key="collection-detail")
         self._worker = worker
 
     def _show_collection_dialog(self, collection, data):
@@ -157,10 +157,10 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         if box.clickedButton() is remove_button:
             document_id, ok = QInputDialog.getInt(self, "移除集合文档", "知识文档 ID", minimum=1)
             if ok and QMessageBox.question(self, "确认移除", "仅移除此集合关联，文档本体和其他集合不会删除。是否继续？") == QMessageBox.StandardButton.Yes:
-                self._call(lambda: self.api.remove_document_from_knowledge_collection(collection["id"], document_id))
+                self._call(lambda: self.api.remove_document_from_knowledge_collection(collection["id"], document_id, confirm=True))
         elif box.clickedButton() is delete_button:
             if QMessageBox.question(self, "确认删除集合", f"删除“{collection.get('name')}”只会移除集合关联，不会删除文档本体。是否继续？") == QMessageBox.StandardButton.Yes:
-                self._call(lambda: self.api.delete_knowledge_collection(collection["id"]))
+                self._call(lambda: self.api.delete_knowledge_collection(collection["id"], confirm=True))
 
     def _create_profile(self):
         name, ok = QInputDialog.getText(self, "新建插件/MCP 配置档", "名称")
@@ -173,7 +173,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
             return
         memory = self._memories[row]
         if QMessageBox.question(self, "删除记忆", f"删除记忆“{memory.get('key')}”？") == QMessageBox.StandardButton.Yes:
-            self._call(lambda: self.api.delete_memory(memory["id"]))
+            self._call(lambda: self.api.delete_memory(memory["id"], confirm=True))
 
     def _edit_selected_memory(self):
         row = self.memory_list.currentRow()
@@ -192,7 +192,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         if row < 0 or row >= len(self._artifacts):
             return
         artifact = self._artifacts[row]
-        worker = self._run_api(lambda: self.api.get_artifact(artifact["id"]), lambda data: QMessageBox.information(self, "已脱敏运行产物", f"{data.get('title')}\n\n来源：{data.get('source_kind')} · {data.get('source_id')}\n已脱敏：{data.get('redacted')}\n\n{data.get('text') or json.dumps(data.get('content') or {}, ensure_ascii=False, indent=2)}"), lambda message: QMessageBox.warning(self, "运行产物", str(message)), request_key="artifact-detail")
+        worker = self._run_api(lambda: self.api.get_artifact(artifact["id"]), lambda data: QMessageBox.information(self, "已脱敏运行产物", f"{data.get('title')}\n\n来源：{data.get('source_kind')} · {data.get('source_id')}\n已脱敏：{data.get('redacted')}\n\n{data.get('text') or json.dumps(data.get('content') or {}, ensure_ascii=False, indent=2)}"), lambda message: QMessageBox.warning(self, "运行产物", format_api_error(message)), request_key="artifact-detail")
         self._worker = worker
 
     def _preview_selected_profile(self):
@@ -200,7 +200,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         if row < 0 or row >= len(self._profiles):
             return
         profile = self._profiles[row]
-        worker = self._run_api(lambda: self.api.preview_plugin_profile(profile["id"]), lambda data: QMessageBox.information(self, "配置档预览", f"{data.get('name')}\n\n插件：{data.get('declared_plugin_count')}\nMCP 服务：{data.get('declared_mcp_server_count')}\n工具白名单：{data.get('declared_tool_count')}\n\n{data.get('notice')}"), lambda message: QMessageBox.warning(self, "配置档预览", str(message)), request_key="profile-preview")
+        worker = self._run_api(lambda: self.api.preview_plugin_profile(profile["id"]), lambda data: QMessageBox.information(self, "配置档预览", f"{data.get('name')}\n\n插件：{data.get('declared_plugin_count')}\nMCP 服务：{data.get('declared_mcp_server_count')}\n工具白名单：{data.get('declared_tool_count')}\n\n{data.get('notice')}"), lambda message: QMessageBox.warning(self, "配置档预览", format_api_error(message)), request_key="profile-preview")
         self._worker = worker
 
     def _delete_selected_profile(self):
@@ -209,7 +209,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
             return
         profile = self._profiles[row]
         if QMessageBox.question(self, "删除配置档", f"删除配置档“{profile.get('name')}”？该操作不会停止、卸载或变更任何扩展。") == QMessageBox.StandardButton.Yes:
-            self._call(lambda: self.api.delete_plugin_profile(profile["id"]))
+            self._call(lambda: self.api.delete_plugin_profile(profile["id"], confirm=True))
 
     def _delete_selected_artifact(self):
         row = self.artifact_list.currentRow()
@@ -217,7 +217,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
             return
         artifact = self._artifacts[row]
         if QMessageBox.question(self, "删除产物", f"删除产物“{artifact.get('title')}”？原始运行不会被删除。") == QMessageBox.StandardButton.Yes:
-            self._call(lambda: self.api.delete_artifact(artifact["id"]))
+            self._call(lambda: self.api.delete_artifact(artifact["id"], confirm=True))
 
     def _configure_insight_budget(self):
         current_daily = self._insight_preferences.get("daily_budget")
@@ -248,7 +248,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
 
     def _run_migration_preflight(self):
         """Request diagnostics only; the action never starts a migration."""
-        worker = self._run_api(self.api.migration_preflight, self._show_migration_preflight, lambda message: QMessageBox.warning(self, "迁移预检", str(message)), request_key="migration-preflight")
+        worker = self._run_api(self.api.migration_preflight, self._show_migration_preflight, lambda message: QMessageBox.warning(self, "迁移预检", format_api_error(message)), request_key="migration-preflight")
         self._worker = worker
 
     def _show_migration_preflight(self, data):
@@ -273,7 +273,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
 
     def _run_runtime_diagnostics(self):
         """Read aggregated state only; no lease, event, or schedule is changed."""
-        worker = self._run_api(self.api.runtime_diagnostics, self._show_runtime_diagnostics, lambda message: QMessageBox.warning(self, "并发/事件诊断", str(message)), request_key="runtime-diagnostics")
+        worker = self._run_api(self.api.runtime_diagnostics, self._show_runtime_diagnostics, lambda message: QMessageBox.warning(self, "并发/事件诊断", format_api_error(message)), request_key="runtime-diagnostics")
         self._worker = worker
 
     def _show_runtime_diagnostics(self, data):
@@ -314,7 +314,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         )
 
     def _run_lifecycle_diagnostics(self):
-        worker = self._run_api(self.api.lifecycle_diagnostics, self._show_lifecycle_diagnostics, lambda message: QMessageBox.warning(self, "生命周期诊断", str(message)), request_key="lifecycle-diagnostics")
+        worker = self._run_api(self.api.lifecycle_diagnostics, self._show_lifecycle_diagnostics, lambda message: QMessageBox.warning(self, "生命周期诊断", format_api_error(message)), request_key="lifecycle-diagnostics")
         self._worker = worker
 
     def _show_lifecycle_diagnostics(self, data):
@@ -339,7 +339,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         worker = self._run_api(
             self.api.operation_audits,
             self._show_operation_audits,
-            lambda message: QMessageBox.warning(self, "操作审计", str(message)),
+            lambda message: QMessageBox.warning(self, "操作审计", format_api_error(message)),
             request_key="operation-audits",
         )
         self._worker = worker
@@ -354,7 +354,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         self._fill(self.audit_list, lines, "暂无脱敏操作审计记录。")
 
     def _call(self, action):
-        worker = self._run_api(action, lambda _result: self.refresh(), lambda message: QMessageBox.warning(self, "控制中心", str(message)), request_key="control-mutation")
+        worker = self._run_api(action, lambda _result: self.refresh(), lambda message: QMessageBox.warning(self, "控制中心", format_api_error(message)), request_key="control-mutation")
         self._worker = worker
 
     def closeEvent(self, event):
