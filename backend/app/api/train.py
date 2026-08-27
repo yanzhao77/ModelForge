@@ -2,6 +2,7 @@
 import asyncio
 import json
 
+from core.api_contracts import problem
 from core.database import get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,7 +33,7 @@ class TrainStartRequest(BaseModel):
 def _task_or_404(db, task_id, user):
     row = TrainingService().get(db, task_id, user.id)
     if row is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise problem(404, "TRAINING_TASK_NOT_FOUND", "Training task was not found.")
     return row
 
 

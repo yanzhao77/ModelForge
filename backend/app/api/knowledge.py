@@ -2,6 +2,7 @@
 import os
 import tempfile
 
+from core.api_contracts import correlation_id, operation_result, problem
 from core.database import get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -34,9 +35,14 @@ def set_knowledge_base(kb):
     _knowledge_base = kb
 
 
-def _get_kb():
+def _get_kb(*, correlation: str | None = None):
     if _knowledge_base is None:
-        raise HTTPException(status_code=503, detail="Knowledge base not initialized")
+        raise problem(
+            503,
+            "KNOWLEDGE_BASE_UNAVAILABLE",
+            "Knowledge base is not available.",
+            correlation=correlation,
+        )
     return _knowledge_base
 
 
@@ -84,10 +90,11 @@ def knowledge_delete_document(
     filename: str, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    ok = _get_kb().delete_document(filename, db=db, user_id=user.id)
+    corr = correlation_id()
+    ok = _get_kb(correlation=corr).delete_document(filename, db=db, user_id=user.id)
     if not ok:
-        raise HTTPException(status_code=404, detail="文档不存在")
-    return {"ok": True}
+        raise problem(404, "KNOWLEDGE_DOCUMENT_NOT_FOUND", "Knowledge document was not found.", correlation=corr)
+    return operation_result({"ok": True, "filename": filename}, corr)
 
 
 @router.post("/query")

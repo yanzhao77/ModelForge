@@ -165,7 +165,7 @@ def get_model(
 ):
     model = _manager(db).info(model_id)
     if model is None:
-        raise HTTPException(status_code=404, detail="模型不存在")
+        raise problem(404, "LOCAL_MODEL_NOT_FOUND", "Local model record was not found.")
     return model.to_dict()
 
 
@@ -176,5 +176,5 @@ def remove_model(
 ):
     ok = _manager(db).remove(model_id, user.id)
     if not ok:
-        raise HTTPException(status_code=404, detail="模型不存在")
+        raise problem(404, "LOCAL_MODEL_NOT_FOUND", "Local model record was not found.")
     return {"ok": True}
