@@ -20,18 +20,75 @@ class RemoteProviderError(ValueError):
     pass
 
 
+_PROTOCOLS = frozenset({"responses", "chat_completions"})
+_ENDPOINT_SUFFIXES = (("chat", "completions"), ("responses",))
+
+
 def _is_loopback(host: str | None) -> bool:
     return (host or "").lower() in {"localhost", "127.0.0.1", "::1"}
 
 
 def normalize_base_url(value: str) -> str:
-    url = value.strip().rstrip("/")
+    """Return a canonical provider root, never a credential-bearing endpoint."""
+    url = value.strip()
     parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
         raise RemoteProviderError("Base URL must be a complete HTTP(S) URL without embedded credentials.")
-    if parsed.scheme != "https" and not _is_loopback(parsed.hostname):
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise RemoteProviderError("Base URL contains an invalid port.") from exc
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").lower()
+    if scheme != "https" and not _is_loopback(host):
         raise RemoteProviderError("Remote provider URLs must use HTTPS. HTTP is allowed only for localhost.")
-    return url
+    authority = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    if port is not None:
+        authority = f"{authority}:{port}"
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    normalized_segments = [segment.lower() for segment in segments]
+    for suffix in _ENDPOINT_SUFFIXES:
+        if tuple(normalized_segments[-len(suffix):]) == suffix:
+            segments = segments[:-len(suffix)]
+            break
+    path = "/" + "/".join(segments) if segments else ""
+    return f"{scheme}://{authority}{path}"
+
+
+def normalize_protocol(value: str | None) -> str:
+    """Normalize protocol aliases while preserving an explicit compatibility fallback."""
+    normalized = (value or "responses").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized not in _PROTOCOLS:
+        raise RemoteProviderError("Protocol must be responses or chat_completions.")
+    return normalized
+
+
+def normalize_provider_name(value: str) -> str:
+    name = " ".join(value.split())
+    if not name or len(name) > 100:
+        raise RemoteProviderError("Provider name must contain 1–100 characters.")
+    return name
+
+
+def normalize_model_name(value: str) -> str:
+    model = value.strip()
+    if not model or len(model) > 255 or any(ord(char) < 32 for char in model):
+        raise RemoteProviderError("Default model must contain 1–255 printable characters.")
+    return model
+
+
+def provider_endpoint(base_url: str, protocol: str) -> str:
+    """Build a display-safe endpoint from normalized non-secret configuration."""
+    suffix = "responses" if protocol == "responses" else "chat/completions"
+    return f"{base_url}/{suffix}"
 
 
 class ProviderCipher:
@@ -73,13 +130,9 @@ class RemoteProviderService:
         return [row.to_public_dict() for row in rows]
 
     def save(self, user_id: int, *, name: str, base_url: str, protocol: str, default_model: str, api_key: str | None) -> dict:
-        name = name.strip()
-        if not name or len(name) > 100:
-            raise RemoteProviderError("Provider name must contain 1–100 characters.")
-        if protocol not in {"responses", "chat_completions"}:
-            raise RemoteProviderError("Protocol must be responses or chat_completions.")
-        if not default_model.strip():
-            raise RemoteProviderError("A default model is required.")
+        name = normalize_provider_name(name)
+        protocol = normalize_protocol(protocol)
+        default_model = normalize_model_name(default_model)
         base_url = normalize_base_url(base_url)
         row = self.db.query(RemoteProviderConfig).filter(RemoteProviderConfig.user_id == user_id, RemoteProviderConfig.name == name).one_or_none()
         if row is None:
@@ -87,7 +140,7 @@ class RemoteProviderService:
                 raise RemoteProviderError("An API key is required for a new provider.")
             row = RemoteProviderConfig(user_id=user_id, name=name)
             self.db.add(row)
-        row.base_url, row.protocol, row.default_model, row.enabled = base_url, protocol, default_model.strip(), True
+        row.base_url, row.protocol, row.default_model, row.enabled = base_url, protocol, default_model, True
         if api_key:
             row.key_ciphertext = self.cipher.encrypt(api_key.strip())
         self.db.commit()

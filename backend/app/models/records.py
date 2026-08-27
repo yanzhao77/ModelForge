@@ -201,6 +201,7 @@ class RemoteProviderConfig(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     def to_public_dict(self) -> dict:
+        endpoint_suffix = "responses" if self.protocol == "responses" else "chat/completions"
         return {
             "id": self.id,
             "name": self.name,
@@ -209,6 +210,8 @@ class RemoteProviderConfig(Base):
             "default_model": self.default_model,
             "enabled": self.enabled,
             "key_configured": bool(self.key_ciphertext),
+            "credential_state": "configured" if self.key_ciphertext else "missing",
+            "endpoint": f"{self.base_url.rstrip('/')}/{endpoint_suffix}",
             "last_verified_at": self.last_verified_at.isoformat() if self.last_verified_at else None,
             "verification_status": self.verification_status or "unknown",
             "verification_error_code": self.verification_error_code,

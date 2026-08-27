@@ -106,8 +106,11 @@ class ModelForgeClient:
             payload["api_key"] = api_key
         return self._post("/api/v1/providers", json=payload)
 
-    def verify_remote_provider(self, provider_id: int) -> dict:
-        return self._post(f"/api/v1/providers/{provider_id}/verify")
+    def verify_remote_provider(self, provider_id: int, *, confirm: bool = False, request_id: str | None = None) -> dict:
+        payload = {"confirm": confirm}
+        if request_id:
+            payload["request_id"] = request_id
+        return self._post(f"/api/v1/providers/{provider_id}/verify", json=payload)
 
     def delete_remote_provider(self, provider_id: int) -> dict:
         return self._delete(f"/api/v1/providers/{provider_id}")

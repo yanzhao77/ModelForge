@@ -436,6 +436,16 @@
 - [ ] 盘点并规范化远程 provider 的 base URL、协议、模型名称与仅摘要化的凭据状态；保持密钥 write-only，不连接或探测 provider。
 - [ ] 静态审阅 AC1 的兼容字段、Responses 默认与显式 Chat Completions 回退边界；不执行网络模型调用、测试、迁移、构建、签名、标签或 Release。
 
+### AC1 归档与 AC2 启动
+
+- [ ] 审阅并归档 AC1 的 URL/协议/模型名规范化、公开配置摘要、稳定错误与 provider 验证确认契约，推送至 `origin/master`。
+- [ ] 盘点模型、知识和训练 API 的非执行性控制面错误路径，区分可安全收敛的元数据端点与必须保持未调用的执行型端点。
+- [ ] 实现 AC2 稳定 problem code、关联标识与脱敏失败响应；不调用下载、上传、训练、扫描、provider 验证或推理。
+
+### AC1 静态审阅记录
+
+- [x] 现有 provider 服务已加密存储 API Key，并通过 `to_public_dict()` 对列表响应保持 write-only；待补齐 URL endpoint 规范化、协议枚举与配置错误脱敏收敛。
+
 ## 非测试型剩余工作设计文档
 
 - [x] 盘点可继续实施的 I3 控制面、I4 生命周期、I5 桌面稳定性、开发快照和待办治理工作。
