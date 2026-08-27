@@ -451,9 +451,21 @@
 
 ### AC3 归档与 AC4 启动
 
-- [ ] 审阅并归档 AC3 的任务/Agent Run SSE cursor、关联标识、控制事件、脱敏断线状态和关闭回收改动，推送至 `origin/master`。
-- [ ] 盘点桌面模型配置对 provider `endpoint`、`credential_state`、协议、错误关联标识与本地化资源的现有展示路径，且不触发保存或验证。
-- [ ] 实现 AC4 的只读安全配置摘要、稳定关联提示和中英日资源；不显示 API Key、密文、密钥摘要或异常正文，也不自动连接 provider。
+- [x] 审阅并归档 AC3 的任务/Agent Run SSE cursor、关联标识、控制事件、脱敏断线状态和关闭回收改动，推送至 `origin/master`；归档提交为 `a5f573c3b7318cd5cbc310b9caf516354be2f0f3`。
+- [x] 盘点桌面模型配置对 provider `endpoint`、`credential_state`、协议、错误关联标识与本地化资源的现有展示路径，且不触发保存或验证。
+- [x] 实现 AC4 的只读安全配置摘要、稳定关联提示和中英日资源；不显示 API Key、密文、密钥摘要或异常正文，也不自动连接 provider。
+- [ ] 获得单独授权后，在中英日界面验证 provider 保存、取消验证、确认验证、稳定错误关联提示和 API Key 不回显；此前不打开或连接 provider。
+
+### AC4 归档与 AC5 启动
+
+- [ ] 审阅并归档 AC4 的 provider 安全摘要、验证确认、关联错误提示和三语言资源改动，推送至 `origin/master`。
+- [ ] 审阅 API 兼容计划、既有验证证据模板与 Release No-Go 门槛，确定 AC5 的固定候选 SHA、最小脱敏证据和阻断条件。
+- [ ] 编写 AC5 API 兼容性验证证据映射与待办收口；不运行测试、启动服务、连接 provider、创建 tag、签名或 Release。
+
+### AC4 静态审阅记录
+
+- [x] 远程 provider 对话框和模型卡当前仍优先展示原始 base URL，且验证动作未在客户端确认后传递 `confirm=true`；应改为后端生成的 endpoint、凭据状态与明确确认对话框。
+- [x] 动态 provider 状态与错误提示必须显式经 `i18n.ui_localizer.text()` 使用当前 locale 翻译；仅调用 `localize_tree()` 不会重译后续写入的动态文本。
 
 ### AC3 静态审阅记录
 

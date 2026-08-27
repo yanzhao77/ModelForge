@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
 from components.api_worker import AsyncApiMixin
-from i18n.ui_localizer import localize_tree
+from i18n.ui_localizer import current, localize_tree, text
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -89,6 +91,12 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         localize_tree(self)
         self.refresh()
 
+    @staticmethod
+    def _tr(source: str, **values) -> str:
+        translator = current()
+        locale = translator.locale if translator is not None else "zh_CN"
+        return text(source, locale).format(**values)
+
     def current(self) -> dict | None:
         item = self.list.currentItem()
         return item.data(Qt.UserRole) if item else None
@@ -101,7 +109,7 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         self.protocol.setCurrentIndex(0)
         self.model.setText("GLM-4.5-Flash")
         self.api_key.clear()
-        self.state.setText("新建模型服务配置。点击验证连接前不会发起网络请求。")
+        self.state.setText(self._tr("新建模型服务配置。点击验证连接前不会发起网络请求。"))
 
     def _preset_changed(self, _index: int) -> None:
         preset = self.preset.currentData()
@@ -117,7 +125,7 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
             self.protocol.setCurrentIndex(0)
 
     def refresh(self) -> None:
-        self.state.setText("正在加载模型服务…")
+        self.state.setText(self._tr("正在加载模型服务…"))
         self._run_api(self.api.list_remote_providers, self._render, self._failed)
 
     def _render(self, providers: list[dict]) -> None:
@@ -127,7 +135,7 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
             item = QListWidgetItem(f"{provider['name']}\n{provider['default_model']}")
             item.setData(Qt.UserRole, provider)
             self.list.addItem(item)
-        self.state.setText("选择已有模型服务，或新建一个配置。")
+        self.state.setText(self._tr("选择已有模型服务，或新建一个配置。"))
         if providers:
             self.list.setCurrentRow(0)
 
@@ -144,21 +152,17 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         self.model.setText(provider["default_model"])
         self.api_key.clear()
         status = provider.get("verification_status", "unknown")
-        diagnostics = {
-            "AUTHENTICATION_FAILED": "认证被拒绝，请更新 API 密钥后重新验证",
-            "RATE_LIMITED": "服务正在限流，请稍后由用户手动重新验证",
-            "ENDPOINT_UNREACHABLE": "无法连接服务，请检查 Base URL 和网络",
-            "MODEL_LIST_INVALID": "服务未返回可用模型，请检查模型权限或协议",
-            "PROVIDER_HTTP_ERROR": "服务返回了意外响应，请检查协议和服务状态",
-            "PROVIDER_UNAVAILABLE": "服务暂时不可用，请稍后由用户手动重试",
-        }
-        error_code = provider.get("verification_error_code")
         status_text = {
-            "success": "已验证连接",
-            "failed": f"验证失败：{diagnostics.get(error_code, error_code or '未知原因')}",
-        }.get(status, "尚未验证连接")
-        key_text = "已配置 API 密钥" if provider.get("key_configured") else "尚未配置 API 密钥"
-        self.state.setText(f"{key_text}；{status_text}。")
+            "success": self._tr("连接状态：已验证"),
+            "failed": self._tr("连接状态：验证失败（{code}）", code=provider.get("verification_error_code") or "UNKNOWN"),
+        }.get(status, self._tr("连接状态：未验证"))
+        credential_text = self._tr(
+            "凭据状态：已配置" if provider.get("credential_state") == "configured" or provider.get("key_configured") else "凭据状态：未配置"
+        )
+        endpoint = str(provider.get("endpoint") or provider.get("base_url") or "")
+        self.state.setText(
+            f"{self._tr('服务端点：{endpoint}', endpoint=endpoint)}\n{credential_text}；{status_text}"
+        )
 
     def save(self) -> None:
         name, url, protocol, model, key = (
@@ -189,19 +193,22 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
                 self, "请选择模型服务", "请先保存模型服务，再验证连接。"
             )
             return
-        self.state.setText("正在验证连接并获取模型列表…")
+        if QMessageBox.question(
+            self,
+            self._tr("验证模型服务"),
+            self._tr("验证将访问此服务并请求模型列表，是否继续？"),
+        ) != QMessageBox.Yes:
+            return
+        self.state.setText(self._tr("正在验证连接并获取模型列表…"))
         self._run_api(
-            lambda: self.api.verify_remote_provider(provider["id"]),
+            lambda: self.api.verify_remote_provider(provider["id"], confirm=True),
             self._verified,
             self._failed,
         )
 
     def _verified(self, result: dict) -> None:
         models = result.get("models", [])
-        self.state.setText(
-            f"连接验证成功，发现 {len(models)} 个模型。"
-            + (f" 示例：{models[0]}" if models else "")
-        )
+        self.state.setText(self._tr("连接验证成功，发现 {count} 个模型。", count=len(models)))
         self.refresh()
 
     def delete(self) -> None:
@@ -220,7 +227,14 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         )
 
     def _failed(self, error: str) -> None:
-        self.state.setText(f"请求未完成：{error}")
+        value = str(error)
+        code_match = re.search(r"\[([A-Z][A-Z0-9_]+)\]", value)
+        correlation_match = re.search(r"\(追踪标识:\s*([^)]+)\)", value)
+        code = code_match.group(1) if code_match else "REMOTE_PROVIDER_REQUEST_FAILED"
+        correlation = correlation_match.group(1) if correlation_match else "-"
+        self.state.setText(
+            self._tr("远程模型服务请求未完成（{code}）。关联标识：{correlation}", code=code, correlation=correlation)
+        )
 
     def closeEvent(self, event):
         self.shutdown_async_api()

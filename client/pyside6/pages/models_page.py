@@ -6,6 +6,7 @@ from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFEmptyState, MFPanel, MFSection, MFStatusBadge
 from components.provider_dialog import RemoteProviderDialog
+from i18n.ui_localizer import current, text
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -73,16 +74,22 @@ class RemoteProviderCard(MFPanel):
 
         key_configured = bool(provider.get("key_configured"))
         verified = provider.get("verification_status") == "success"
-        label = "远程 · 已验证" if key_configured and verified else "远程 · 需要验证" if key_configured else "远程 · 需要密钥"
+        label_source = "远程 · 已验证" if key_configured and verified else "远程 · 需要验证" if key_configured else "远程 · 需要密钥"
+        translator = current()
+        locale = translator.locale if translator is not None else "zh_CN"
+        label = text(label_source, locale)
         badge = QLabel(label)
         badge.setProperty("status", "online" if key_configured and verified else "warning")
         row.addWidget(badge)
         self.layout.addLayout(row)
 
         protocol = str(provider.get("protocol") or "responses").replace("_", " ")
+        endpoint = str(provider.get("endpoint") or provider.get("base_url") or "")
+        credential_source = "凭据状态：已配置" if provider.get("credential_state") == "configured" or key_configured else "凭据状态：未配置"
         detail = QLabel(
             f"{provider.get('default_model') or '未选择模型'} · {protocol}\n"
-            f"{provider.get('base_url') or ''}"
+            f"{text('服务端点：{endpoint}', locale).format(endpoint=endpoint)}\n"
+            f"{text(credential_source, locale)}"
         )
         detail.setProperty("role", "muted")
         detail.setWordWrap(True)
