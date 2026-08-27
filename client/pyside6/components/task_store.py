@@ -44,9 +44,7 @@ class TaskStore(QObject, AsyncApiMixin):
         self._stream = None
         if stream and stream.isRunning():
             stream.requestInterruption()
-            if not stream.wait(3000):
-                stream.terminate()
-                stream.wait(500)
+            stream.wait(3000)
         self.shutdown_async_api()
     def active_tasks(self):
         terminal = {"SUCCEEDED", "FAILED", "CANCELLED", "PARTIAL"}
@@ -89,11 +87,22 @@ class TaskStore(QObject, AsyncApiMixin):
         self._stream = TaskStreamWorker(self.api, self.last_event_id, self)
         self._stream.event_received.connect(self._apply_event)
         self._stream.stream_state.connect(self._stream_state)
+        self._stream.resync_required.connect(self._handle_stream_resync)
         self._stream.start()
 
     def _stream_state(self, online, error):
         self._stream_online = online
         self.stream_changed.emit(online, error)
+
+    def _handle_stream_resync(self, payload: dict):
+        """Refresh from the persisted, user-scoped snapshot after a stream boundary."""
+        try:
+            cursor = int(payload.get("after_id", self.last_event_id))
+        except (AttributeError, TypeError, ValueError):
+            cursor = self.last_event_id
+        self.last_event_id = max(self.last_event_id, cursor)
+        self._settings.setValue(self._cursor_key, self.last_event_id)
+        self.refresh()
 
     def _apply_event(self, event: dict):
         try:

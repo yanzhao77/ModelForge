@@ -354,45 +354,67 @@ async def run_events(
     user: User = Depends(get_current_user),
 ):
     """Persisted event list with SSE resume support (spec 30 / 31)."""
+    corr = correlation_id()
     try:
         events = _get_runtime().list_events(
             run_id, after_sequence=after_sequence, limit=limit,
             user_id=user.id,
         )
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return {"run_id": run_id, "events": [e.to_dict() for e in events]}
+    except Exception as exc:
+        raise problem(404, "AGENT_RUN_NOT_FOUND", "Agent run was not found.", correlation=corr) from exc
+    return {"run_id": run_id, "events": [e.to_dict() for e in events], "correlation_id": corr}
 
 
 @router.get("/runs/{run_id}/stream")
 async def run_stream(
     run_id: str,
     after_sequence: int = Query(0, ge=0),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     user: User = Depends(get_current_user),
 ):
     """SSE run stream: replay persisted events then live events (spec 26 / 31)."""
     import json
-
     from fastapi.responses import StreamingResponse
+    corr = correlation_id()
+    try:
+        header_cursor = int(last_event_id or 0)
+    except (TypeError, ValueError) as exc:
+        raise problem(
+            400,
+            "AGENT_RUN_STREAM_CURSOR_INVALID",
+            "Agent run stream cursor must be a non-negative integer.",
+            correlation=corr,
+        ) from exc
+    if header_cursor < 0:
+        raise problem(
+            400,
+            "AGENT_RUN_STREAM_CURSOR_INVALID",
+            "Agent run stream cursor must be a non-negative integer.",
+            correlation=corr,
+        )
+    cursor = max(after_sequence, header_cursor)
     rt = _get_runtime()
     try:
         rt.get_run(run_id, user_id=user.id)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
+    except Exception as exc:
+        raise problem(404, "AGENT_RUN_NOT_FOUND", "Agent run was not found.", correlation=corr) from exc
     async def event_generator():
         async for ev in rt.stream_events(
-            run_id, after_sequence=after_sequence, user_id=user.id if user else None,
+            run_id, after_sequence=cursor, user_id=user.id if user else None,
         ):
             if ev is None:
                 yield ": keepalive\n\n"
             else:
-                yield f"event: {ev.event_type}\ndata: {json.dumps(ev.to_dict(), ensure_ascii=False)}\n\n"
-
+                yield f"id: {ev.sequence}\nevent: {ev.event_type}\ndata: {json.dumps(ev.to_dict(), ensure_ascii=False)}\n\n"
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "X-Request-ID": corr,
+            "X-SSE-Cursor": str(cursor),
+        },
     )
 
 

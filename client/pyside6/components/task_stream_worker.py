@@ -29,6 +29,7 @@ class TaskStreamWorker(QThread):
 
     event_received = Signal(object)
     stream_state = Signal(bool, str)
+    resync_required = Signal(object)
 
     def __init__(self, api, after_id: int = 0, parent=None):
         super().__init__(parent)
@@ -41,10 +42,21 @@ class TaskStreamWorker(QThread):
     def run(self) -> None:
         delay = 1.0
         while not self.isInterruptionRequested():
+            should_resync = False
             try:
                 for event in self.api.stream_tasks(self._cursor):
                     if self.isInterruptionRequested():
                         return
+                    if event.get("event") == "resync_required":
+                        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+                        try:
+                            self._cursor = max(self._cursor, int(payload.get("after_id", self._cursor)))
+                        except (TypeError, ValueError):
+                            pass
+                        self.stream_state.emit(False, "TASK_SSE_RESYNC_REQUIRED")
+                        self.resync_required.emit(payload)
+                        should_resync = True
+                        break
                     normalized = normalize_task_event(event)
                     if normalized is None:
                         continue
@@ -54,10 +66,15 @@ class TaskStreamWorker(QThread):
                     self.event_received.emit(normalized)
                 if self.isInterruptionRequested():
                     return
+                if should_resync:
+                    delay = 1.0
+                    continue
                 raise RuntimeError("任务事件流意外结束")
-            except Exception as exc:
+            except Exception:
                 if self.isInterruptionRequested():
                     return
-                self.stream_state.emit(False, str(exc))
-                time.sleep(delay)
+                self.stream_state.emit(False, "TASK_SSE_DISCONNECTED")
+                deadline = time.monotonic() + delay
+                while not self.isInterruptionRequested() and time.monotonic() < deadline:
+                    time.sleep(0.1)
                 delay = min(15.0, delay * 2)

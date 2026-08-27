@@ -1,6 +1,7 @@
 """Global persisted task center and onboarding API routes."""
 from __future__ import annotations
 
+from core.api_contracts import correlation_id, problem
 from core.database import SessionLocal, get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -63,6 +64,29 @@ def _conflict(error: TaskConflict):
     raise HTTPException(status_code=status, detail={"code": code, "message": "任务状态不允许该操作"})
 
 
+def _task_stream_cursor(after_id: int, last_event_id: str | None, correlation: str) -> int:
+    """Use the most advanced valid client cursor without exposing parser details."""
+    if last_event_id is None:
+        return after_id
+    try:
+        header_cursor = int(last_event_id)
+    except (TypeError, ValueError) as exc:
+        raise problem(
+            400,
+            "TASK_STREAM_CURSOR_INVALID",
+            "Task stream cursor must be a non-negative integer.",
+            correlation=correlation,
+        ) from exc
+    if header_cursor < 0:
+        raise problem(
+            400,
+            "TASK_STREAM_CURSOR_INVALID",
+            "Task stream cursor must be a non-negative integer.",
+            correlation=correlation,
+        )
+    return max(after_id, header_cursor)
+
+
 def _retry_with_execution(db: DBSession, task: TaskRecord) -> TaskRecord:
     retry = service.retry(db, task)
     try:
@@ -90,10 +114,8 @@ def stream_tasks(
     user: User = Depends(get_current_user),
 ):
     """Stream cursor-ordered task events with durable DB replay and heartbeats."""
-    try:
-        cursor = max(after_id, int(last_event_id or 0))
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Last-Event-ID must be an integer cursor")
+    corr = correlation_id()
+    cursor = _task_stream_cursor(after_id, last_event_id, corr)
 
     def event_generator():
         nonlocal cursor
@@ -113,7 +135,13 @@ def stream_tasks(
                     import json
                     yield f"id: {event.id}\nevent: {event.event_type}\ndata: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
                     if delivered >= _SSE_MAX_EVENTS_PER_CONNECTION:
-                        yield f"event: resync_required\ndata: {{\"after_id\":{cursor},\"reason\":\"connection_batch_limit\"}}\n\n"
+                        control = {
+                            "after_id": cursor,
+                            "code": "TASK_STREAM_RESYNC_REQUIRED",
+                            "reason": "connection_batch_limit",
+                            "correlation_id": corr,
+                        }
+                        yield f"event: resync_required\ndata: {json.dumps(control, separators=(',', ':'))}\n\n"
                         return
                 continue
             # The outbox hub wakes early when a committed event becomes available.
@@ -123,7 +151,12 @@ def stream_tasks(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "X-Request-ID": corr,
+            "X-SSE-Cursor": str(cursor),
+        },
     )
 
 

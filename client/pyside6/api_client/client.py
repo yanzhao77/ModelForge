@@ -425,27 +425,39 @@ class ModelForgeClient:
         return data.get("events", [])
 
     def stream_agent_run(self, run_id: str, after_sequence: int = 0) -> Iterator[dict]:
-        """Yield SSE events: {event_type, sequence, timestamp, payload} (spec 26)."""
+        """Yield Agent Run SSE events while sending equivalent query and header cursors."""
+        cursor = max(0, after_sequence)
+        headers = self._headers()
+        headers["Last-Event-ID"] = str(cursor)
         with httpx.Client(timeout=None) as client, client.stream(
             "GET",
             f"{self.base_url}/api/v1/agent/runs/{run_id}/stream",
-            params={"after_sequence": after_sequence},
-            headers=self._headers(),
+            params={"after_sequence": cursor},
+            headers=headers,
         ) as resp:
             self._raise_for_status(resp)
+            event: dict = {}
             for line in resp.iter_lines():
                 line = line.strip()
                 if not line:
+                    if event.get("data"):
+                        payload = None
+                        try:
+                            payload = json.loads(event.pop("data"))
+                        except (TypeError, ValueError):
+                            event = {}
+                        if event.get("event") == "resync_required" and isinstance(payload, dict):
+                            yield {"event_type": "resync_required", "payload": payload}
+                        elif isinstance(payload, dict):
+                            if event.get("id") is not None and "sequence" not in payload:
+                                payload["sequence"] = event["id"]
+                            yield payload
+                    event = {}
                     continue
-                if line.startswith(":") or line.startswith("event:"):
+                if line.startswith(":"):
                     continue
-                if not line.startswith("data: "):
-                    continue
-                try:
-                    event = json.loads(line[6:])
-                except json.JSONDecodeError:
-                    continue
-                yield event
+                key, _, value = line.partition(":")
+                event[key] = value.lstrip()
 
     def list_agent_tools(self) -> list[dict]:
         data = self._get("/api/v1/agent/tools")
@@ -581,12 +593,13 @@ class ModelForgeClient:
 
     def stream_tasks(self, after_id: int = 0):
         """Yield decoded global task SSE events from a durable cursor."""
+        cursor = max(0, after_id)
         headers = self._headers()
-        headers["Last-Event-ID"] = str(max(0, after_id))
+        headers["Last-Event-ID"] = str(cursor)
         with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0, write=30.0, pool=30.0)) as client:
             with client.stream(
                 "GET", f"{self.base_url}/api/v1/tasks/stream",
-                headers=headers, params={"after_id": max(0, after_id)},
+                headers=headers, params={"after_id": cursor},
             ) as response:
                 self._raise_for_status(response)
                 event: dict = {}
