@@ -7,9 +7,39 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from services.redaction import is_sensitive_key, redact_data
+
 from .types import AgentEvent
 
 Subscriber = Callable[[AgentEvent], Awaitable[None]]
+
+_EVENT_BODY_KEYS = frozenset({
+    "arguments", "content", "context", "input", "message", "messages",
+    "output", "prompt", "question", "answer", "knowledge", "document",
+    "error", "detail", "result",
+})
+
+
+def _safe_event_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Return a bounded, credential- and body-safe event payload.
+
+    Events can be persisted and streamed, so they are not a suitable channel for
+    model input/output, knowledge text, or tool arguments. Preserve stable
+    non-content facts and mark any removed body so consumers do not mistake the
+    redacted payload for an execution result.
+    """
+    redacted = False
+    safe: dict[str, Any] = {}
+    for key, value in (payload or {}).items():
+        normalized = str(key).lower().replace("-", "_")
+        if normalized in _EVENT_BODY_KEYS or is_sensitive_key(key):
+            safe[str(key)] = "[REDACTED]"
+            redacted = True
+            continue
+        safe[str(key)] = redact_data(value, max_depth=8, max_text_length=1_024)
+    if redacted:
+        safe["payload_redacted"] = True
+    return safe
 
 
 class EventBus:
@@ -60,7 +90,7 @@ class EventBus:
                 # audit P0-4: persistence failures must be visible, not silent
                 self._write_failures += 1
                 logging.getLogger("modelforge.runtime.events").warning(
-                    "event persistence failed", extra={"event": event.event_type, "run_id": event.run_id, "error": str(e)},
+                    "event persistence failed", extra={"event": event.event_type, "run_id": event.run_id, "error_type": type(e).__name__},
                 )
             finally:
                 self._queue.task_done()
@@ -89,7 +119,7 @@ class EventBus:
             run_id=run_id,
             event_type=event_type,
             sequence=seq,
-            payload=payload or {},
+            payload=_safe_event_payload(payload),
             session_id=session_id,
             correlation_id=correlation_id,
             event_key=f"{event_type}:{seq}",
@@ -136,6 +166,21 @@ class EventBus:
     def queue_overflows(self) -> int:
         """Count synchronous overflow fallbacks; non-zero needs operator review."""
         return self._queue_overflows
+
+    def diagnostics_snapshot(self) -> dict[str, int | bool]:
+        """Return aggregate queue health without reading or changing events."""
+        writer = self._writer_task
+        return {
+            "started": self._started,
+            "store_configured": self._store is not None,
+            "queue_depth": self._queue.qsize(),
+            "queue_capacity": self._queue.maxsize,
+            "subscriber_count": len(self._subscribers),
+            "writer_active": writer is not None and not writer.done(),
+            "write_failure_count": self._write_failures,
+            "queue_overflow_count": self._queue_overflows,
+            "tracked_sequence_count": len(self._sequences),
+        }
 
     def prune(self, run_id: str) -> None:
         """Drop per-run bookkeeping once the run is terminal (audit P0-3)."""

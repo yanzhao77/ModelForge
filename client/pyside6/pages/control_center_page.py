@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from components.api_worker import AsyncApiMixin
+from i18n.ui_localizer import current, text
 
 
 class ControlCenterPage(QWidget, AsyncApiMixin):
@@ -107,6 +108,12 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
     def _fill(target, lines, empty):
         target.clear()
         target.addItems(lines or [empty])
+
+    @staticmethod
+    def _tr(source: str, **values) -> str:
+        translator = current()
+        locale = translator.locale if translator is not None else "zh_CN"
+        return text(source, locale).format(**values)
 
     def _create_memory(self):
         key, ok = QInputDialog.getText(self, "新建记忆", "键")
@@ -274,6 +281,24 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         claims = data.get("schedule_claims") or {}
         events = data.get("events") or {}
         outbox = data.get("task_outbox") or {}
+        event_bus = events.get("event_bus") or {}
+        background = data.get("background_tasks") or {}
+        event_bus_summary = self._tr(
+            "事件总线：写入失败 {write_failures}；队列溢出 {queue_overflows}；队列 {queue_depth}/{queue_capacity}；订阅者 {subscriber_count}；写入器活跃 {writer_active}",
+            write_failures=event_bus.get("write_failure_count", 0),
+            queue_overflows=event_bus.get("queue_overflow_count", 0),
+            queue_depth=event_bus.get("queue_depth", 0),
+            queue_capacity=event_bus.get("queue_capacity", 0),
+            subscriber_count=event_bus.get("subscriber_count", 0),
+            writer_active=event_bus.get("writer_active", False),
+        )
+        background_summary = self._tr(
+            "后台任务：追踪 {tracked}；失败 {failed}；无循环拒绝 {rejected}；最近类型 {last_type}",
+            tracked=background.get("tracked_count", 0),
+            failed=background.get("failure_count", 0),
+            rejected=background.get("spawn_rejection_count", 0),
+            last_type=background.get("last_failure_type") or "—",
+        )
         QMessageBox.information(
             self,
             "只读并发/事件诊断",
@@ -282,6 +307,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
             f"有效计划 claim：{claims.get('active_claim_count', 0)}；过期 claim：{claims.get('expired_claim_count', 0)}\n"
             f"事件总数：{events.get('total_count', 0)}；缺失 event key：{events.get('missing_key_count', 0)}；"
             f"重复 key 组：{events.get('duplicate_key_group_count', 0)}\n"
+            f"{event_bus_summary}\n{background_summary}\n"
             f"待派送 outbox：{outbox.get('pending_count', 0)}；有效 lease：{outbox.get('active_lease_count', 0)}；"
             f"重试到期：{outbox.get('retry_due_count', 0)}\n\n"
             f"{data.get('notice', '只显示聚合诊断。')}",

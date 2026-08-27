@@ -117,6 +117,9 @@ class AgentRuntime:
         self._approval_grants: dict[str, bool] = {}
         self._created_events: set = set()
         self._delegation_counts: dict[str, int] = {}
+        self._background_task_failure_count = 0
+        self._background_spawn_rejection_count = 0
+        self._last_background_failure_type: str | None = None
         self._mcp_registry: Any = None
         self._scopes: dict[str, Any] = {}
         self.plugin_manager: Any = None
@@ -162,6 +165,7 @@ class AgentRuntime:
         if callable(snapshot):
             scheduler_snapshot = snapshot()
         event_bus = self.event_bus
+        event_snapshot = getattr(event_bus, "diagnostics_snapshot", None) if event_bus is not None else None
         return {
             "started": bool(self._started),
             "running_run_count": len(self._running),
@@ -169,10 +173,16 @@ class AgentRuntime:
             "cancellation_token_count": len(self._cancellations),
             "awaiting_approval_count": len(self._approvals),
             "scheduler": scheduler_snapshot,
-            "event_bus": {
+            "event_bus": event_snapshot() if callable(event_snapshot) else {
                 "available": event_bus is not None,
                 "write_failure_count": int(getattr(event_bus, "write_failures", 0)) if event_bus is not None else 0,
                 "queue_overflow_count": int(getattr(event_bus, "queue_overflows", 0)) if event_bus is not None else 0,
+            },
+            "background_tasks": {
+                "tracked_count": len(self._run_tasks),
+                "failure_count": self._background_task_failure_count,
+                "spawn_rejection_count": self._background_spawn_rejection_count,
+                "last_failure_type": self._last_background_failure_type,
             },
         }
 
@@ -876,6 +886,10 @@ class AgentRuntime:
             task.add_done_callback(lambda finished: self._on_task_done(finished, run_id=run_id))
             return task
         except RuntimeError:
+            self._background_spawn_rejection_count += 1
+            close = getattr(coro, "close", None)
+            if callable(close):
+                close()
             return None
 
     def _on_task_done(self, task: asyncio.Task, run_id: str | None = None) -> None:
@@ -885,7 +899,9 @@ class AgentRuntime:
             return
         exc = task.exception()
         if exc is not None:
-            log_run(self.logger, 40, "background task failed", error=str(exc))
+            self._background_task_failure_count += 1
+            self._last_background_failure_type = type(exc).__name__[:80]
+            log_run(self.logger, 40, "background task failed", error_type=self._last_background_failure_type)
 
     @staticmethod
     def _error_code(error: str | None) -> str:

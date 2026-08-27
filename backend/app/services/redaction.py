@@ -38,17 +38,17 @@ def redact_text(value: object, *, max_length: int = 16_384) -> str:
     return text[:max_length]
 
 
-def redact_data(value: Any, *, max_depth: int = 12) -> Any:
+def redact_data(value: Any, *, max_depth: int = 12, max_text_length: int = 16_384) -> Any:
     """Recursively redact known-sensitive keys before persistence or export."""
     if max_depth <= 0:
         return "[TRUNCATED]"
     if isinstance(value, Mapping):
         return {
-            str(key): "[REDACTED]" if is_sensitive_key(key) else redact_data(item, max_depth=max_depth - 1)
+            str(key): "[REDACTED]" if is_sensitive_key(key) else redact_data(item, max_depth=max_depth - 1, max_text_length=max_text_length)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple, set)):
-        return [redact_data(item, max_depth=max_depth - 1) for item in value]
+        return [redact_data(item, max_depth=max_depth - 1, max_text_length=max_text_length) for item in value]
     if isinstance(value, str):
-        return redact_text(value)
+        return redact_text(value, max_length=max_text_length)
     return value

@@ -15,7 +15,12 @@ def _counts(query, key_column) -> dict[str, int]:
 
 def runtime_diagnostics(db: Session) -> dict[str, Any]:
     """Return aggregate persistence health without reading payloads or output."""
+    from services.agent_runtime_service import get_agent_runtime
+
     now = dt.datetime.utcnow()
+    runtime = get_agent_runtime()
+    snapshot = getattr(runtime, "lifecycle_snapshot", None) if runtime is not None else None
+    runtime_health = snapshot() if callable(snapshot) else {}
     active_states = ("queued", "running", "awaiting_approval", "cancelling")
     run_statuses = _counts(db.query(AgentRun.status, func.count(AgentRun.run_id)), AgentRun.status)
     execution_outcomes = _counts(
@@ -56,7 +61,9 @@ def runtime_diagnostics(db: Session) -> dict[str, Any]:
             "keyed_count": db.query(AgentEvent).filter(AgentEvent.event_key.isnot(None)).count(),
             "missing_key_count": db.query(AgentEvent).filter(AgentEvent.event_key.is_(None)).count(),
             "duplicate_key_group_count": duplicate_event_keys,
+            "event_bus": runtime_health.get("event_bus") or {"available": False},
         },
+        "background_tasks": runtime_health.get("background_tasks") or {"tracked_count": 0, "failure_count": 0, "spawn_rejection_count": 0, "last_failure_type": None},
         "task_outbox": {
             "pending_count": outbox_pending.count(),
             "active_lease_count": outbox_pending.filter(TaskOutbox.lease_token.isnot(None), TaskOutbox.lease_expires_at.isnot(None), TaskOutbox.lease_expires_at >= now).count(),

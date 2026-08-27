@@ -107,6 +107,8 @@ _TEXT = {
     "操作审计": ("操作审计", "Operation Audit", "操作監査"),
     "审计": ("审计", "Audit", "監査"),
     "暂无脱敏操作审计记录。": ("暂无脱敏操作审计记录。", "No redacted operation audit records.", "匿名化された操作監査記録はありません。"),
+    "事件总线：写入失败 {write_failures}；队列溢出 {queue_overflows}；队列 {queue_depth}/{queue_capacity}；订阅者 {subscriber_count}；写入器活跃 {writer_active}": ("事件总线：写入失败 {write_failures}；队列溢出 {queue_overflows}；队列 {queue_depth}/{queue_capacity}；订阅者 {subscriber_count}；写入器活跃 {writer_active}", "Event Bus: write failures {write_failures}; queue overflows {queue_overflows}; queue {queue_depth}/{queue_capacity}; subscribers {subscriber_count}; writer active {writer_active}", "イベントバス：書き込み失敗 {write_failures}；キューあふれ {queue_overflows}；キュー {queue_depth}/{queue_capacity}；購読者 {subscriber_count}；ライター稼働中 {writer_active}"),
+    "后台任务：追踪 {tracked}；失败 {failed}；无循环拒绝 {rejected}；最近类型 {last_type}": ("后台任务：追踪 {tracked}；失败 {failed}；无循环拒绝 {rejected}；最近类型 {last_type}", "Background Tasks: tracked {tracked}; failures {failed}; no-loop rejections {rejected}; latest type {last_type}", "バックグラウンドタスク：追跡 {tracked}；失敗 {failed}；ループなし拒否 {rejected}；最新型 {last_type}"),
     "并发/事件诊断": ("并发/事件诊断", "Concurrency/Event Diagnostics", "並行性・イベント診断"),
     "生命周期诊断": ("生命周期诊断", "Lifecycle Diagnostics", "ライフサイクル診断"),
     "只读生命周期/保留诊断": ("只读生命周期/保留诊断", "Read-Only Lifecycle/Retention Diagnostics", "読み取り専用のライフサイクル・保持診断"),
