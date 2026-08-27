@@ -426,9 +426,15 @@
 
 ### OR1–OR5 归档与下一阶段规划
 
-- [ ] 审阅 OR1–OR5 全量差异、未跟踪文档、敏感信息和静态格式，再创建单一归档提交并推送至 `origin/master`。
-- [ ] 以推送成功后的固定提交为基线盘点下一阶段剩余技术债务，并创建顺序化、非运行性开发计划。
-- [ ] 后续仅在新计划和用户明确授权范围内实施；验证、构建、签名、标签和 Release 继续独立受控。
+- [x] 审阅 OR1–OR5 全量差异、未跟踪文档、敏感信息和静态格式，再创建单一归档提交并推送至 `origin/master`；归档提交为 `33c65a8e7875ffc6813f2fad4d31f5ddbeecef04`。
+- [x] 以推送成功后的固定提交为基线盘点下一阶段剩余技术债务，并创建顺序化、非运行性开发计划；见 `docs/NEXT_STAGE_API_COMPATIBILITY_PLAN.md`。
+- [ ] 按 AC1–AC5 顺序实施 API 兼容与远程模型配置加固；验证、构建、签名、标签和 Release 继续独立受控。
+
+### AC1–AC5 规划归档与 AC1 启动
+
+- [ ] 审阅 `docs/NEXT_STAGE_API_COMPATIBILITY_PLAN.md` 与待办差异、远端基线和敏感信息后，创建并推送仅包含规划材料的 Git 提交。
+- [ ] 盘点并规范化远程 provider 的 base URL、协议、模型名称与仅摘要化的凭据状态；保持密钥 write-only，不连接或探测 provider。
+- [ ] 静态审阅 AC1 的兼容字段、Responses 默认与显式 Chat Completions 回退边界；不执行网络模型调用、测试、迁移、构建、签名、标签或 Release。
 
 ## 非测试型剩余工作设计文档
 
