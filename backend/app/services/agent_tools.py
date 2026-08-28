@@ -3,51 +3,61 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
+from typing import Any
 
+from core.agent_file_access import (
+    AgentFileAccessError,
+    read_agent_file,
+    resolve_agent_directory,
+    resolve_readable_agent_file,
+)
 from core.config import settings
 
 
-def tool_file_read(filepath: str) -> str:
-    """Read the contents of a file."""
-    if not os.path.exists(filepath):
-        return f"Error: File not found: {filepath}"
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            content = f.read()
-        if len(content) > 5000:
-            content = content[:5000] + "\n... (truncated)"
-        return content
-    except Exception as e:
-        return f"Error reading file: {e}"
+def _context_user_id(context: Any | None) -> int | None:
+    """Extract the authenticated Run owner without trusting tool arguments."""
+    user_id = getattr(context, "user_id", None)
+    return user_id if isinstance(user_id, int) else None
 
 
-def tool_code_search(directory: str, pattern: str) -> str:
-    """Search for a pattern in code files within a directory."""
-    if not os.path.isdir(directory):
-        return f"Error: Directory not found: {directory}"
-    results = []
+def tool_file_read(filepath: str, context: Any | None = None) -> str:
+    """Read a non-sensitive file only from the invoking user's workspace."""
+    return read_agent_file(filepath, _context_user_id(context))
+
+
+def tool_code_search(directory: str, pattern: str, context: Any | None = None) -> str:
+    """Search code files within the invoking user's contained workspace."""
+    if not pattern or not pattern.strip():
+        raise AgentFileAccessError("SEARCH_PATTERN_REQUIRED")
+    workspace, root_directory = resolve_agent_directory(directory, _context_user_id(context))
+    results: list[str] = []
     code_extensions = {".py", ".js", ".ts", ".java", ".go", ".rs", ".cpp", ".c", ".h"}
-    try:
-        for root, dirs, files in os.walk(directory):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
-            for filename in files:
-                ext = os.path.splitext(filename)[1].lower()
-                if ext not in code_extensions:
-                    continue
-                filepath = os.path.join(root, filename)
-                try:
-                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-                        for lineno, line in enumerate(f, 1):
-                            if pattern.lower() in line.lower():
-                                results.append(f"{filepath}:{lineno}: {line.strip()[:120]}")
-                                if len(results) >= 20:
-                                    return "\n".join(results) + "\n... (max results)"
-                except Exception:
-                    continue
-    except Exception as e:
-        return f"Error during search: {e}"
+    scanned = 0
+    for root, dirs, files in os.walk(root_directory, followlinks=False):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and not (Path(root) / d).is_symlink()]
+        for filename in files:
+            if scanned >= 1_000:
+                return "\n".join(results) + "\n... (scan limit reached)"
+            candidate = Path(root) / filename
+            if candidate.suffix.lower() not in code_extensions:
+                continue
+            try:
+                safe_file = resolve_readable_agent_file(str(candidate), _context_user_id(context))
+            except AgentFileAccessError:
+                continue
+            scanned += 1
+            try:
+                with safe_file.open("r", encoding="utf-8", errors="replace") as handle:
+                    for lineno, line in enumerate(handle, 1):
+                        if pattern.casefold() in line.casefold():
+                            relative_path = safe_file.relative_to(workspace)
+                            results.append(f"{relative_path}:{lineno}: {line.strip()[:120]}")
+                            if len(results) >= 20:
+                                return "\n".join(results) + "\n... (max results)"
+            except OSError:
+                continue
     if not results:
-        return f"No matches found for '{pattern}' in {directory}"
+        return "No matches found in the permitted workspace."
     return "\n".join(results)
 
 

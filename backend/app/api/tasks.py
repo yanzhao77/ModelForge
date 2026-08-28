@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 from models.records import AgentRun, ModelRecord, TaskRecord, User
 from models.records import Session as ChatSession
 from pydantic import BaseModel, Field
-from services.task_execution import RetryExecutionError, TaskExecutionService
 from services.audit_log import (
     AuditMetadataRejected,
     AuditPersistenceError,
@@ -17,6 +16,7 @@ from services.audit_log import (
     record_control_plane_operation,
     validate_control_plane_audit_metadata,
 )
+from services.task_execution import RetryExecutionError, TaskExecutionService
 from services.task_realtime import task_event_hub, task_outbox_publisher
 from services.task_service import TaskConflict, TaskService, project_legacy_tasks
 from sqlalchemy.orm import Session as DBSession
@@ -245,7 +245,7 @@ def retry_tasks_batch(req: TaskBatchRetryRequest, db: DBSession = Depends(get_db
             continue
         try:
             retry = _retry_with_execution(db, task)
-            succeeded.append({"task_id": retry.task_id, "status": retry.status, "version": retry.version})
+            succeeded.append(retry.to_dict())
         except TaskConflict as error:
             failures.append({"task_id": task_id, "code": str(error), "message": "Task retry was not accepted."})
     task_outbox_publisher.nudge()

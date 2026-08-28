@@ -56,6 +56,13 @@ ERROR_CATALOG: dict[str, ControlPlaneError] = {
     "MCP_SERVER_UNAVAILABLE": ControlPlaneError("MCP_SERVER_UNAVAILABLE", 404, False, forbidden_fields=_UNAVAILABLE),
     "TASK_VERSION_CONFLICT": ControlPlaneError("TASK_VERSION_CONFLICT", 409, True, forbidden_fields=("current_state", "other_user", "metadata", "exception")),
     "EXECUTION_INTENT_PREVIEW_ACTION_INVALID": ControlPlaneError("EXECUTION_INTENT_PREVIEW_ACTION_INVALID", 400, False, forbidden_fields=("target_ids", "metadata", "exception")),
+    "EXECUTION_INTENT_CONFIRMATION_REQUIRED": ControlPlaneError("EXECUTION_INTENT_CONFIRMATION_REQUIRED", 409, False, forbidden_fields=("token", "target_ids", "target_versions", "metadata", "exception")),
+    "EXECUTION_INTENT_PREVIEW_EXPIRED": ControlPlaneError("EXECUTION_INTENT_PREVIEW_EXPIRED", 409, False, forbidden_fields=("token", "target_ids", "target_versions", "metadata", "exception")),
+    "EXECUTION_INTENT_PREVIEW_INVALID": ControlPlaneError("EXECUTION_INTENT_PREVIEW_INVALID", 400, False, forbidden_fields=("token", "target_ids", "target_versions", "metadata", "exception")),
+    "EXECUTION_INTENT_PREVIEW_SCHEMA_MISMATCH": ControlPlaneError("EXECUTION_INTENT_PREVIEW_SCHEMA_MISMATCH", 409, False, forbidden_fields=("token", "target_ids", "target_versions", "metadata", "exception")),
+    "EXECUTION_INTENT_PREVIEW_SCOPE_MISMATCH": ControlPlaneError("EXECUTION_INTENT_PREVIEW_SCOPE_MISMATCH", 409, False, forbidden_fields=("token", "target_ids", "target_versions", "metadata", "exception")),
+    "EXECUTION_INTENT_PREVIEW_ACTION_MISMATCH": ControlPlaneError("EXECUTION_INTENT_PREVIEW_ACTION_MISMATCH", 409, False, forbidden_fields=("token", "target_ids", "target_versions", "metadata", "exception")),
+    "EXECUTION_INTENT_EXECUTION_DISABLED": ControlPlaneError("EXECUTION_INTENT_EXECUTION_DISABLED", 409, False, forbidden_fields=("token", "target_ids", "target_versions", "metadata", "exception")),
 }
 
 

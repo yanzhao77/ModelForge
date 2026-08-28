@@ -2,12 +2,13 @@
 import asyncio
 import os
 import sys
-import tempfile
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
+from core.agent_file_access import workspace_root_for_user
+from core.config import settings
 from runtime.errors import ToolNotFoundError, ToolTimeoutError
 from runtime.run_context import ToolExecutionContext
 from runtime.tools import PermissionLevel, Tool, ToolExecutor, ToolRegistry, ToolResult
@@ -131,25 +132,24 @@ class TestToolRegistry:
         assert r.get("filesystem.read") is not None
         assert r.get("shell.execute") is not None
         assert r.get("web.search") is not None
-        assert PermissionLevel.READ in r.get("filesystem.read").permissions
+        assert PermissionLevel.FILESYSTEM_READ in r.get("filesystem.read").permissions
         assert PermissionLevel.EXECUTE in r.get("shell.execute").permissions
         assert PermissionLevel.NETWORK in r.get("web.search").permissions
         assert r.canonical("file_read") == "filesystem.read"
         assert r.canonical("command_execute") == "shell.execute"
 
-    def test_legacy_tools_keep_working(self):
+    def test_legacy_tools_keep_working(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "agent_workspace_root", str(tmp_path / "agent-workspaces"))
+        workspace = workspace_root_for_user(1)
+        (workspace / "legacy.txt").write_text("hello world", encoding="utf-8")
         r = register_builtin_tools(ToolRegistry())
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            f.write("hello world")
-            path = f.name
+        executor = ToolExecutor(r)
+        loop = asyncio.new_event_loop()
         try:
-            executor = ToolExecutor(r)
-            loop = asyncio.new_event_loop()
-            out = loop.run_until_complete(executor.run("file_read", {"filepath": path}, make_ctx()))
-            loop.close()
-            assert "hello world" in out
+            out = loop.run_until_complete(executor.run("file_read", {"filepath": "legacy.txt"}, make_ctx()))
         finally:
-            os.unlink(path)
+            loop.close()
+        assert "hello world" in out
 
 
 class TestToolExecutor:

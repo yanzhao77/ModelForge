@@ -652,7 +652,78 @@
 ### CP2/CP3 归档与 CP4 准备
 
 - [ ] 复核并归档 CP2/CP3 所有权与协调边界的静态实现，推送至 GitHub `master`；不创建或变更标签、Release。
-- [ ] 为 CP4 意图/预览生命周期实施盘点令牌动作、范围、过期、摘要哈希与确认语义；预览不得变为执行令牌。
+- [x] 为 CP4 意图/预览生命周期实施盘点令牌动作、范围、过期、摘要哈希与确认语义；见 `docs/EXECUTION_INTENT_PREVIEW_LIFECYCLE_DESIGN.md`，预览不得变为执行令牌。
+
+### CP4 预览生命周期静态实现
+
+- [x] 审阅执行意图预览服务、Workspace 路由与桌面客户端的现有请求/响应契约；不创建预览令牌或调用 API。
+- [x] 实现版本化目标—版本摘要绑定、稳定预览回执和只读桌面呈现模型；令牌始终保持 `execution_blocked=true`。
+- [x] 静态核对 CP4 代码不查找目标、不写审计、不执行任务/训练/Agent/provider/插件/MCP 动作，也不将预览令牌用于执行。
+
+### CP4 初步静态发现
+
+- [x] 当前预览令牌已经绑定 purpose、当前用户、动作、目标摘要、版本摘要、目标数量和受限 TTL，路由不查目标且确认检查始终返回 `execution_blocked=true`；但版本摘要仍是与目标列表分离的顺序列表，尚未按目标标识绑定。
+
+### CP4 静态审阅记录
+
+- [x] 预览服务升级至 purpose/schema `v2`：目标标识和版本按目标绑定后仅生成不可逆摘要；旧的顺序版本列表仅保留为兼容性摘要，明确不代表目标绑定。
+- [x] 预览检查新增专属稳定代码，且返回 `EXECUTION_INTENT_EXECUTION_DISABLED`；桌面视图模型不保留预览令牌、目标标识或摘要，并永远返回 `can_execute=False`。
+- [x] 静态扫描确认预览服务不导入运行时、持久化、网络或训练依赖；未发现执行阻断反转、原始目标字段写入摘要/令牌、桌面令牌/摘要展示或格式错误。
+- [ ] 获得固定候选 SHA、隔离用户与明确授权后，验证 TTL、非法 purpose、scope/action/schema 不符、版本绑定不完整、旧字段兼容、三语言只读呈现和执行持续阻断；当前未创建令牌、调用 API 或启动 GUI。
+
+### CP 架构状态与路线图整理
+
+- [x] 整理 CP1–CP4 已完成静态架构、未提交/未推送状态与核心控制面边界；见 `docs/CONTROL_PLANE_ASSURANCE_ARCHITECTURE_STATUS.md`。
+- [x] 输出 CP5–CP8 后续路线图、固定候选 SHA 前置条件、验证隔离与正式发行 No-Go。
+
+### CP5–CP8 顺序静态实施
+
+- [x] CP5：建立桌面控制面页面—风险动作—确认—请求键—关闭回收—本地化/安全错误呈现覆盖矩阵，并只修复可静态确认的缺口；见 `docs/DESKTOP_CONTROL_PLANE_COVERAGE_MATRIX.md`。
+- [x] CP6：建立候选 SHA 后才能填充的验证证据登记册、脱敏字段白名单与 No-Go 交叉索引；不收集任何真实证据；见 `docs/CONTROL_PLANE_VERIFICATION_LEDGER.md`。
+- [x] CP7：冻结 Run、事件、计划与 outbox 的并发/迁移设计、兼容窗口与回滚前置条件；不执行 DDL、迁移或恢复；见 `docs/CONCURRENCY_MIGRATION_FREEZE.md`。
+- [x] CP8：复核版本、签名、跨平台安装、审批与发布阻断清单；不改版本、不创建标签、不构建、不签名或发布；见 `docs/RELEASE_GOVERNANCE_FREEZE.md`。
+- [ ] 对 CP5–CP8 执行最终静态格式、冲突标记、敏感信息和运行性调用审阅；不运行测试、服务、GUI、SSE 或控制面动作。
+
+### CP5 静态审阅记录
+
+- [x] 覆盖矩阵已登记 Agent Run、任务中心、训练、控制中心、运行时间线、远程模型服务、自动化、聊天和只读意图预览的确认、请求键、关闭回收与安全错误呈现。
+- [x] 自动化页面现对启停、立即运行、删除保持确认后才传递 `confirm=true`，并将失败提示、历史错误正文和动态成功文案收敛到稳定错误格式化与三语言资源；聊天页会话/模型加载失败不再直接显示原始异常文本。
+- [x] 静态检查通过：未发现自动化页面不安全错误调用，桌面客户端未发现 `.terminate()`，覆盖矩阵包含自动化页面；`git diff --check` 通过。
+- [ ] 在固定候选 SHA、明确授权和隔离环境中验证语言切换、确认拒绝、关闭回收、SSE 断线和所有 UI/API 交互；当前未启动 GUI、SSE 或请求服务。
+
+### CP6 静态审阅记录
+
+- [x] 证据登记册已交叉索引 CP1–CP8，要求唯一完整候选 SHA、授权记录、隔离环境、脱敏审阅和最小化结果/审计/关联标识摘要；不接受正文、凭据、路径、URL、所有权细节或原始异常。
+- [x] 静态检查确认登记册不存在已填充的 40 位候选 SHA、非 `not_run` 模板状态、真实材料路径或 URL；`git diff --check` 通过。
+- [ ] 只有在固定候选 SHA、获得明确授权和完成隔离环境准备后，才可填写任何证据行；在此之前不得从网络、数据库、GUI、SSE、运行时或日志收集真实证据。
+
+### CP7 静态审阅记录
+
+- [x] 已新增 `backend/app/core/concurrency_migration_contract.py`，登记 Agent Run、事件、计划 occurrence、TaskOutbox、指标 emission 的现有 ORM 结构与迁移验证状态，并将任务显式幂等键唯一约束标记为未来仅追加迁移需求。
+- [x] `CONCURRENCY_MIGRATION_FREEZE.md` 规定只追加、双读/单写兼容、旧行 nullable、无内容回填、应用级回退优先于破坏性 DDL，以及 CAS/lease/唯一键/派送失败的 No-Go 条件。
+- [x] 静态检查确认 CP7 目录不导入数据库、迁移框架、运行时或服务，不含 DDL、提交、查询、发布或启动调用；`git diff --check` 通过。
+- [ ] 固定候选 SHA、隔离数据库/用户与明确授权后，方可从只读 schema 预检开始验证迁移、CAS、重复 occurrence、迟到回调、outbox lease 和 emission 去重；当前未执行 DDL、迁移、回填、恢复或并发操作。
+
+### CP8 静态审阅记录
+
+- [x] 已新增 `RELEASE_GOVERNANCE_FREEZE.md`，将 CP1–CP7 控制面、所有权、协调、预览、桌面、证据和并发门槛与候选 SHA、版本、远端一致性、签名、安装和审批分离记录。
+- [x] 文档采用 `development → candidate_frozen → authorized_validation → evidence_reviewed → signed_and_installed → user_approved → release_authorized → tagged_and_published` 状态机；缺少任一条件均停止后续动作。
+- [x] 静态检查确认文档无构建、签名、标签或发布命令，未声明当前 Go 结论且包含 No-Go 边界；`git diff --check` 通过。
+- [ ] 仅在固定候选 SHA、完整验证/签名/跨平台安装证据和当期用户/发行批准齐备后，才可由明确授权操作者执行正式标签或 Release；当前不得进行上述操作。
+
+### CP5–CP8 最终静态审阅记录
+
+- [x] 工作区当前仅包含 CP4–CP8 的预览、桌面覆盖、证据、并发迁移与发行治理静态改动，以及其相应待办记录；本地 `master` 比 `origin/master` 领先一个此前归档的 CP2/CP3 提交。
+- [x] `git diff --check` 通过；受检差异无冲突标记；桌面客户端无 `.terminate()`；CP4 未发现执行阻断反转；CP7 静态目录无可执行依赖；CP8 文档无标签、构建、签名或发布命令。
+- [ ] 未运行 pytest、Ruff、后端服务、GUI、SSE、迁移、DDL、恢复、Agent/任务/训练/provider/插件/MCP 动作、构建、签名、标签或 Release；行为验证、远端同步、候选 SHA 固定和发行均需后续单独授权。
+
+### CP7 初步静态发现
+
+- [x] 当前 ORM 在多类资源上已有 `user_id` 和局部索引，但现有 `C3_CONCURRENCY_AND_IDEMPOTENCY_DESIGN.md` 提议的 Run/事件/计划执行 `state_version`、executor lease、occurrence claim 和 event/emission 唯一键仍是后续追加迁移设计，不得在代码或文档中称为已迁移或已验证。
+
+#### 推送状态记录
+
+- [x] 已创建本地 CP2/CP3 归档提交 `fcc08b74930531156317061c38bcbedbe5c8fa45`；两次正常 HTTPS 推送均因连接 GitHub 443 端口超时失败。GitHub 只读引用核对显示远端 `master` 仍为 `7d8fdc1d2adfbb55458b2032ca4d7ebc327b60d5`，未使用 API 修改远端引用。
 
 ### CP3 初步静态发现
 

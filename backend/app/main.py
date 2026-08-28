@@ -15,6 +15,7 @@ from api import (
     memories,
     models,
     openai_api,
+    platform_api,
     plugin,
     providers,
     runtime,
@@ -71,7 +72,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token", "X-API-Key", "Idempotency-Key"],
     allow_credentials=True,
 )
 
@@ -110,6 +111,8 @@ for _router in (
 
 # OpenAI-compatible endpoints keep their standard paths (/v1/...)
 app.include_router(openai_api.router)
+# Commercial API control-plane and project-key invocation surface.
+app.include_router(platform_api.router, prefix="/api/v2")
 
 
 @app.get("/")

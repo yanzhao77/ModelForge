@@ -54,6 +54,25 @@ def test_agent_runtime_routes_require_authentication(client):
     assert client.get("/api/v1/agent/mcp/servers").status_code == 401
 
 
+def test_legacy_runtime_control_plane_requires_authentication(client):
+    assert client.get("/api/v1/runtime/status").status_code == 401
+    assert client.post("/api/v1/runtime/start", json={"model": "mock"}).status_code == 401
+    assert client.post("/api/v1/runtime/stop", json={"model": "mock"}).status_code == 401
+    assert client.post(
+        "/api/v1/runtime/chat",
+        json={"model": "mock", "messages": [{"role": "user", "content": "hello"}]},
+    ).status_code == 401
+
+
+def test_runtime_status_and_logs_require_administrator(client):
+    user = _auth(client, "securityruntimeuser")
+    assert client.get("/api/v1/runtime/status", headers=user).status_code == 403
+    assert client.get("/api/v1/system/logs", headers=user).status_code == 403
+    with patch.object(settings, "runtime_admin_usernames", "securityruntimeuser"):
+        assert client.get("/api/v1/runtime/status", headers=user).status_code == 200
+        assert client.get("/api/v1/system/logs", headers=user).status_code == 200
+
+
 def test_agent_definitions_are_isolated_per_user(client):
     alice = _auth(client, "securityalice")
     bob = _auth(client, "securitybob")

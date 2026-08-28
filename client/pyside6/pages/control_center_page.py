@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+from components.api_worker import AsyncApiMixin
+from i18n.ui_localizer import current, format_api_error, text
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
@@ -14,9 +16,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from components.api_worker import AsyncApiMixin
-from i18n.ui_localizer import current, format_api_error, text
 
 
 class ControlCenterPage(QWidget, AsyncApiMixin):

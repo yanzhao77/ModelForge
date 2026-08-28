@@ -8,8 +8,8 @@ from core.security import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
 from pydantic import BaseModel, Field
-from services.downloader import downloader
 from services.audit_log import record_operation
+from services.downloader import downloader
 from services.model_manager import ModelManager
 from services.model_readiness_service import ModelReadinessError, ModelReadinessService
 from sqlalchemy.orm import Session as DBSession
@@ -18,21 +18,21 @@ router = APIRouter(prefix="/models", tags=["models"])
 
 
 class ScanRequest(BaseModel):
-    path: str | None = None
+    path: str | None = Field(default=None, max_length=2048)
 
 
 class InstallRequest(BaseModel):
-    name: str
-    provider: str = "local"
-    path: str
-    size: str = ""
-    format: str | None = None
-    quant: str | None = None
+    name: str = Field(min_length=1, max_length=255)
+    provider: str = Field(default="local", min_length=1, max_length=64)
+    path: str = Field(min_length=1, max_length=2048)
+    size: str = Field(default="", max_length=64)
+    format: str | None = Field(default=None, max_length=64)
+    quant: str | None = Field(default=None, max_length=64)
 
 
 class DownloadRequest(BaseModel):
-    repo_id: str
-    filename: str | None = None
+    repo_id: str = Field(min_length=1, max_length=255)
+    filename: str | None = Field(default=None, max_length=512)
 
 
 class DefaultModelRequest(BaseModel):
@@ -63,7 +63,10 @@ def scan_models(
     req: ScanRequest, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    models = _manager(db).scan(req.path, user.id)
+    try:
+        models = _manager(db).scan(req.path, user.id)
+    except ValueError as exc:
+        raise problem(403, "MODEL_PATH_OUTSIDE_ALLOWED_ROOT", "Model path is outside the configured model root.", correlation=correlation_id()) from exc
     return [m.to_dict() for m in models]
 
 
@@ -72,9 +75,12 @@ def install_model(
     req: InstallRequest, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    model = _manager(db).install(
-        req.name, req.provider, req.path, req.size, user.id, req.format, req.quant
-    )
+    try:
+        model = _manager(db).install(
+            req.name, req.provider, req.path, req.size, user.id, req.format, req.quant
+        )
+    except ValueError as exc:
+        raise problem(403, "MODEL_PATH_OUTSIDE_ALLOWED_ROOT", "Model path is outside the configured model root.", correlation=correlation_id()) from exc
     return model.to_dict()
 
 
@@ -85,8 +91,8 @@ def search_hf_models(
 ):
     try:
         return downloader.search_hf(q, author, limit)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"搜索失败: {e}")
+    except Exception as exc:
+        raise problem(502, "MODEL_SEARCH_UNAVAILABLE", "Model search is temporarily unavailable.", correlation=correlation_id()) from exc
 
 
 @router.post("/download")
@@ -94,7 +100,7 @@ def download_model(
     req: DownloadRequest, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    task = downloader.start(req.repo_id, req.filename)
+    task = downloader.start(req.repo_id, user.id, req.filename, db=db)
     return task.to_dict()
 
 
@@ -103,9 +109,9 @@ def download_status(
     task_id: str, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    task = downloader.get(task_id)
+    task = downloader.get(task_id, user.id, db=db)
     if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
     return task.to_dict()
 
 
@@ -163,7 +169,7 @@ def get_model(
     model_id: int, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    model = _manager(db).info(model_id)
+    model = _manager(db).info(model_id, user.id)
     if model is None:
         raise problem(404, "LOCAL_MODEL_NOT_FOUND", "Local model record was not found.")
     return model.to_dict()

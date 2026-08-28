@@ -43,19 +43,20 @@ class TestModelManager:
         assert models == []
 
     def test_install(self, manager):
-        model = manager.install("test-model", "huggingface", "/path/to/model", "1.5GB")
+        model = manager.install("test-model", "huggingface", str(manager.model_path / "model"), "1.5GB")
         assert model.id is not None
         assert model.name == "test-model"
         assert model.status == "available"
 
     def test_install_duplicate_updates(self, manager):
-        manager.install("dup", "hf", "/old", "1GB")
-        updated = manager.install("dup", "modelscope", "/new", "2GB")
-        assert updated.path == "/new"
+        manager.install("dup", "hf", str(manager.model_path / "old"), "1GB")
+        expected_path = str((manager.model_path / "new").resolve())
+        updated = manager.install("dup", "modelscope", expected_path, "2GB")
+        assert updated.path == expected_path
         assert updated.provider == "modelscope"
 
     def test_remove_existing(self, manager):
-        model = manager.install("to-remove", "local", "/tmp/x")
+        model = manager.install("to-remove", "local", str(manager.model_path / "x"))
         mid = model.id
         result = manager.remove(mid)
         assert result is True
@@ -66,7 +67,7 @@ class TestModelManager:
         assert result is False
 
     def test_info(self, manager):
-        model = manager.install("info-test", "local", "/models/test")
+        model = manager.install("info-test", "local", str(manager.model_path / "test"))
         fetched = manager.info(model.id)
         assert fetched is not None
         assert fetched.name == "info-test"
@@ -91,9 +92,9 @@ class TestModelManager:
         discovered = manager.scan()
         assert discovered == []
 
-    def test_scan_nonexistent_path(self, manager):
-        discovered = manager.scan("/nonexistent/path/12345")
-        assert discovered == []
+    def test_scan_rejects_external_path(self, manager):
+        with pytest.raises(ValueError, match="MODEL_PATH_OUTSIDE_ALLOWED_ROOT"):
+            manager.scan("/nonexistent/path/12345")
 
     def test_format_size(self, manager):
         assert manager._format_size(0) == "0.0B"

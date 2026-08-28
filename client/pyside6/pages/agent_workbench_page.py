@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from components.api_worker import AsyncApiMixin
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -17,8 +18,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from components.api_worker import AsyncApiMixin
 
 
 class AgentWorkbenchPage(QWidget, AsyncApiMixin):

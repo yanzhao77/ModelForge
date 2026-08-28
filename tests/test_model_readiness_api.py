@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -47,7 +48,7 @@ def test_readiness_and_default_are_scoped_and_never_expose_secret_data():
         created = client.post(
             "/api/v1/models/install",
             headers=first,
-            json={"name": "readiness-local", "provider": "local", "path": "/safe/test/model.gguf"},
+            json={"name": "readiness-local", "provider": "local", "path": str(Path("models").resolve() / "readiness-model.gguf")},
         )
         assert created.status_code == 200, created.text
         model_id = created.json()["id"]

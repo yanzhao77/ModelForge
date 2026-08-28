@@ -60,13 +60,26 @@ class SlowTool(Tool):
 
 class TestE2E:
     @pytest.mark.asyncio
-    async def test_full_acceptance_flow(self):
-        """spec 86: Create Agent -> Select Model/Tools -> Create Run -> LLM ->
-        Tool Call -> Tool Execution -> Event -> LLM -> Final Response -> Completed."""
-        rt = build_runtime(provider_script=[
-            MockProvider.tool_call("filesystem.read", {"filepath": "/etc/hostname"}),
-            MockProvider.final("final answer"),
-        ])
+    async def test_full_acceptance_flow(self, tmp_path, monkeypatch):
+        """Run a permitted filesystem tool inside the authenticated user workspace."""
+        from core.agent_file_access import workspace_root_for_user
+        from core.config import settings
+
+        monkeypatch.setattr(settings, "agent_workspace_root", str(tmp_path / "agent-workspaces"))
+        workspace = workspace_root_for_user(1)
+        (workspace / "hostname.txt").write_text("safe host label", encoding="utf-8")
+        rt = build_runtime(
+            provider_script=[
+                MockProvider.tool_call("filesystem.read", {"filepath": "hostname.txt"}),
+                MockProvider.final("final answer"),
+            ],
+            agent_cfg={
+                "name": "e2ebot",
+                "model": "mock",
+                "tools": ["filesystem.read"],
+                "policy": {"filesystem_access": True},
+            },
+        )
         run = rt.create_run(agent_id="e2ebot", input_text="read hostname", user_id=1, execute=False)
         task = asyncio.create_task(rt.execute_run(run.run_id))
         await task
@@ -133,7 +146,8 @@ class TestE2E:
         events = rt.list_events(run.run_id, user_id=1)
         failed = [e for e in events if e.event_type == "tool.call.failed"]
         assert len(failed) == 1
-        assert (failed[0].payload.get("output") or "").startswith("Error:")
+        assert failed[0].payload.get("output") == "[REDACTED]"
+        assert failed[0].payload.get("payload_redacted") is True
 
     @pytest.mark.asyncio
     async def test_max_iterations_in_run(self):
@@ -195,7 +209,7 @@ class TestE2E:
             h = {"Authorization": "Bearer " + c.post("/api/v1/auth/login", json={"username": "e2euser", "password": "secret123"}).json()["token"]}
             r = c.post("/api/v1/agent/create", json={"name": "e2e-api-bot", "model": "mock", "tools": ["filesystem.read"]}, headers=h)
             assert r.status_code == 200
-            r = c.post("/api/v1/agent/runs", json={"agent_id": "e2e-api-bot", "input": "read"}, headers=h)
+            r = c.post("/api/v1/agent/runs", json={"agent_id": "e2e-api-bot", "input": "read", "execute": True, "confirm": True}, headers=h)
             run_id = r.json()["run_id"]
             status = None
             for _ in range(100):
@@ -209,4 +223,6 @@ class TestE2E:
             assert data["tool_call_count"] == 1
             events = c.get(f"/api/v1/agent/runs/{run_id}/events", headers=h).json()["events"]
             types = [e["event_type"] for e in events]
-            assert "tool.call.started" in types and "tool.call.completed" in types
+            # The API must not permit an Agent to read an arbitrary host path.
+            assert "tool.call.failed" in types
+            assert "tool.call.completed" not in types

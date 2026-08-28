@@ -6,35 +6,40 @@ from pathlib import Path
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Resolve database path from env or default
-_default_db = os.path.join(
-    Path(__file__).resolve().parents[3], "data", "modelforge.db"
-)
-DATABASE_URL = os.getenv("DATABASE_PATH", _default_db)
+# ``DATABASE_URL`` selects the service deployment profile. The historical
+# ``DATABASE_PATH`` remains the SQLite-only local profile for compatibility.
+_default_db = os.path.join(Path(__file__).resolve().parents[3], "data", "modelforge.db")
+_configured_url = os.getenv("DATABASE_URL", "").strip()
+if _configured_url:
+    SQLALCHEMY_DATABASE_URL = _configured_url
+    DATABASE_URL = _configured_url
+else:
+    DATABASE_URL = os.getenv("DATABASE_PATH", _default_db)
+    SQLALCHEMY_DATABASE_URL = f"sqlite:///{DATABASE_URL}"
 
-# Ensure data directory exists
-os.makedirs(os.path.dirname(DATABASE_URL), exist_ok=True)
+IS_SQLITE = SQLALCHEMY_DATABASE_URL.startswith("sqlite:")
+if IS_SQLITE:
+    sqlite_path = SQLALCHEMY_DATABASE_URL.removeprefix("sqlite:///")
+    if sqlite_path and sqlite_path != ":memory:":
+        os.makedirs(os.path.dirname(sqlite_path) or ".", exist_ok=True)
 
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{DATABASE_URL}"
-
-# SSE consumers acquire a short-lived read session on each cursor poll.
-# The previous SQLAlchemy defaults (pool_size=5, max_overflow=10) rejected a
-# healthy 24-connection stream cohort before outbox delivery could be measured.
-# Keep the values environment-configurable so deployment sizing remains explicit.
+# Connection sizing is explicit for server deployments. SQLite uses the same
+# pool contract but needs the driver-specific cross-thread setting.
 DATABASE_POOL_SIZE = int(os.getenv("DATABASE_POOL_SIZE", "32"))
 DATABASE_MAX_OVERFLOW = int(os.getenv("DATABASE_MAX_OVERFLOW", "16"))
 DATABASE_POOL_TIMEOUT = int(os.getenv("DATABASE_POOL_TIMEOUT", "10"))
 DATABASE_BUSY_TIMEOUT_MS = int(os.getenv("DATABASE_BUSY_TIMEOUT_MS", "5000"))
 DATABASE_ENABLE_WAL = os.getenv("DATABASE_ENABLE_WAL", "1").strip().lower() not in {"0", "false", "no"}
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    pool_size=DATABASE_POOL_SIZE,
-    max_overflow=DATABASE_MAX_OVERFLOW,
-    pool_timeout=DATABASE_POOL_TIMEOUT,
-    pool_pre_ping=True,
-)
+_engine_options = {
+    "pool_size": DATABASE_POOL_SIZE,
+    "max_overflow": DATABASE_MAX_OVERFLOW,
+    "pool_timeout": DATABASE_POOL_TIMEOUT,
+    "pool_pre_ping": True,
+}
+if IS_SQLITE:
+    _engine_options["connect_args"] = {"check_same_thread": False}
+engine = create_engine(SQLALCHEMY_DATABASE_URL, **_engine_options)
 
 
 @event.listens_for(engine, "connect")
@@ -73,13 +78,27 @@ def get_db():
 
 
 def init_db():
-    """Create tables then apply ordered, idempotent local schema migrations."""
-    Base.metadata.create_all(bind=engine)
-    _apply_schema_migrations()
+    """Initialize the local SQLite schema or validate a migrated server schema."""
+    if IS_SQLITE:
+        Base.metadata.create_all(bind=engine)
+        _apply_schema_migrations()
+        return
+    _verify_server_schema()
+
+
+def _verify_server_schema() -> None:
+    """Fail closed if a PostgreSQL deployment skipped the Alembic migration step."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+    except Exception as exc:
+        raise RuntimeError(
+            "Server database schema is unavailable. Run `alembic upgrade head` before starting ModelForge."
+        ) from exc
 
 
 def _apply_schema_migrations():
-    """Apply explicit, append-only migrations and persist their versions.
+    """Apply explicit, append-only SQLite migrations and persist their versions.
 
     Fresh databases already have every model column after ``create_all``.  For
     legacy local databases, inspect the target table first and issue an ALTER

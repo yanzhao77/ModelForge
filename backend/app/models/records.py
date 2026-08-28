@@ -145,6 +145,41 @@ class ModelRecord(Base):
         }
 
 
+class DownloadTaskRecord(Base):
+    """Persisted, user-scoped model download state without host path disclosure."""
+    __tablename__ = "download_tasks"
+
+    id = Column(String(32), primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    repo_id = Column(String(255), nullable=False)
+    filename = Column(String(512), nullable=True)
+    status = Column(String(32), nullable=False, default="PENDING", index=True)
+    progress = Column(Integer, nullable=False, default=0)
+    message = Column(String(255), nullable=False, default="Pending")
+    error_code = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_download_tasks_user_status", "user_id", "status"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "task_id": self.id,
+            "repo_id": self.repo_id,
+            "filename": self.filename,
+            "status": self.status,
+            "progress": self.progress,
+            "message": self.message,
+            "error_code": self.error_code,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
 class AgentRecord(Base):
     """Persisted AI agent configuration."""
     __tablename__ = "agents"
@@ -901,3 +936,206 @@ class OperationAudit(Base):
     correlation_id = Column(String(64), nullable=False, index=True)
     metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+
+class Organization(Base):
+    """An API customer's top-level ownership boundary."""
+
+    __tablename__ = "organizations"
+    __table_args__ = (Index("ix_organizations_owner_name", "owner_user_id", "name", unique=True),)
+
+    id = Column(String(32), primary_key=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    status = Column(String(24), nullable=False, default="active")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ApiProject(Base):
+    """A project-scoped API isolation and billing boundary."""
+
+    __tablename__ = "api_projects"
+    __table_args__ = (Index("ix_api_projects_org_name", "organization_id", "name", unique=True),)
+
+    id = Column(String(32), primary_key=True)
+    organization_id = Column(String(32), ForeignKey("organizations.id"), nullable=False, index=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    environment = Column(String(24), nullable=False, default="live")
+    status = Column(String(24), nullable=False, default="active")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "organization_id": self.organization_id,
+            "name": self.name,
+            "environment": self.environment,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ProjectApiKey(Base):
+    """One-way-hashed, revocable key for a single API project."""
+
+    __tablename__ = "project_api_keys"
+    __table_args__ = (Index("ix_project_api_keys_project_prefix", "project_id", "prefix", unique=True),)
+
+    id = Column(String(32), primary_key=True)
+    project_id = Column(String(32), ForeignKey("api_projects.id"), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    prefix = Column(String(24), nullable=False, unique=True, index=True)
+    secret_hash = Column(String(128), nullable=False)
+    scopes_json = Column(Text, nullable=False, default="[]")
+    expires_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        import json as _json
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "name": self.name,
+            "prefix": self.prefix,
+            "scopes": _json.loads(self.scopes_json or "[]"),
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ApiInvocation(Base):
+    """Project-scoped, idempotent API invocation receipt."""
+
+    __tablename__ = "api_invocations"
+    __table_args__ = (
+        Index("ix_api_invocations_project_created", "project_id", "created_at"),
+        Index("ix_api_invocations_project_status", "project_id", "status"),
+        Index("ix_api_invocations_project_idempotency", "project_id", "idempotency_key", unique=True),
+    )
+
+    id = Column(String(32), primary_key=True)
+    project_id = Column(String(32), ForeignKey("api_projects.id"), nullable=False, index=True)
+    api_key_id = Column(String(32), ForeignKey("project_api_keys.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    idempotency_key = Column(String(128), nullable=False)
+    request_hash = Column(String(128), nullable=False)
+    agent_id = Column(String(255), nullable=False)
+    reserved_tokens = Column(Integer, nullable=False, default=0)
+    run_id = Column(String(64), nullable=True, unique=True, index=True)
+    status = Column(String(24), nullable=False, default="PENDING")
+    response_json = Column(Text, nullable=True)
+    error_code = Column(String(96), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        import json as _json
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "idempotency_key": self.idempotency_key,
+            "agent_id": self.agent_id,
+            "reserved_tokens": self.reserved_tokens,
+            "run_id": self.run_id,
+            "status": self.status,
+            "response": _json.loads(self.response_json) if self.response_json else None,
+            "error_code": self.error_code,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
+class ProjectQuota(Base):
+    """Enforced project-level execution and token budgets."""
+
+    __tablename__ = "project_quotas"
+
+    project_id = Column(String(32), ForeignKey("api_projects.id"), primary_key=True)
+    max_concurrent_runs = Column(Integer, nullable=False, default=2)
+    daily_token_limit = Column(Integer, nullable=False, default=100_000)
+    monthly_token_limit = Column(Integer, nullable=False, default=1_000_000)
+    per_run_token_limit = Column(Integer, nullable=False, default=16_000)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "max_concurrent_runs": self.max_concurrent_runs,
+            "daily_token_limit": self.daily_token_limit,
+            "monthly_token_limit": self.monthly_token_limit,
+            "per_run_token_limit": self.per_run_token_limit,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class UsageLedger(Base):
+    """Append-only billable usage fact; rows are never updated or deleted."""
+
+    __tablename__ = "usage_ledger"
+    __table_args__ = (
+        Index("ix_usage_ledger_project_occurred", "project_id", "occurred_at"),
+        Index("ix_usage_ledger_invocation_metric", "invocation_id", "metric_type", unique=True),
+    )
+
+    id = Column(String(32), primary_key=True)
+    project_id = Column(String(32), ForeignKey("api_projects.id"), nullable=False, index=True)
+    invocation_id = Column(String(32), ForeignKey("api_invocations.id"), nullable=False, index=True)
+    run_id = Column(String(64), nullable=True, index=True)
+    idempotency_key = Column(String(128), nullable=False)
+    metric_type = Column(String(48), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    unit_price_version = Column(String(48), nullable=False, default="trial-v1")
+    metadata_redacted = Column(Text, nullable=False, default="{}")
+    occurred_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        import json as _json
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "invocation_id": self.invocation_id,
+            "run_id": self.run_id,
+            "idempotency_key": self.idempotency_key,
+            "metric_type": self.metric_type,
+            "quantity": self.quantity,
+            "unit_price_version": self.unit_price_version,
+            "metadata": _json.loads(self.metadata_redacted or "{}"),
+            "occurred_at": self.occurred_at.isoformat() if self.occurred_at else None,
+        }
+
+
+class ProjectAgentBinding(Base):
+    """Explicitly grants one user-owned Agent definition to one API project."""
+
+    __tablename__ = "project_agent_bindings"
+    __table_args__ = (Index("ix_project_agent_binding_unique", "project_id", "agent_id", unique=True),)
+
+    id = Column(String(32), primary_key=True)
+    project_id = Column(String(32), ForeignKey("api_projects.id"), nullable=False, index=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "agent_id": self.agent_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

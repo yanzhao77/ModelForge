@@ -206,7 +206,7 @@ class TestEventApi:
 
     def _completed_run(self, client, h, name):
         client.post("/api/v1/agent/create", json={"name": name, "model": "mock"}, headers=h)
-        r = client.post("/api/v1/agent/runs", json={"agent_id": name, "input": "x"}, headers=h)
+        r = client.post("/api/v1/agent/runs", json={"agent_id": name, "input": "x", "execute": True, "confirm": True}, headers=h)
         run_id = r.json()["run_id"]
         for _ in range(50):
             data = client.get(f"/api/v1/agent/runs/{run_id}", headers=h).json()

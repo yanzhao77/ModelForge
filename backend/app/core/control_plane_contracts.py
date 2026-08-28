@@ -11,7 +11,6 @@ from typing import Literal
 from core.action_risk import action_risk
 from core.control_plane_errors import control_plane_error
 
-
 OwnershipScope = Literal["current_user", "administrator", "configuration_only"]
 
 

@@ -119,7 +119,7 @@ class TestTrainingFlow:
 
         r = client.post(
             "/api/v1/train/start",
-            json={"dataset_id": ds_id, "base_model": "mock-base", "method": "lora", "epochs": 1, "batch_size": 1},
+            json={"dataset_id": ds_id, "base_model": "mock-base", "method": "lora", "epochs": 1, "batch_size": 1, "confirm": True},
             headers=headers,
         )
         assert r.status_code == 200, r.text
@@ -136,7 +136,7 @@ class TestTrainingFlow:
         assert status["loss"] == 0.5
         assert "mock training completed" in "\n".join(status["log_tail"])
 
-        r = client.post(f"/api/v1/train/{task_id}/register-model", headers=headers)
+        r = client.post(f"/api/v1/train/{task_id}/register-model", json={"confirm": True}, headers=headers)
         assert r.status_code == 200, r.text
         models = client.get("/api/v1/models", headers=headers).json()
         assert any(m["provider"] == "training" for m in models)
@@ -176,11 +176,11 @@ class TestTrainingFlow:
         ds_id = r.json()["id"]
         r = client.post(
             "/api/v1/train/start",
-            json={"dataset_id": ds_id, "base_model": "m", "method": "lora", "epochs": 3},
+            json={"dataset_id": ds_id, "base_model": "m", "method": "lora", "epochs": 3, "confirm": True},
             headers=headers,
         )
         task_id = r.json()["task_id"]
-        r = client.post(f"/api/v1/train/stop/{task_id}", headers=headers)
+        r = client.post(f"/api/v1/train/stop/{task_id}", json={"confirm": True}, headers=headers)
         assert r.status_code == 200
         status = client.get(f"/api/v1/train/status/{task_id}", headers=headers).json()
         assert status["status"] == "stopped"
@@ -197,11 +197,11 @@ class TestTrainingFlow:
         ds_id = r.json()["id"]
         r = client.post(
             "/api/v1/train/start",
-            json={"dataset_id": ds_id, "base_model": "m", "method": "lora", "epochs": 3},
+            json={"dataset_id": ds_id, "base_model": "m", "method": "lora", "epochs": 3, "confirm": True},
             headers=headers,
         )
         task_id = r.json()["task_id"]
-        r = client.post(f"/api/v1/train/{task_id}/register-model", headers=headers)
+        r = client.post(f"/api/v1/train/{task_id}/register-model", json={"confirm": True}, headers=headers)
         assert r.status_code == 400
 
 

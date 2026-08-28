@@ -14,7 +14,12 @@ import re
 from pathlib import Path
 
 import numpy as np
-from models.records import KnowledgeChunk, KnowledgeCollection, KnowledgeCollectionDocument, KnowledgeDocument
+from models.records import (
+    KnowledgeChunk,
+    KnowledgeCollection,
+    KnowledgeCollectionDocument,
+    KnowledgeDocument,
+)
 
 
 class SimpleEmbedder:

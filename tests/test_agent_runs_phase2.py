@@ -268,10 +268,12 @@ class TestAgentRunApi:
         assert any(a["name"] == "api-bot-a" for a in agents)
 
     def test_create_agent_persists_ready_model_target(self, client):
+        from pathlib import Path
+
         h = self._login(client, "apibot-target")
         model = client.post(
             "/api/v1/models/install",
-            json={"name": "target-local", "provider": "local", "path": "/tmp/target-local.gguf"},
+            json={"name": "target-local", "provider": "local", "path": str(Path("models").resolve() / "target-local.gguf")},
             headers=h,
         ).json()
         target = {
@@ -302,7 +304,7 @@ class TestAgentRunApi:
     def test_run_success(self, client):
         h = self._login(client, "apibotb")
         client.post("/api/v1/agent/create", json={"name": "api-bot-b", "model": "mock"}, headers=h)
-        r = client.post("/api/v1/agent/runs", json={"agent_id": "api-bot-b", "input": "summarize"}, headers=h)
+        r = client.post("/api/v1/agent/runs", json={"agent_id": "api-bot-b", "input": "summarize", "execute": True, "confirm": True}, headers=h)
         assert r.status_code == 200, r.text
         run_id = r.json()["run_id"]
         assert r.json()["status"] == "PENDING"
@@ -321,7 +323,7 @@ class TestAgentRunApi:
 
     def test_run_agent_not_found(self, client):
         h = self._login(client, "apibotc")
-        r = client.post("/api/v1/agent/runs", json={"agent_id": "ghost-agent", "input": "x"}, headers=h)
+        r = client.post("/api/v1/agent/runs", json={"agent_id": "ghost-agent", "input": "x", "confirm": True}, headers=h)
         assert r.status_code == 404
 
     def test_run_not_found(self, client):
@@ -332,16 +334,16 @@ class TestAgentRunApi:
     def test_cancel_run(self, client):
         h = self._login(client, "apibote")
         client.post("/api/v1/agent/create", json={"name": "api-bot-e", "model": "mock"}, headers=h)
-        r = client.post("/api/v1/agent/runs", json={"agent_id": "api-bot-e", "input": "x", "execute": False}, headers=h)
+        r = client.post("/api/v1/agent/runs", json={"agent_id": "api-bot-e", "input": "x", "execute": False, "confirm": True}, headers=h)
         run_id = r.json()["run_id"]
-        r = client.post(f"/api/v1/agent/runs/{run_id}/cancel", headers=h)
+        r = client.post(f"/api/v1/agent/runs/{run_id}/cancel", json={"confirm": True}, headers=h)
         assert r.status_code == 200
         assert r.json()["status"] == "CANCELLED"
 
     def test_list_runs_api(self, client):
         h = self._login(client, "apibotf")
         client.post("/api/v1/agent/create", json={"name": "api-bot-f", "model": "mock"}, headers=h)
-        client.post("/api/v1/agent/runs", json={"agent_id": "api-bot-f", "input": "x"}, headers=h)
+        client.post("/api/v1/agent/runs", json={"agent_id": "api-bot-f", "input": "x", "confirm": True}, headers=h)
         runs = client.get("/api/v1/agent/runs", headers=h).json()
         assert isinstance(runs, list)
         assert len(runs) >= 1
@@ -350,7 +352,7 @@ class TestAgentRunApi:
         h1 = self._login(client, "apibotg1")
         h2 = self._login(client, "apibotg2")
         client.post("/api/v1/agent/create", json={"name": "api-bot-g", "model": "mock"}, headers=h1)
-        r = client.post("/api/v1/agent/runs", json={"agent_id": "api-bot-g", "input": "x"}, headers=h1)
+        r = client.post("/api/v1/agent/runs", json={"agent_id": "api-bot-g", "input": "x", "confirm": True}, headers=h1)
         run_id = r.json()["run_id"]
         r = client.get(f"/api/v1/agent/runs/{run_id}", headers=h2)
         assert r.status_code == 404

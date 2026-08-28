@@ -22,7 +22,7 @@ class FakeKnowledgeProvider:
         self.results = results or [{"text": "ModelForge 是本地 AI 平台", "source": "docs.md"}]
         self.calls = 0
 
-    async def retrieve(self, query, top_k=3):
+    async def retrieve(self, query, top_k=3, user_id=None, knowledge_binding=None):
         self.calls += 1
         return self.results
 

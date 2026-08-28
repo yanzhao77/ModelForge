@@ -1,6 +1,8 @@
 """Explicit schedule management workspace; opening it never runs an Agent."""
 from __future__ import annotations
 
+from components.api_worker import AsyncApiMixin
+from i18n.ui_localizer import current, format_api_error, localize_tree, text
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -16,8 +18,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from components.api_worker import AsyncApiMixin
 
 
 class AutomationPage(QWidget, AsyncApiMixin):
@@ -73,7 +73,14 @@ class AutomationPage(QWidget, AsyncApiMixin):
         actions.addWidget(self.delete_button)
         actions.addStretch(1)
         layout.addLayout(actions)
+        localize_tree(self)
         self.refresh()
+
+    @staticmethod
+    def _tr(source: str, **values) -> str:
+        translator = current()
+        locale = translator.locale if translator is not None else "zh_CN"
+        return text(source, locale).format(**values)
 
     def _selected(self) -> dict | None:
         row = self.list.currentRow()
@@ -89,18 +96,19 @@ class AutomationPage(QWidget, AsyncApiMixin):
         self._jobs = jobs or []
         self.list.clear()
         for job in self._jobs:
-            state = "已启用" if job.get("enabled") else "草稿/暂停"
-            kind = {"once": "一次", "interval": "间隔", "daily": "每日", "weekly": "每周"}.get(job.get("schedule_kind"), "自定义")
+            state = self._tr("已启用") if job.get("enabled") else self._tr("草稿/暂停")
+            kind_key = {"once": "一次", "interval": "间隔", "daily": "每日", "weekly": "每周"}.get(job.get("schedule_kind"), "自定义")
+            kind = self._tr(kind_key)
             self.list.addItem(QListWidgetItem(f"{job.get('name', '未命名')} · {state} · {kind}"))
         self._render_detail(self.list.currentRow())
 
-    def _failed(self, message):
-        self.detail.setText(f"无法加载计划：{message}")
+    def _failed(self, error):
+        self.detail.setText(self._tr("无法加载计划：{error}", error=format_api_error(error)))
 
     def _render_detail(self, _row):
         job = self._selected()
         if not job:
-            self.detail.setText("暂无计划。先创建草稿，再显式启用。")
+            self.detail.setText(self._tr("暂无计划。先创建草稿，再显式启用。"))
             return
         spec = job.get("run_spec") or {}
         self.detail.setText(
@@ -128,19 +136,19 @@ class AutomationPage(QWidget, AsyncApiMixin):
         job = self._selected()
         if not job:
             return
-        action = "启用" if enabled else "暂停"
-        if QMessageBox.question(self, f"确认{action}", f"{action}“{job.get('name')}”吗？") != QMessageBox.Yes:
+        action = self._tr("启用") if enabled else self._tr("暂停")
+        if QMessageBox.question(self, self._tr("确认{action}", action=action), self._tr("确定{action}“{name}”吗？", action=action, name=job.get("name") or "-")) != QMessageBox.Yes:
             return
         callback = self.api.enable_schedule if enabled else self.api.pause_schedule
-        self._call(lambda: callback(job["id"], confirm=True), f"计划已{action}。")
+        self._call(lambda: callback(job["id"], confirm=True), self._tr("计划已{action}。", action=action))
 
     def _run_now(self):
         job = self._selected()
         if not job:
             return
-        if QMessageBox.question(self, "确认立即运行", "这会创建一个新的 Agent Run。是否继续？") != QMessageBox.Yes:
+        if QMessageBox.question(self, self._tr("确认立即运行"), self._tr("这会创建一个新的 Agent Run。是否继续？")) != QMessageBox.Yes:
             return
-        self._call(lambda: self.api.run_schedule_now(job["id"], confirm=True), "已创建新的 Agent Run。")
+        self._call(lambda: self.api.run_schedule_now(job["id"], confirm=True), self._tr("已创建新的 Agent Run。"))
 
     def _preview(self):
         job = self._selected()
@@ -148,9 +156,9 @@ class AutomationPage(QWidget, AsyncApiMixin):
             return
         worker = self._run_api(lambda: self.api.schedule_preview(job["id"]), lambda data: QMessageBox.information(
             self,
-            "计划预览",
-            "时区：" + str(data.get("timezone", "UTC")) + "\n\n" + "\n".join(data.get("next_runs") or ["暂无后续执行。"]),
-        ), lambda message: QMessageBox.warning(self, "计划预览", str(message)), request_key="automation-preview")
+            self._tr("计划预览"),
+            self._tr("时区：{timezone}", timezone=str(data.get("timezone", "UTC"))) + "\n\n" + "\n".join(data.get("next_runs") or [self._tr("暂无后续执行。")]),
+        ), lambda error: QMessageBox.warning(self, self._tr("计划预览"), format_api_error(error)), request_key="automation-preview")
         self._worker = worker
 
     def _history(self):
@@ -159,27 +167,27 @@ class AutomationPage(QWidget, AsyncApiMixin):
             return
         worker = self._run_api(lambda: self.api.schedule_executions(job["id"]), lambda items: QMessageBox.information(
             self,
-            "计划执行历史",
+            self._tr("计划执行历史"),
             "\n\n".join(
-                f"{item.get('created_at', '—')}\n状态：{item.get('status', '—')} · 触发：{item.get('trigger_kind', '—')}\nRun：{item.get('run_id') or '—'}\n错误：{item.get('error') or '无'}"
+                f"{item.get('created_at', '—')}\n状态：{item.get('status', '—')} · 触发：{item.get('trigger_kind', '—')}\nRun：{item.get('run_id') or '—'}"
                 for item in items
-            ) or "暂无执行历史。读取历史不会创建 Agent Run。",
-        ), lambda message: QMessageBox.warning(self, "计划执行历史", str(message)), request_key="automation-history")
+            ) or self._tr("暂无执行历史。读取历史不会创建 Agent Run。"),
+        ), lambda error: QMessageBox.warning(self, self._tr("计划执行历史"), format_api_error(error)), request_key="automation-history")
         self._worker = worker
 
     def _delete(self):
         job = self._selected()
         if not job:
             return
-        if QMessageBox.question(self, "确认删除", "删除计划不会删除历史执行记录。是否继续？") != QMessageBox.Yes:
+        if QMessageBox.question(self, self._tr("确认删除"), self._tr("删除计划不会删除历史执行记录。是否继续？")) != QMessageBox.Yes:
             return
-        self._call(lambda: self.api.delete_schedule(job["id"], confirm=True), "计划已删除。")
+        self._call(lambda: self.api.delete_schedule(job["id"], confirm=True), self._tr("计划已删除。"))
 
     def _call(self, action, success):
         worker = self._run_api(
             action,
-            lambda _result: (QMessageBox.information(self, "自动化", success), self.refresh()),
-            lambda message: QMessageBox.warning(self, "自动化", str(message)),
+            lambda _result: (QMessageBox.information(self, self._tr("自动化"), success), self.refresh()),
+            lambda error: QMessageBox.warning(self, self._tr("自动化"), format_api_error(error)),
             request_key="automation-mutation",
         )
         self._worker = worker

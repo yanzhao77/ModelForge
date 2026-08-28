@@ -1,5 +1,6 @@
 """Dataset API routes."""
 
+from core.api_contracts import correlation_id, problem
 from core.database import get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -17,13 +18,15 @@ def upload_dataset(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    content = file.file.read()
+    corr = correlation_id()
     try:
-        rec = DatasetService().upload(db, user.id, file.filename or "dataset", content, name)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        rec = DatasetService().upload_stream(db, user.id, file.filename or "dataset", file.file, name)
+    except ValueError as exc:
+        if str(exc) == "DATASET_FILE_TOO_LARGE":
+            raise problem(413, "DATASET_FILE_TOO_LARGE", "Dataset file exceeds the configured size limit.", correlation=corr) from exc
+        raise problem(400, "DATASET_UPLOAD_INVALID", "Dataset upload was rejected.", correlation=corr) from exc
     if rec.status == "error":
-        raise HTTPException(status_code=400, detail=f"数据集解析失败: {rec.error}")
+        raise problem(400, "DATASET_PARSE_FAILED", "Dataset could not be parsed.", correlation=corr)
     return rec.to_dict()
 
 

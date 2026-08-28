@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 CoordinationKind = Literal[
     "same_session_persistence",
     "post_commit_dispatch",

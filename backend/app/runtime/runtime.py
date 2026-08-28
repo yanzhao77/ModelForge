@@ -268,11 +268,18 @@ class AgentRuntime:
             status = outcome["status"]
             finalize = getattr(self.run_store, "compare_and_set", None)
             if callable(finalize):
+                # Human approval moves the durable Run through WAITING_HUMAN and
+                # back to RUNNING. Refresh the version after the execution loop
+                # so a valid terminal transition is not rejected by a stale
+                # pre-approval state_version.
+                current = self.run_store.get(run_id)
+                expected_version = current.state_version if current is not None else run.state_version
+                current_lease_id = current.executor_lease_id if current is not None else lease_id
                 finalized = finalize(
                     run_id,
-                    expected_version=run.state_version,
+                    expected_version=expected_version,
                     to_status=status,
-                    lease_id=lease_id,
+                    lease_id=current_lease_id,
                     terminal=True,
                     output=outcome.get("output") or None,
                     error=outcome.get("error"),
@@ -389,6 +396,47 @@ class AgentRuntime:
                     await self.cancel_run(child.run_id, user_id=user_id)
                 except Exception:
                     continue
+        return self.run_store.get(run_id) or run
+
+    async def timeout_run(self, run_id: str, user_id: int | None = None, *, reason: str = "execution budget exhausted") -> RunRecord:
+        """Persist a TIMEOUT terminal state and stop an active run cooperatively."""
+        run = self.get_run(run_id, user_id=user_id)
+        if run.status in RunStatus.terminal():
+            return run
+        token = self._cancellations.get(run_id)
+        if token is not None:
+            token.cancel()
+        approval_event = self._approvals.get(run_id)
+        if approval_event is not None:
+            approval_event.set()
+        finalize = getattr(self.run_store, "compare_and_set", None)
+        if callable(finalize):
+            timed_out = finalize(
+                run_id,
+                expected_version=run.state_version,
+                to_status=RunStatus.TIMEOUT.value,
+                lease_id=run.executor_lease_id,
+                terminal=True,
+                error=f"RUN_TIMEOUT: {reason}",
+            )
+            run = timed_out or self.run_store.get(run_id) or run
+        else:
+            self.run_store.update(
+                run_id,
+                status=RunStatus.TIMEOUT.value,
+                error=f"RUN_TIMEOUT: {reason}",
+                finished_at=datetime.datetime.utcnow(),
+            )
+            run = self.run_store.get(run_id) or run
+        if run.status == RunStatus.TIMEOUT.value:
+            self._cancellations.pop(run_id, None)
+            self._running.discard(run_id)
+            self._delegation_counts.pop(run_id, None)
+            await self._publish(run_id, "run.timeout", {"reason": reason})
+            self.metrics.on_run_finished("TIMEOUT", 0.0)
+            for child in self.run_store.list(parent_run_id=run_id):
+                if child.status not in RunStatus.terminal():
+                    await self.timeout_run(child.run_id, user_id=user_id, reason="parent run timed out")
         return self.run_store.get(run_id) or run
 
     def get_run(self, run_id: str, user_id: int | None = None) -> RunRecord:

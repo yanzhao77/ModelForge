@@ -23,7 +23,7 @@ from models.records import (
     TaskRecord,
     User,
 )
-from services.redaction import redact_data, redact_text
+from pydantic import BaseModel, Field
 from services.audit_log import (
     AuditMetadataRejected,
     AuditPersistenceError,
@@ -32,13 +32,19 @@ from services.audit_log import (
     record_operation,
     validate_control_plane_audit_metadata,
 )
-from services.migration_preflight import migration_preflight
-from services.runtime_diagnostics import runtime_diagnostics
-from services.lifecycle_diagnostics import lifecycle_diagnostics
-from services.lifecycle_preview import check_lifecycle_confirmation, create_lifecycle_preview
-from services.execution_intent_preview import check_execution_intent_preview, create_execution_intent_preview
 from services.control_plane_budget import control_plane_budget_summary
-from pydantic import BaseModel, Field
+from services.execution_intent_preview import (
+    check_execution_intent_preview,
+    create_execution_intent_preview,
+)
+from services.lifecycle_diagnostics import lifecycle_diagnostics
+from services.lifecycle_preview import (
+    check_lifecycle_confirmation,
+    create_lifecycle_preview,
+)
+from services.migration_preflight import migration_preflight
+from services.redaction import redact_data, redact_text
+from services.runtime_diagnostics import runtime_diagnostics
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -160,6 +166,7 @@ async def get_execution_intent_preview(
             action=req.action,
             target_ids=req.target_ids,
             expected_versions=req.expected_versions,
+            expected_versions_by_target=req.expected_versions_by_target,
         )
     except ValueError as exc:
         raise problem(400, "EXECUTION_INTENT_PREVIEW_ACTION_INVALID", "This action cannot be previewed.", correlation=corr) from exc
@@ -221,6 +228,7 @@ class LifecycleConfirmationRequest(BaseModel):
 class ExecutionIntentPreviewRequest(BaseModel):
     action: str = Field(min_length=3, max_length=100)
     target_ids: list[str] = Field(min_length=1, max_length=50)
+    expected_versions_by_target: dict[str, int] = Field(default_factory=dict, max_length=50)
     expected_versions: list[int] = Field(default_factory=list, max_length=50)
     request_id: str | None = Field(default=None, max_length=64)
 

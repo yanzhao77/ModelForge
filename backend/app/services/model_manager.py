@@ -18,13 +18,22 @@ class ModelManager:
         self.config = load_config()
         self.model_path = Path(self.config.model_path).resolve()
 
+    def _contained_model_path(self, path: str | None) -> Path:
+        """Resolve a requested model asset without exposing arbitrary host paths."""
+        root = self.model_path.resolve()
+        candidate = root if path is None else Path(path).expanduser().resolve()
+        if not candidate.is_relative_to(root):
+            raise ValueError("MODEL_PATH_OUTSIDE_ALLOWED_ROOT")
+        return candidate
+
     def scan(self, path: str | None = None, user_id: int | None = None) -> list[ModelRecord]:
         """Scan a directory for model files and register them in the database.
 
         Recognizes common model file extensions: .gguf, .bin, .safetensors, .pt, .pth
-        and directories containing model config files.
+        and directories containing model config files. Paths must stay under the
+        configured model root.
         """
-        scan_path = Path(path).resolve() if path else self.model_path
+        scan_path = self._contained_model_path(path)
         discovered: list[ModelRecord] = []
 
         if not scan_path.exists():
@@ -52,15 +61,21 @@ class ModelManager:
             )
         return query.order_by(ModelRecord.created_time.desc()).all()
 
-    def info(self, model_id: int) -> ModelRecord | None:
-        """Get detailed info about a specific model."""
-        return self.db.query(ModelRecord).filter_by(id=model_id).first()
+    def info(self, model_id: int, user_id: int | None = None) -> ModelRecord | None:
+        """Get a model only when it is owned by the caller or intentionally global."""
+        query = self.db.query(ModelRecord).filter_by(id=model_id)
+        if user_id is not None:
+            query = query.filter(
+                (ModelRecord.user_id == user_id) | (ModelRecord.user_id.is_(None))
+            )
+        return query.first()
 
     def install(
         self, name: str, provider: str, path: str, size: str = "",
         user_id: int | None = None, model_format: str | None = None, quant: str | None = None,
     ) -> ModelRecord:
-        """Register an installed model."""
+        """Register an installed model from an already contained model asset."""
+        resolved_path = self._contained_model_path(path)
         query = self.db.query(ModelRecord).filter_by(name=name)
         if user_id is not None:
             query = query.filter(
@@ -68,7 +83,7 @@ class ModelManager:
             )
         existing = query.first()
         if existing:
-            existing.path = path
+            existing.path = str(resolved_path)
             existing.provider = provider
             existing.size = size
             existing.status = "available"
@@ -80,7 +95,7 @@ class ModelManager:
             existing = ModelRecord(
                 name=name,
                 provider=provider,
-                path=path,
+                path=str(resolved_path),
                 size=size,
                 status="available",
                 user_id=user_id,

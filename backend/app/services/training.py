@@ -1,11 +1,13 @@
 """Training service: persisted fine-tuning jobs running in isolated subprocesses."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
 import uuid
+from pathlib import Path
 
 from core.config import settings
 from models.records import Dataset, TrainTask
@@ -189,8 +191,19 @@ class TrainingService:
         name = f"{row.base_model}-{row.method}-ft"
         model_format = "safetensors" if row.method == "full" else "peft-adapter"
         mm = ModelManager(db)
+        source = Path(row.output_dir).resolve()
+        if not source.is_dir():
+            raise ValueError("训练产物目录不可用")
+        # A training output is not an installable model until it is copied into
+        # the configured model root. This keeps ModelRecord.path contained even
+        # when a legacy task stored a custom output_dir.
+        target = mm.model_path / f"user-{user_id}" / row.task_id
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target, symlinks=False)
         model = mm.install(
-            name, "training", row.output_dir, "", user_id, model_format=model_format
+            name, "training", str(target), "", user_id, model_format=model_format
         )
         return model.to_dict()
 

@@ -46,14 +46,17 @@ def read_sse_event(response):
     exercising the response iterator still covers the routed API's durable
     cursor serialization without waiting for a stream to close.
     """
-    raw = asyncio.run(response.body_iterator.__anext__())
-    text = raw.decode() if isinstance(raw, bytes) else raw
-    event = {}
-    for line in text.splitlines():
-        if not line or line.startswith(":"):
-            continue
-        key, value = line.split(":", 1)
-        event[key] = value.strip()
+    for _ in range(3):
+        raw = asyncio.run(response.body_iterator.__anext__())
+        text = raw.decode() if isinstance(raw, bytes) else raw
+        event = {}
+        for line in text.splitlines():
+            if not line or line.startswith(":") or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            event[key] = value.strip()
+        if "event" in event:
+            return event
     return event
 
 

@@ -3,6 +3,8 @@ fastapi==0.141.1
 starlette==1.6.0
 uvicorn==0.34.0
 sqlalchemy==2.0.52
+alembic==1.16.1
+psycopg[binary]==3.2.9
 pydantic==2.13.4
 python-dotenv==1.2.3
 PyYAML==6.0.3

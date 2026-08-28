@@ -19,9 +19,19 @@ class ApiClientError(RuntimeError):
 class AuthenticationError(ApiClientError):
     """The current session is missing, expired, or rejected by the service."""
 
+    def __init__(self, code: str, correlation_id: str | None = None):
+        super().__init__(code, correlation_id)
+        suffix = f" (request_id: {correlation_id})" if correlation_id else ""
+        self.args = (f"会话已失效，请重新登录 [{code}]{suffix}",)
+
 
 class AuthorizationError(ApiClientError):
     """The signed-in account lacks permission for the requested operation."""
+
+    def __init__(self, code: str, correlation_id: str | None = None):
+        super().__init__(code, correlation_id)
+        suffix = f" (request_id: {correlation_id})" if correlation_id else ""
+        self.args = (f"无权执行此操作 [{code}]{suffix}",)
 
 
 class ValidationError(ApiClientError):
@@ -31,6 +41,10 @@ class ValidationError(ApiClientError):
 class ServiceUnavailableError(ApiClientError):
     """The service is unreachable or cannot process the request."""
 
+    def __init__(self, code: str, correlation_id: str | None = None):
+        super().__init__(code, correlation_id)
+        suffix = f" (request_id: {correlation_id})" if correlation_id else ""
+        self.args = (f"无法连接到服务或服务暂不可用 [{code}]{suffix}",)
 
 
 class ModelForgeClient:
@@ -293,10 +307,16 @@ class ModelForgeClient:
         target_ids: list[str],
         *,
         expected_versions: list[int] | None = None,
+        expected_versions_by_target: dict[str, int] | None = None,
         request_id: str | None = None,
     ) -> dict:
         """Request a read-only confirmation summary; this never executes the action."""
-        payload = {"action": action, "target_ids": target_ids, "expected_versions": expected_versions or []}
+        payload = {
+            "action": action,
+            "target_ids": target_ids,
+            "expected_versions": expected_versions or [],
+            "expected_versions_by_target": expected_versions_by_target or {},
+        }
         if request_id:
             payload["request_id"] = request_id
         return self._post("/api/v1/workspaces/execution-intent-preview", json=payload)
@@ -475,28 +495,72 @@ class ModelForgeClient:
             headers=headers,
         ) as resp:
             self._raise_for_status(resp)
-            event: dict = {}
-            for line in resp.iter_lines():
-                line = line.strip()
-                if not line:
-                    if event.get("data"):
-                        payload = None
-                        try:
-                            payload = json.loads(event.pop("data"))
-                        except (TypeError, ValueError):
-                            event = {}
-                        if event.get("event") == "resync_required" and isinstance(payload, dict):
-                            yield {"event_type": "resync_required", "payload": payload}
-                        elif isinstance(payload, dict):
-                            if event.get("id") is not None and "sequence" not in payload:
-                                payload["sequence"] = event["id"]
-                            yield payload
+            event: dict[str, str] = {}
+            data_lines: list[str] = []
+
+            def flush_event() -> dict | None:
+                """Decode one SSE frame and clear the parser buffer."""
+                nonlocal event, data_lines
+                if not data_lines:
                     event = {}
+                    return None
+                try:
+                    payload = json.loads("\n".join(data_lines))
+                except (TypeError, ValueError):
+                    event = {}
+                    data_lines = []
+                    return None
+                if event.get("event") == "resync_required" and isinstance(payload, dict):
+                    result: dict | None = {"event_type": "resync_required", "payload": payload}
+                elif isinstance(payload, dict):
+                    if event.get("id") is not None and "sequence" not in payload:
+                        payload["sequence"] = event["id"]
+                    result = payload
+                else:
+                    result = None
+                event = {}
+                data_lines = []
+                return result
+
+            for line in resp.iter_lines():
+                line = line.rstrip("\r")
+                if not line:
+                    payload = flush_event()
+                    if payload is not None:
+                        yield payload
                     continue
                 if line.startswith(":"):
                     continue
-                key, _, value = line.partition(":")
-                event[key] = value.lstrip()
+                key, separator, value = line.partition(":")
+                if not separator:
+                    continue
+                if value.startswith(" "):
+                    value = value[1:]
+                if key == "data":
+                    # Some reverse proxies close or coalesce streams without a
+                    # blank separator. If the buffered frame is already a valid
+                    # JSON event, emit it before starting the next data frame;
+                    # otherwise retain it for a standards-compliant multiline
+                    # SSE payload.
+                    if data_lines:
+                        try:
+                            json.loads("\n".join(data_lines))
+                        except (TypeError, ValueError):
+                            pass
+                        else:
+                            payload = flush_event()
+                            if payload is not None:
+                                yield payload
+                    data_lines.append(value)
+                elif key in {"event", "id"}:
+                    event[key] = value
+
+            # A compliant stream normally ends with a blank frame separator, but
+            # accept a final buffered event so abrupt proxy/server EOF does not
+            # silently drop the last Agent Run update.
+            payload = flush_event()
+            if payload is not None:
+                yield payload
 
     def list_agent_tools(self) -> list[dict]:
         data = self._get("/api/v1/agent/tools")

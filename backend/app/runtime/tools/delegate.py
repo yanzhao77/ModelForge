@@ -97,6 +97,14 @@ class DelegateTool(Tool):
             status = run.status
             if status in ("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"):
                 break
+        if status not in ("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"):
+            timed_out = await self._runtime.timeout_run(
+                run.run_id,
+                user_id=user_id,
+                reason="delegation budget exhausted",
+            )
+            run = timed_out
+            status = timed_out.status
         return ToolResult.ok(
             f"[delegated {agent_id} -> {status or str(None)}] {run.output or str(None)}",
             delegated_run_id=run.run_id, delegated_status=status,

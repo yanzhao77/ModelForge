@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from models.records import ScheduleExecution, ScheduledJob
+from models.records import ScheduledJob, ScheduleExecution
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 

@@ -2,6 +2,7 @@
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 # Isolate the app database for this test session
 _tmp_db = tempfile.mkdtemp(prefix="mf_test_")
@@ -155,9 +156,10 @@ class TestModelsApi:
         token = _login(client, "modeluser")
         headers = _auth(token)
 
+        model_root = Path("models").resolve()
         r = client.post(
             "/api/v1/models/install",
-            json={"name": "demo-model", "provider": "local", "path": "/tmp/demo", "size": "1GB"},
+            json={"name": "demo-model", "provider": "local", "path": str(model_root / "demo-model.gguf"), "size": "1GB"},
             headers=headers,
         )
         assert r.status_code == 200
@@ -166,11 +168,23 @@ class TestModelsApi:
         r = client.get("/api/v1/models", headers=headers)
         assert any(m["name"] == "demo-model" for m in r.json())
 
-        r = client.post("/api/v1/models/scan", json={"path": "/nonexistent"}, headers=headers)
+        r = client.post("/api/v1/models/scan", json={"path": str(model_root)}, headers=headers)
         assert r.status_code == 200
 
         r = client.delete(f"/api/v1/models/{mid}", headers=headers)
         assert r.status_code == 200
+
+    def test_model_detail_isolated_per_user(self, client):
+        owner = _auth(_login(client, "modelowner"))
+        other = _auth(_login(client, "modelother"))
+        model_root = Path("models").resolve()
+        created = client.post(
+            "/api/v1/models/install",
+            json={"name": "owner-private-model", "provider": "local", "path": str(model_root / "owner-private.gguf")},
+            headers=owner,
+        )
+        assert created.status_code == 200, created.text
+        assert client.get(f"/api/v1/models/{created.json()['id']}", headers=other).status_code == 404
 
     def test_models_require_auth(self, client):
         assert client.get("/api/v1/models").status_code == 401

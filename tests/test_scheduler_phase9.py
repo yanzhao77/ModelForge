@@ -24,7 +24,7 @@ class TestScheduler:
         assert len(fired) == 1
         assert fired[0]["agent_id"] == "a"
         jobs = sched.jobs()
-        assert jobs[0]["status"] in ("scheduled",)
+        assert jobs[0]["status"] == "completed"
         await sched.stop()
 
     @pytest.mark.asyncio
@@ -122,7 +122,7 @@ class TestScheduler:
             job_id = r.json()["id"]
             r = c.get("/api/v1/agent/schedules", headers=h)
             assert any(s["id"] == job_id for s in r.json()["schedules"])
-            r = c.delete(f"/api/v1/agent/schedules/{job_id}", headers=h)
+            r = c.request("DELETE", f"/api/v1/agent/schedules/{job_id}", json={"confirm": True}, headers=h)
             assert r.status_code == 200
             r = c.post("/api/v1/agent/schedules", json={"agent_id": "sched-api-bot", "input": "x"}, headers=h)
             assert r.status_code == 422

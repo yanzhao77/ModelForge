@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from models.records import AgentEvent, AgentRun, ScheduleExecution, TaskOutbox
+from models.records import AgentEventRecord, AgentRun, ScheduleExecution, TaskOutbox
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -21,17 +21,18 @@ def runtime_diagnostics(db: Session) -> dict[str, Any]:
     runtime = get_agent_runtime()
     snapshot = getattr(runtime, "lifecycle_snapshot", None) if runtime is not None else None
     runtime_health = snapshot() if callable(snapshot) else {}
-    active_states = ("queued", "running", "awaiting_approval", "cancelling")
+    # Keep diagnostics aligned with the RunStatus values persisted by the runtime.
+    active_states = ("PENDING", "RUNNING", "WAITING_HUMAN")
     run_statuses = _counts(db.query(AgentRun.status, func.count(AgentRun.run_id)), AgentRun.status)
     execution_outcomes = _counts(
         db.query(ScheduleExecution.outcome, func.count(ScheduleExecution.id)),
         ScheduleExecution.outcome,
     )
     duplicate_event_keys = (
-        db.query(AgentEvent.run_id, AgentEvent.event_key)
-        .filter(AgentEvent.event_key.isnot(None))
-        .group_by(AgentEvent.run_id, AgentEvent.event_key)
-        .having(func.count(AgentEvent.id) > 1)
+        db.query(AgentEventRecord.run_id, AgentEventRecord.event_key)
+        .filter(AgentEventRecord.event_key.isnot(None))
+        .group_by(AgentEventRecord.run_id, AgentEventRecord.event_key)
+        .having(func.count(AgentEventRecord.id) > 1)
         .count()
     )
     outbox_pending = db.query(TaskOutbox).filter(TaskOutbox.dispatched_at.is_(None))
@@ -57,9 +58,9 @@ def runtime_diagnostics(db: Session) -> dict[str, Any]:
             .count(),
         },
         "events": {
-            "total_count": db.query(AgentEvent).count(),
-            "keyed_count": db.query(AgentEvent).filter(AgentEvent.event_key.isnot(None)).count(),
-            "missing_key_count": db.query(AgentEvent).filter(AgentEvent.event_key.is_(None)).count(),
+            "total_count": db.query(AgentEventRecord).count(),
+            "keyed_count": db.query(AgentEventRecord).filter(AgentEventRecord.event_key.isnot(None)).count(),
+            "missing_key_count": db.query(AgentEventRecord).filter(AgentEventRecord.event_key.is_(None)).count(),
             "duplicate_key_group_count": duplicate_event_keys,
             "event_bus": runtime_health.get("event_bus") or {"available": False},
         },

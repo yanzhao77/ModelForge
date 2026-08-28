@@ -9,6 +9,7 @@ class PermissionLevel:
     """Tool permission levels (spec 10)."""
 
     READ = "READ"
+    FILESYSTEM_READ = "FILESYSTEM_READ"
     WRITE = "WRITE"
     EXECUTE = "EXECUTE"
     NETWORK = "NETWORK"

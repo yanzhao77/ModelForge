@@ -125,7 +125,7 @@ class TaskExecutionService:
         filename = metadata.get("filename")
         if not repo_id:
             raise RetryExecutionError("下载重试缺少 repo_id，无法恢复下载请求")
-        download = get_downloader().start(repo_id, filename)
+        download = get_downloader().start(repo_id, task.user_id, filename, db=db)
         metadata.update({"executor": "downloader", "execution_task_id": download.task_id})
         task.source_task_id = download.task_id
         self._set_metadata(task, metadata)
@@ -216,18 +216,18 @@ class TaskExecutionService:
         )
 
     def _sync_download(self, db: Session, task: TaskRecord) -> bool:
-        source = get_downloader().get(task.source_task_id)
+        source = get_downloader().get(task.source_task_id, task.user_id, db=db)
         if source is None:
             return self._transition_if_changed(db, task, "FAILED", summary="下载重试源任务不可用。", error="下载任务记录不存在")
-        status = {"pending": "QUEUED", "running": "RUNNING", "done": "SUCCEEDED", "error": "FAILED"}.get(source.status, "RUNNING")
-        result = {"target_path": source.target_path} if status == "SUCCEEDED" else None
+        status = {"PENDING": "QUEUED", "RUNNING": "RUNNING", "COMPLETED": "SUCCEEDED", "FAILED": "FAILED"}.get(source.status, "RUNNING")
+        result = {"download_task_id": source.id, "repo_id": source.repo_id} if status == "SUCCEEDED" else None
         return self._transition_if_changed(
             db,
             task,
             status,
             summary=source.message or "模型下载正在执行",
             progress=int(source.progress or 0),
-            error=source.error if status == "FAILED" else None,
+            error=source.error_code if status == "FAILED" else None,
             result=result,
         )
 
@@ -253,10 +253,10 @@ class TaskExecutionService:
             lines = [f"[{event.event_type}] {json.dumps(event.to_dict().get('payload', {}), ensure_ascii=False)}" for event in reversed(events)]
             return {"source": "agent_runtime", "lines": lines}
         if task.source in {"model_download", "download"}:
-            source = get_downloader().get(task.source_task_id)
+            source = get_downloader().get(task.source_task_id, task.user_id, db=db)
             lines = [source.message] if source and source.message else []
-            if source and source.error:
-                lines.append(source.error)
+            if source and source.error_code:
+                lines.append(source.error_code)
             return {"source": "downloader", "lines": lines}
         return {"source": task.source, "lines": []}
 

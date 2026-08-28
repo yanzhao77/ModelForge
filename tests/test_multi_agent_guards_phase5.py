@@ -160,7 +160,7 @@ class TestMultiAgentGuards:
             c.post("/api/v1/auth/register", json={"username": "p5user", "password": "secret123", "email": "p5user@x.com"})
             h = {"Authorization": "Bearer " + c.post("/api/v1/auth/login", json={"username": "p5user", "password": "secret123"}).json()["token"]}
             c.post("/api/v1/agent/create", json={"name": "p5bot", "model": "mock"}, headers=h)
-            r = c.post("/api/v1/agent/runs", json={"agent_id": "p5bot", "input": "x"}, headers=h)
+            r = c.post("/api/v1/agent/runs", json={"agent_id": "p5bot", "input": "x", "confirm": True}, headers=h)
             run_id = r.json()["run_id"]
             data = c.get(f"/api/v1/agent/runs/{run_id}", headers=h).json()
             assert "parent_run_id" in data

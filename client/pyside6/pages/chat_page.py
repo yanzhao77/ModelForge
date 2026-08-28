@@ -5,6 +5,7 @@ from __future__ import annotations
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
@@ -208,7 +209,7 @@ class ChatPage(QWidget, AsyncApiMixin):
             )
 
     def _session_load_failed(self, error):
-        self.display.append(f"[Unable to load conversation] {error}")
+        self.display.append(f"[会话加载未完成] {format_api_error(error)}")
 
     def load_model(self):
         if not self._model_ready:
@@ -244,7 +245,7 @@ class ChatPage(QWidget, AsyncApiMixin):
 
     def _model_load_failed(self, error):
         self.load_btn.setEnabled(True)
-        QMessageBox.warning(self, "无法加载模型", error)
+        QMessageBox.warning(self, "无法加载模型", format_api_error(error))
 
     def _append_msg(self, role, content):
         name = "你" if role == "user" else "ModelForge"

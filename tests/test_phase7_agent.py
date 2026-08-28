@@ -1,9 +1,11 @@
 """Phase 7: Agent Engine tests."""
 import os
 import sys
-import tempfile
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+from core.agent_file_access import AgentFileAccessError, workspace_root_for_user
 from core.config import settings
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
@@ -15,36 +17,37 @@ from services.agent_tools import tool_code_search, tool_command_execute, tool_fi
 class TestAgentTools:
     """Tests for individual agent tools."""
 
-    def test_file_read_existing(self):
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as f:
-            f.write("Hello, world!")
-            path = f.name
-        try:
-            result = tool_file_read(path)
-            assert "Hello, world!" in result
-        finally:
-            os.unlink(path)
+    @staticmethod
+    def _workspace(tmp_path, monkeypatch, user_id=1):
+        monkeypatch.setattr(settings, "agent_workspace_root", str(tmp_path / "agent-workspaces"))
+        return workspace_root_for_user(user_id), SimpleNamespace(user_id=user_id)
 
-    def test_file_read_not_found(self):
-        result = tool_file_read("/nonexistent/file_12345.txt")
-        assert "Error" in result or "not found" in result.lower()
+    def test_file_read_existing(self, tmp_path, monkeypatch):
+        workspace, context = self._workspace(tmp_path, monkeypatch)
+        (workspace / "hello.txt").write_text("Hello, world!", encoding="utf-8")
+        assert "Hello, world!" in tool_file_read("hello.txt", context)
 
-    def test_code_search_finds_match(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            py_file = os.path.join(tmpdir, "test.py")
-            with open(py_file, "w", encoding="utf-8") as f:
-                f.write("def hello_world():\n    return 'hi'\n")
-            result = tool_code_search(tmpdir, "hello_world")
-            assert "hello_world" in result
+    def test_file_read_rejects_missing_user_context(self, tmp_path, monkeypatch):
+        self._workspace(tmp_path, monkeypatch)
+        with pytest.raises(AgentFileAccessError, match="FILESYSTEM_USER_CONTEXT_REQUIRED"):
+            tool_file_read("missing.txt")
 
-    def test_code_search_no_match(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = tool_code_search(tmpdir, "xyzzy_nonexistent_pattern")
-            assert "No matches found" in result
+    def test_code_search_finds_match(self, tmp_path, monkeypatch):
+        workspace, context = self._workspace(tmp_path, monkeypatch)
+        (workspace / "test.py").write_text("def hello_world():\n    return 'hi'\n", encoding="utf-8")
+        result = tool_code_search(".", "hello_world", context)
+        assert "hello_world" in result
 
-    def test_code_search_bad_dir(self):
-        result = tool_code_search("/nonexistent/dir", "pattern")
-        assert "Error" in result
+    def test_code_search_no_match(self, tmp_path, monkeypatch):
+        workspace, context = self._workspace(tmp_path, monkeypatch)
+        (workspace / "test.py").write_text("def hello_world():\n    return 'hi'\n", encoding="utf-8")
+        result = tool_code_search(".", "xyzzy_nonexistent_pattern", context)
+        assert "No matches found" in result
+
+    def test_code_search_rejects_external_directory(self, tmp_path, monkeypatch):
+        _workspace, context = self._workspace(tmp_path, monkeypatch)
+        with pytest.raises(AgentFileAccessError, match="RESOURCE_OUTSIDE_ALLOWED_ROOT"):
+            tool_code_search("/nonexistent/dir", "pattern", context)
 
     def test_command_execute_disabled_by_default(self):
         result = tool_command_execute("echo hello", timeout=10)

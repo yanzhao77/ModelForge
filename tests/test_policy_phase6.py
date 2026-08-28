@@ -18,12 +18,12 @@ def reg():
 
 
 class TestPolicy:
-    def test_default_denies_network_and_shell(self):
+    def test_default_denies_network_shell_and_filesystem(self):
         p = Policy()
         r = reg()
         assert p.check_tool(None, "web.search", r.get("web.search")).allowed is False
         assert p.check_tool(None, "shell.execute", r.get("shell.execute")).allowed is False
-        assert p.check_tool(None, "filesystem.read", r.get("filesystem.read")).allowed is True
+        assert p.check_tool(None, "filesystem.read", r.get("filesystem.read")).allowed is False
 
     def test_shell_access_granted(self):
         p = Policy(shell_access=True)
@@ -36,7 +36,7 @@ class TestPolicy:
         assert p.check_tool(None, "web.search", r.get("web.search")).allowed is True
 
     def test_allowed_tools_restriction(self):
-        p = Policy(allowed_tools=["filesystem.read", "knowledge.search"])
+        p = Policy(filesystem_access=True, allowed_tools=["filesystem.read", "knowledge.search"])
         r = reg()
         assert p.check_tool(None, "filesystem.read", r.get("filesystem.read")).allowed is True
         assert p.check_tool(None, "web.search", r.get("web.search")).allowed is False
@@ -47,7 +47,7 @@ class TestPolicy:
         assert p.check_tool(None, "filesystem.read", r.get("filesystem.read")).allowed is False
 
     def test_human_approval_flag(self):
-        p = Policy(human_approval_required=True)
+        p = Policy(filesystem_access=True, human_approval_required=True)
         r = reg()
         d = p.check_tool(None, "filesystem.read", r.get("filesystem.read"))
         assert d.allowed is True
@@ -145,7 +145,7 @@ class TestPolicyRuntime:
     @pytest.mark.asyncio
     async def test_human_approval_flow(self):
         rt = self._runtime(
-            agent_policy={"require_approval_for": ["filesystem.read"]},
+            agent_policy={"filesystem_access": True, "require_approval_for": ["filesystem.read"]},
             provider_script=[
                 MockProvider.tool_call("filesystem.read", {"filepath": "/etc/hostname"}),
                 MockProvider.final("approved run"),
@@ -174,7 +174,7 @@ class TestPolicyRuntime:
     @pytest.mark.asyncio
     async def test_human_reject_denies_tool(self):
         rt = self._runtime(
-            agent_policy={"require_approval_for": ["filesystem.read"]},
+            agent_policy={"filesystem_access": True, "require_approval_for": ["filesystem.read"]},
             provider_script=[
                 MockProvider.tool_call("filesystem.read", {"filepath": "/etc/hostname"}),
                 MockProvider.final("final"),
@@ -209,9 +209,9 @@ class TestPolicyRuntime:
             c.post("/api/v1/agent/create", json={
                 "name": "pol-bot", "model": "mock",
                 "tools": ["filesystem.read"],
-                "policy": {"require_approval_for": ["filesystem.read"]},
+                "policy": {"filesystem_access": True, "require_approval_for": ["filesystem.read"]},
             }, headers=h)
-            r = c.post("/api/v1/agent/runs", json={"agent_id": "pol-bot", "input": "read"}, headers=h)
+            r = c.post("/api/v1/agent/runs", json={"agent_id": "pol-bot", "input": "read", "execute": True, "confirm": True}, headers=h)
             run_id = r.json()["run_id"]
             status = None
             for _ in range(100):
@@ -221,7 +221,7 @@ class TestPolicyRuntime:
                 import time as _t
                 _t.sleep(0.01)
             assert status == "WAITING_HUMAN"
-            r = c.post(f"/api/v1/agent/runs/{run_id}/approve", headers=h)
+            r = c.post(f"/api/v1/agent/runs/{run_id}/approve", json={"confirm": True}, headers=h)
             assert r.status_code == 200
             final = None
             for _ in range(100):
@@ -232,12 +232,12 @@ class TestPolicyRuntime:
                 _t.sleep(0.01)
             assert final == "COMPLETED", final
             # reject on a fresh run
-            r = c.post("/api/v1/agent/runs", json={"agent_id": "pol-bot", "input": "read"}, headers=h)
+            r = c.post("/api/v1/agent/runs", json={"agent_id": "pol-bot", "input": "read", "execute": True, "confirm": True}, headers=h)
             run2 = r.json()["run_id"]
             for _ in range(100):
                 if c.get(f"/api/v1/agent/runs/{run2}", headers=h).json()["status"] == "WAITING_HUMAN":
                     break
                 import time as _t
                 _t.sleep(0.01)
-            r = c.post(f"/api/v1/agent/runs/{run2}/reject", headers=h)
+            r = c.post(f"/api/v1/agent/runs/{run2}/reject", json={"confirm": True}, headers=h)
             assert r.status_code == 200

@@ -12,7 +12,6 @@ from typing import Literal
 from core.api_contracts import problem
 from core.control_plane_errors import control_plane_error
 
-
 OwnershipScope = Literal["current_user", "runtime_administrator"]
 
 

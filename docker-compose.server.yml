@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-modelforge}
+      POSTGRES_USER: ${POSTGRES_USER:-modelforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a strong POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    build: .
+    image: modelforge:server
+    environment:
+      MODELFORGE_ENV: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-modelforge}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-modelforge}
+      JWT_SECRET: ${JWT_SECRET:?Set a 32+-character JWT_SECRET}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:?Set explicit HTTPS origins}
+    command: ["alembic", "-c", "/app/alembic.ini", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  volume-init:
+    image: modelforge:server
+    user: "0:0"
+    command: ["/bin/sh", "-c", "chown -R 10001:10001 /app/models /app/data /app/logs"]
+    volumes:
+      - model_data:/app/models
+      - application_data:/app/data
+      - application_logs:/app/logs
+    restart: "no"
+
+  app:
+    image: modelforge:server
+    restart: unless-stopped
+    ports:
+      - "${MODELFORGE_PORT:-8000}:8000"
+    environment:
+      MODELFORGE_ENV: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-modelforge}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-modelforge}
+      JWT_SECRET: ${JWT_SECRET:?Set a 32+-character JWT_SECRET}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:?Set explicit HTTPS origins}
+      RUNTIME_ADMIN_USERNAMES: ${RUNTIME_ADMIN_USERNAMES:?Set explicit runtime administrators}
+    volumes:
+      - model_data:/app/models
+      - application_data:/app/data
+      - application_logs:/app/logs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      volume-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  postgres_data:
+  model_data:
+  application_data:
+  application_logs:

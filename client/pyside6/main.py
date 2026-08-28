@@ -18,9 +18,9 @@ from components.task_store import TaskStore
 from i18n import I18n
 from i18n.ui_localizer import localize_tree
 from pages.activity_page import ActivityPage
-from pages.automation_page import AutomationPage
 from pages.agent_page import AgentPage
 from pages.agent_workbench_page import AgentWorkbenchPage
+from pages.automation_page import AutomationPage
 from pages.chat_page import ChatPage
 from pages.control_center_page import ControlCenterPage
 from pages.dataset_page import DatasetPage

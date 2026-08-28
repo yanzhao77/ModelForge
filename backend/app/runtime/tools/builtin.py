@@ -6,6 +6,7 @@ timeout and retry. Legacy names (file_read, ...) remain as aliases.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from typing import Any
 
 from services.agent_tools import (
@@ -58,7 +59,9 @@ class FunctionTool(Tool):
         context: Any = None,
     ) -> ToolResult:
         try:
-            output = await asyncio.to_thread(self.func, **arguments)
+            accepts_context = "context" in inspect.signature(self.func).parameters
+            kwargs = {**arguments, "context": context} if accepts_context else arguments
+            output = await asyncio.to_thread(self.func, **kwargs)
         except TypeError as e:
             return ToolResult.err(f"invalid arguments for {self.name}: {e}")
         except Exception as e:
@@ -77,7 +80,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         "Read the contents of a file",
         tool_file_read,
         _schema({"filepath": {"type": "string", "description": "Path of the file to read"}}, ["filepath"]),
-        permissions=[PermissionLevel.READ], timeout=10.0,
+        permissions=[PermissionLevel.FILESYSTEM_READ], timeout=10.0,
         aliases=["file_read"],
     ))
     registry.register(FunctionTool(
@@ -88,7 +91,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
             "directory": {"type": "string", "description": "Directory to search in"},
             "pattern": {"type": "string", "description": "Text pattern to find"},
         }, ["directory", "pattern"]),
-        permissions=[PermissionLevel.READ], timeout=30.0,
+        permissions=[PermissionLevel.FILESYSTEM_READ], timeout=30.0,
         aliases=["code_search"],
     ))
     registry.register(FunctionTool(

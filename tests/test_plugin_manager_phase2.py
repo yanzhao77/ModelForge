@@ -172,22 +172,31 @@ class TestPluginManager:
         assert pm.get("weather") is None
 
     def test_api_load_list_unmount(self):
+        from unittest.mock import patch
+
+        from core.config import settings
         from fastapi.testclient import TestClient
         from main import app
-        with TestClient(app) as c:
-            r = c.get("/api/v1/plugins/discover")
-            assert r.status_code == 200
-            assert "plugins" in r.json()
-            r = c.post("/api/v1/plugins/load", json={"manifest": {
-                "name": "apiplugin", "version": "1.0.0", "type": "skill", "entry": None,
-            }})
-            assert r.status_code == 200, r.text
-            assert r.json()["name"] == "apiplugin"
-            r = c.post("/api/v1/plugins/apiplugin/start")
-            assert r.status_code == 200
-            r = c.post("/api/v1/plugins/apiplugin/unmount")
-            assert r.status_code == 200
-            r = c.delete("/api/v1/plugins/apiplugin")
-            assert r.status_code == 200
-            r = c.post("/api/v1/plugins/ghost/start")
-            assert r.status_code == 404
+
+        with patch.object(settings, "runtime_admin_usernames", "pluginapiadmin"):
+            with TestClient(app) as c:
+                c.post("/api/v1/auth/register", json={"username": "pluginapiadmin", "password": "secret123", "email": "pluginapiadmin@example.com"})
+                login = c.post("/api/v1/auth/login", json={"username": "pluginapiadmin", "password": "secret123"})
+                headers = {"Authorization": "Bearer " + login.json()["token"]}
+                r = c.get("/api/v1/plugins/discover", headers=headers)
+                assert r.status_code == 200
+                assert "plugins" in r.json()
+                r = c.post("/api/v1/plugins/load", json={
+                    "manifest": {"name": "apiplugin", "version": "1.0.0", "type": "skill", "entry": None},
+                    "confirm": True,
+                }, headers=headers)
+                assert r.status_code == 200, r.text
+                assert r.json()["name"] == "apiplugin"
+                r = c.post("/api/v1/plugins/apiplugin/start", json={"confirm": True}, headers=headers)
+                assert r.status_code == 200
+                r = c.post("/api/v1/plugins/apiplugin/unmount", json={"confirm": True}, headers=headers)
+                assert r.status_code == 200
+                r = c.request("DELETE", "/api/v1/plugins/apiplugin", json={"confirm": True}, headers=headers)
+                assert r.status_code == 200
+                r = c.post("/api/v1/plugins/ghost/start", json={"confirm": True}, headers=headers)
+                assert r.status_code == 404

@@ -73,7 +73,7 @@ def test_projection_preserves_cancellation_request_against_stale_running_source(
 
     first = client.get("/api/v1/tasks", headers=headers).json()["tasks"]
     task = next(item for item in first if item["source_task_id"] == train_id)
-    cancelled = client.post(f"/api/v1/tasks/{task['task_id']}/cancel", headers=headers)
+    cancelled = client.post(f"/api/v1/tasks/{task['task_id']}/cancel", json={"confirm": True}, headers=headers)
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "CANCEL_REQUESTED"
 

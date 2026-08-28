@@ -144,7 +144,7 @@ class TestRuntimeMCP:
                 c.post("/api/v1/auth/register", json={"username": "mcpapiadmin", "password": "secret123", "email": "mcpapiadmin@example.com"})
                 login = c.post("/api/v1/auth/login", json={"username": "mcpapiadmin", "password": "secret123"})
                 headers = {"Authorization": "Bearer " + login.json()["token"]}
-                r = c.post("/api/v1/agent/mcp/servers", json={"name": "fake", "endpoint": "http://fake/mcp"}, headers=headers)
+                r = c.post("/api/v1/agent/mcp/servers", json={"name": "fake", "endpoint": "http://fake/mcp", "confirm": True}, headers=headers)
                 # no live server at that endpoint -> registration fails cleanly
                 assert r.status_code == 400
                 r = c.get("/api/v1/agent/mcp/servers", headers=headers)

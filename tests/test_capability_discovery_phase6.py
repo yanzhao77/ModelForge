@@ -113,11 +113,17 @@ class TestCapabilityDiscovery:
         assert "agent.cap.tool" in ext["tools"]
         assert any(t["name"] == "agent.cap.tool" for t in idx["tools"])
 
-    def test_api_capabilities(self):
+    def test_api_capabilities(self, monkeypatch):
+        from core.config import settings
         from fastapi.testclient import TestClient
         from main import app
+
+        monkeypatch.setattr(settings, "runtime_admin_usernames", "capabilityapi")
         with TestClient(app) as c:
-            r = c.get("/api/v1/plugins/capabilities")
+            c.post("/api/v1/auth/register", json={"username": "capabilityapi", "password": "secret123", "email": "capabilityapi@example.com"})
+            login = c.post("/api/v1/auth/login", json={"username": "capabilityapi", "password": "secret123"})
+            headers = {"Authorization": "Bearer " + login.json()["token"]}
+            r = c.get("/api/v1/plugins/capabilities", headers=headers)
             assert r.status_code == 200
             data = r.json()
             assert "tools" in data and "skills" in data and "agent_extensions" in data

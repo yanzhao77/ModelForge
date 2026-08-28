@@ -34,7 +34,9 @@ class PolicySettings(BaseModel):
     """Default run policy (config.yaml -> policy:)."""
     default_network_access: bool = False
     default_shell_access: bool = False
-    default_filesystem_access: bool = True
+    # File reads can expose process credentials and other users' data. They are
+    # disabled unless a specific agent policy opts in.
+    default_filesystem_access: bool = False
 
 
 class Settings(BaseModel):
@@ -60,6 +62,10 @@ class Settings(BaseModel):
     hf_endpoint: str = "https://hf-mirror.com"
     model_dir: str = "./models"
     data_dir: str = "./data"
+    # Each Agent user receives a child directory under this root. Built-in file
+    # tools must not resolve paths outside that per-user workspace.
+    agent_workspace_root: str = "./data/workspaces"
+    agent_file_read_max_bytes: int = 512 * 1024
     max_upload_size: int = 100 * 1024 * 1024  # 100MB
     # 数据集 / 训练 / 知识库
     max_dataset_size: int = 200 * 1024 * 1024  # 200MB
@@ -129,6 +135,8 @@ def load_config(config_path: str | None = None) -> Settings:
         "HF_ENDPOINT": "hf_endpoint",
         "MODEL_DIR": "model_dir",
         "DATA_DIR": "data_dir",
+        "AGENT_WORKSPACE_ROOT": "agent_workspace_root",
+        "AGENT_FILE_READ_MAX_BYTES": "agent_file_read_max_bytes",
         "DATASET_DIR": "dataset_dir",
         "TRAIN_OUTPUT_DIR": "train_output_dir",
         "MAX_DATASET_SIZE": "max_dataset_size",

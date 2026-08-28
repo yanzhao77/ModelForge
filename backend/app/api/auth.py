@@ -1,6 +1,8 @@
 """Auth API routes."""
 import secrets
 
+from core.api_contracts import correlation_id, problem
+from core.auth_rate_limit import login_rate_limiter
 from core.config import settings
 from core.database import get_db
 from core.security import get_current_user
@@ -75,9 +77,15 @@ def register(req: RegisterRequest, db: DBSession = Depends(get_db)):
 
 @router.post("/login")
 def login(req: LoginRequest, response: Response, request: Request, db: DBSession = Depends(get_db)):
+    corr = correlation_id()
+    client_host = request.client.host if request.client else None
+    if not login_rate_limiter.allowed(req.username, client_host):
+        raise problem(429, "LOGIN_RATE_LIMITED", "Too many login attempts. Try again later.", correlation=corr)
     ok, message, user, token = AuthService.login(db, req.username, req.password)
     if not ok:
-        raise HTTPException(status_code=401, detail=message)
+        login_rate_limiter.record_failure(req.username, client_host)
+        raise problem(401, "AUTHENTICATION_FAILED", "Invalid username or password.", correlation=corr)
+    login_rate_limiter.record_success(req.username, client_host)
     cookie_transport = request.headers.get("X-Auth-Transport", "bearer").lower() == "cookie"
     if cookie_transport:
         csrf_token = _set_browser_session(response, token)

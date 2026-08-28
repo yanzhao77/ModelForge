@@ -11,30 +11,56 @@ from models.records import User
 from sqlalchemy.orm import Session as DBSession
 
 ALGORITHM = "HS256"
+PBKDF2_SHA256_ITERATIONS = 600_000
 _bearer = HTTPBearer(auto_error=False)
 
 
 def hash_password(password: str) -> str:
-    """PBKDF2-HMAC-SHA256 password hashing (compatible with legacy auth)."""
+    """Create a versioned PBKDF2-SHA256 password hash using a modern work factor."""
     import hashlib
     import secrets
+
     salt = secrets.token_hex(16)
-    pwd_hash = hashlib.pbkdf2_hmac(
-        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), PBKDF2_SHA256_ITERATIONS
     )
-    return salt + "$" + pwd_hash.hex()
+    return f"pbkdf2_sha256${PBKDF2_SHA256_ITERATIONS}${salt}${digest.hex()}"
+
+
+def _password_hash_parameters(password_hash: str) -> tuple[int, str, str] | None:
+    """Parse versioned hashes and the historical ``salt$digest`` format."""
+    parts = password_hash.split("$")
+    if len(parts) == 4 and parts[0] == "pbkdf2_sha256":
+        try:
+            return int(parts[1]), parts[2], parts[3]
+        except ValueError:
+            return None
+    if len(parts) == 2:
+        return 100_000, parts[0], parts[1]
+    return None
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    """Verify legacy and versioned hashes without timing-dependent comparison."""
     import hashlib
-    try:
-        salt, pwd_hash = password_hash.split("$")
-        new_hash = hashlib.pbkdf2_hmac(
-            "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
-        )
-        return new_hash.hex() == pwd_hash
-    except Exception:
+    import hmac
+
+    parameters = _password_hash_parameters(password_hash)
+    if parameters is None:
         return False
+    iterations, salt, expected = parameters
+    if iterations < 100_000 or iterations > 2_000_000:
+        return False
+    derived = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations
+    ).hex()
+    return hmac.compare_digest(derived, expected)
+
+
+def password_needs_rehash(password_hash: str) -> bool:
+    """Return whether a successfully verified hash should be upgraded at login."""
+    parameters = _password_hash_parameters(password_hash)
+    return parameters is None or parameters[0] < PBKDF2_SHA256_ITERATIONS
 
 
 def create_access_token(user_id: int, username: str) -> str:

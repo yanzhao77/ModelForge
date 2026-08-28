@@ -69,7 +69,7 @@ def test_task_lifecycle_events_and_summary(client):
     assert summary.status_code == 200
     assert summary.json()["active"] >= 1
 
-    cancelled = client.post(f"/api/v1/tasks/{task['task_id']}/cancel", headers=headers)
+    cancelled = client.post(f"/api/v1/tasks/{task['task_id']}/cancel", json={"confirm": True}, headers=headers)
     assert cancelled.status_code == 200, cancelled.text
     assert cancelled.json()["status"] == "CANCEL_REQUESTED"
 
@@ -107,7 +107,7 @@ def test_failed_retryable_task_creates_auditable_queued_child(client):
         json={"status": "FAILED", "error_message": "upstream timeout"},
     )
     assert transitioned.status_code == 200, transitioned.text
-    retried = client.post(f"/api/v1/tasks/{failed['task_id']}/retry", headers=headers)
+    retried = client.post(f"/api/v1/tasks/{failed['task_id']}/retry", json={"confirm": True}, headers=headers)
     assert retried.status_code == 200, retried.text
     payload = retried.json()
     assert payload["status"] == "QUEUED"
@@ -118,7 +118,7 @@ def test_failed_retryable_task_creates_auditable_queued_child(client):
 
     non_retryable = create_task(client, headers, title="不可重试", retryable=False)
     client.post(f"/api/v1/tasks/{non_retryable['task_id']}/transition", headers=headers, json={"status": "FAILED"})
-    blocked = client.post(f"/api/v1/tasks/{non_retryable['task_id']}/retry", headers=headers)
+    blocked = client.post(f"/api/v1/tasks/{non_retryable['task_id']}/retry", json={"confirm": True}, headers=headers)
     assert blocked.status_code == 400
 
 
@@ -139,7 +139,7 @@ def test_retry_dispatch_failure_is_auditable_and_exposes_logs(client):
     )
     assert transition.status_code == 200, transition.text
 
-    retried = client.post(f"/api/v1/tasks/{failed['task_id']}/retry", headers=headers)
+    retried = client.post(f"/api/v1/tasks/{failed['task_id']}/retry", json={"confirm": True}, headers=headers)
     assert retried.status_code == 200, retried.text
     retry_payload = retried.json()
     assert retry_payload["status"] == "FAILED"
@@ -168,7 +168,7 @@ def test_batch_retry_returns_per_task_success_and_failure(client):
     result = client.post(
         "/api/v1/tasks/retry-batch",
         headers=headers,
-        json={"task_ids": [retryable["task_id"], retryable["task_id"], blocked["task_id"], "not-owned"]},
+        json={"task_ids": [retryable["task_id"], retryable["task_id"], blocked["task_id"], "not-owned"], "confirm": True},
     )
     assert result.status_code == 200, result.text
     payload = result.json()
@@ -176,4 +176,4 @@ def test_batch_retry_returns_per_task_success_and_failure(client):
     assert payload["tasks"][0]["parent_task_id"] == retryable["task_id"]
     failures = {item["task_id"]: item["code"] for item in payload["failures"]}
     assert failures[blocked["task_id"]] == "TASK_NOT_RETRYABLE"
-    assert failures["not-owned"] == "TASK_NOT_FOUND"
+    assert failures["not-owned"] == "TASK_UNAVAILABLE"

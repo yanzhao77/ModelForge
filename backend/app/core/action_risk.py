@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 RiskTier = Literal["low", "moderate", "high", "critical"]
 
 
@@ -73,6 +72,12 @@ ACTION_RISKS: dict[str, ActionRisk] = {
     "plugin_profile.delete": ActionRisk("plugin_profile.delete", "high", True, "plugin_profile", _COMMON_AUDIT_FIELDS),
     "plugin_profile.create": ActionRisk("plugin_profile.create", "low", False, "plugin_profile", ("request_id_supplied", "plugin_count", "mcp_server_count")),
     "model_insight_preferences.update": ActionRisk("model_insight_preferences.update", "moderate", True, "model_insight_preference", (*_COMMON_AUDIT_FIELDS, "daily_budget_set", "weekly_budget_set", "price_count")),
+    "platform.organization.create": ActionRisk("platform.organization.create", "low", False, "organization", ("name_present",)),
+    "platform.project.create": ActionRisk("platform.project.create", "low", False, "api_project", ("environment",)),
+    "platform.agent.bind": ActionRisk("platform.agent.bind", "moderate", False, "project_agent_binding", ("agent_bound",)),
+    "platform.key.create": ActionRisk("platform.key.create", "high", False, "project_api_key", ("scope_count", "has_expiry")),
+    "platform.key.revoke": ActionRisk("platform.key.revoke", "high", True, "project_api_key", ("confirmed",)),
+    "platform.quota.update": ActionRisk("platform.quota.update", "high", False, "project_quota", ("max_concurrent_runs", "daily_token_limit", "monthly_token_limit", "per_run_token_limit")),
 }
 
 

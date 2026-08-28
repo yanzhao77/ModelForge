@@ -36,7 +36,7 @@ class Policy:
     allowed_models: list[str] | None = None
     network_access: bool = False
     shell_access: bool = False
-    filesystem_access: bool = True
+    filesystem_access: bool = False
     filesystem_write: bool = False
     max_iterations: int | None = None
     max_tool_calls: int | None = None
@@ -63,6 +63,8 @@ class Policy:
             return PolicyDecision.deny("network access is not allowed by policy")
         if PermissionLevel.EXECUTE in perms and not self.shell_access:
             return PolicyDecision.deny("shell/execute is not allowed by policy")
+        if PermissionLevel.FILESYSTEM_READ in perms and not self.filesystem_access:
+            return PolicyDecision.deny("filesystem read is not allowed by policy")
         if PermissionLevel.WRITE in perms and not self.filesystem_write:
             return PolicyDecision.deny("filesystem write is not allowed by policy")
 

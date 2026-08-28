@@ -3,6 +3,7 @@ import os
 import tempfile
 
 from core.api_contracts import correlation_id, operation_result, problem
+from core.config import settings
 from core.database import get_db
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -52,19 +53,26 @@ async def knowledge_upload(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    kb = _get_kb()
+    corr = correlation_id()
+    kb = _get_kb(correlation=corr)
     suffix = os.path.splitext(file.filename or "upload.txt")[1]
+    total = 0
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
-        tmp.write(content)
         tmp_path = tmp.name
+        while chunk := await file.read(64 * 1024):
+            total += len(chunk)
+            if total > settings.max_upload_size:
+                tmp.close()
+                os.unlink(tmp_path)
+                raise problem(413, "KNOWLEDGE_FILE_TOO_LARGE", "Knowledge file exceeds the configured size limit.", correlation=corr)
+            tmp.write(chunk)
     try:
         result = kb.upload(tmp_path, db=db, user_id=user.id, filename=file.filename)
         return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=501, detail=str(e))
+    except ValueError as exc:
+        raise problem(400, "KNOWLEDGE_UPLOAD_INVALID", "Knowledge upload was rejected.", correlation=corr) from exc
+    except RuntimeError as exc:
+        raise problem(501, "KNOWLEDGE_FEATURE_UNAVAILABLE", "Knowledge upload is not available in this deployment.", correlation=corr) from exc
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)

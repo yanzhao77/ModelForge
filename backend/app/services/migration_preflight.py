@@ -13,7 +13,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from core.database import DATABASE_URL, _MIGRATIONS
+from core.database import _MIGRATIONS, DATABASE_URL
 
 
 def _sqlite_database_path() -> Path | None:

@@ -19,8 +19,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code (data/models/logs are gitignored and skipped by .dockerignore)
 COPY . .
 
-# Runtime directories
-RUN mkdir -p models data logs
+# Run as an unprivileged service account. Only runtime state directories are
+# writable; application source and dependency layers remain read-only at runtime.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin modelforge \
+    && mkdir -p models data logs \
+    && chown -R modelforge:modelforge models data logs
+USER modelforge
 
 EXPOSE 8000
 

@@ -89,46 +89,81 @@ class DatasetParser:
 class DatasetService:
     """CRUD for user datasets."""
 
-    def upload(
-        self, db: DBSession, user_id: int, original_name: str, content: bytes, name: str | None = None
-    ) -> Dataset:
+    def _upload_path(self, user_id: int, original_name: str) -> tuple[Path, str]:
         ext = Path(original_name or "dataset.txt").suffix.lower()
-        fmt = ext.lstrip(".")
         if ext not in ALLOWED_EXTENSIONS:
             raise ValueError(f"不支持的文件类型 {ext or '(无扩展名)'}，支持: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
-        if len(content) > settings.max_dataset_size:
-            raise ValueError(f"文件过大（{len(content)} 字节），上限 {settings.max_dataset_size} 字节")
-
         ds_dir = Path(settings.dataset_dir) / str(user_id)
-        ds_dir.mkdir(parents=True, exist_ok=True)
-        stored = ds_dir / f"{uuid.uuid4().hex[:8]}_{Path(original_name).name}"
-        stored.write_bytes(content)
+        ds_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        safe_name = Path(original_name or "dataset").name
+        return ds_dir / f"{uuid.uuid4().hex[:8]}_{safe_name}", ext.lstrip(".")
 
+    def _persist_and_parse(
+        self,
+        db: DBSession,
+        user_id: int,
+        original_name: str,
+        name: str | None,
+        stored: Path,
+        fmt: str,
+        file_size: int,
+    ) -> Dataset:
         rec = Dataset(
             user_id=user_id,
             name=(name or Path(original_name).stem).strip() or "dataset",
             file_path=str(stored),
-            original_name=original_name,
+            original_name=Path(original_name).name,
             format=fmt,
-            file_size=len(content),
+            file_size=file_size,
             status="uploaded",
         )
         db.add(rec)
         db.commit()
         db.refresh(rec)
-
         try:
             row_count, columns, sample = DatasetParser.parse(str(stored), fmt)
             rec.row_count = row_count
             rec.columns = json.dumps(columns, ensure_ascii=False)
             rec.sample = json.dumps(sample, ensure_ascii=False)
             rec.status = "parsed"
-        except Exception as e:
+        except Exception as exc:
             rec.status = "error"
-            rec.error = str(e)
+            rec.error = str(exc)
         db.commit()
         db.refresh(rec)
         return rec
+
+    def upload_stream(
+        self,
+        db: DBSession,
+        user_id: int,
+        original_name: str,
+        stream,
+        name: str | None = None,
+        chunk_size: int = 64 * 1024,
+    ) -> Dataset:
+        """Store an uploaded stream while enforcing the byte ceiling incrementally."""
+        stored, fmt = self._upload_path(user_id, original_name)
+        total = 0
+        try:
+            with stored.open("wb") as handle:
+                while chunk := stream.read(chunk_size):
+                    total += len(chunk)
+                    if total > settings.max_dataset_size:
+                        raise ValueError("DATASET_FILE_TOO_LARGE")
+                    handle.write(chunk)
+        except Exception:
+            stored.unlink(missing_ok=True)
+            raise
+        return self._persist_and_parse(db, user_id, original_name, name, stored, fmt, total)
+
+    def upload(
+        self, db: DBSession, user_id: int, original_name: str, content: bytes, name: str | None = None
+    ) -> Dataset:
+        """Backward-compatible byte input for internal callers; HTTP uses upload_stream."""
+        from io import BytesIO
+
+        return self.upload_stream(db, user_id, original_name, BytesIO(content), name)
 
     def get(self, db: DBSession, dataset_id: int, user_id: int) -> Dataset | None:
         return db.query(Dataset).filter_by(id=dataset_id, user_id=user_id).first()

@@ -1,5 +1,7 @@
 """Agent API routes: 2.1 agent management + 3.0 Agent Run API (spec 25)."""
 
+import json
+import uuid
 from typing import Any
 
 from core.action_risk import requires_confirmation
@@ -7,13 +9,15 @@ from core.api_contracts import correlation_id, operation_result, problem
 from core.database import SessionLocal, get_db
 from core.security import get_current_user, get_runtime_admin
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from models.records import KnowledgeCollection, User
-from models.records import AgentDefinitionVersion, AgentTemplate
+from models.records import (
+    AgentDefinitionVersion,
+    AgentTemplate,
+    KnowledgeCollection,
+    User,
+)
 from pydantic import BaseModel, ConfigDict, Field
 from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
-from services.model_readiness_service import ModelReadinessService
-from services.schedule_service import ScheduleService
 from services.audit_log import (
     AuditMetadataRejected,
     AuditPersistenceError,
@@ -22,9 +26,9 @@ from services.audit_log import (
     record_operation,
     validate_control_plane_audit_metadata,
 )
+from services.model_readiness_service import ModelReadinessService
+from services.schedule_service import ScheduleService
 from sqlalchemy.orm import Session as DBSession
-import json
-import uuid
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -160,7 +164,7 @@ async def create_agent(
         ))
     except PermissionError:
         raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr)
-    except Exception as exc:
+    except Exception:
         raise problem(500, "AGENT_DEFINITION_PERSIST_FAILED", "Failed to persist agent definition", correlation=corr)
     result = _get_engine().create_agent(
         name=req.name,
@@ -454,6 +458,7 @@ async def run_stream(
 ):
     """SSE run stream: replay persisted events then live events (spec 26 / 31)."""
     import json
+
     from fastapi.responses import StreamingResponse
     corr = correlation_id()
     try:
@@ -512,7 +517,7 @@ async def register_mcp(req: MCPServerRequest, db: DBSession = Depends(get_db), u
     name = req.name
     endpoint = req.endpoint
     try:
-        result = await _get_runtime().register_mcp_server(name, endpoint)
+        await _get_runtime().register_mcp_server(name, endpoint)
     except Exception:
         raise problem(400, "MCP_REGISTER_FAILED", "MCP register failed", correlation=corr)
     try:

@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from models.records import AgentRun, ScheduleExecution, ScheduledJob
+from models.records import AgentRun, ScheduledJob, ScheduleExecution
 from services.redaction import redact_data, redact_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
