@@ -168,6 +168,10 @@ cython_debug/
 # ZCode CLI session artifacts
 .zcode/
 
+# Offscreen UI audit screenshots (regenerable via reports/render_pages_offscreen.py)
+reports/ui-audit/
+reports/ui-audit-before/
+
 # Local runtime configuration; copy config.example.yaml before configuring a deployment.
 config.yaml
 

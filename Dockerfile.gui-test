@@ -1,0 +1,20 @@
+# Local QA helper image: server image + Qt offscreen runtime for desktop tests.
+# Not used by CI or deployment; mirrors the ubuntu CI desktop job environment.
+FROM modelforge:server
+
+USER root
+
+# Qt offscreen needs EGL/GL, input stack, fontconfig and CJK fonts so that
+# zh_CN/ja_JP screenshots do not render tofu boxes.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libegl1 libgl1 libglib2.0-0 libxkbcommon0 libdbus-1-3 libfontconfig1 \
+        libdrm2 libgbm1 libnss3 libnspr4 \
+        fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-gui.txt requirements-dev.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements-gui.txt -r /tmp/requirements-dev.txt \
+    && rm -f /tmp/requirements-gui.txt /tmp/requirements-dev.txt
+
+ENV QT_QPA_PLATFORM=offscreen
+USER root

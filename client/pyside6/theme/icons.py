@@ -3,6 +3,7 @@ ICONS = {
     "overview": "◈", "chat": "◇", "models": "▣", "datasets": "▤",
     "training": "▥", "knowledge": "⌘", "agents": "◉", "tasks": "◎",
     "runtime": "▧", "activity": "⋮", "settings": "⊚", "online": "●",
+    "workbench": "◫", "automation": "◔", "control": "⊞", "extensions": "⊕",
 }
 
 

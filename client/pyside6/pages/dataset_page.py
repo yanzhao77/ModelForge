@@ -39,7 +39,7 @@ class DatasetPage(QWidget, AsyncApiMixin):
         header = QHBoxLayout()
         header.addWidget(MFSection("数据工作区", "数据集"))
         header.addStretch(1)
-        self.registry_status = MFStatusBadge("Syncing datasets", "warning")
+        self.registry_status = MFStatusBadge("正在同步数据集", "warning")
         header.addWidget(self.registry_status)
         lay.addLayout(header)
         top = QHBoxLayout()
@@ -67,12 +67,16 @@ class DatasetPage(QWidget, AsyncApiMixin):
         lay.addWidget(self.table, 1)
 
         ops = QHBoxLayout()
-        for label, handler in (("PREVIEW", self.preview), ("Training preflight", self.validate), ("Delete selected", self.delete_selected)):
+        self._row_action_buttons = []
+        for label, handler in (("预览", self.preview), ("训练预检", self.validate), ("删除所选", self.delete_selected)):
             button = QPushButton(label)
             button.clicked.connect(handler)
+            button.setEnabled(False)
             ops.addWidget(button)
+            self._row_action_buttons.append(button)
         ops.addStretch()
         lay.addLayout(ops)
+        self.table.itemSelectionChanged.connect(self._sync_row_actions)
 
         self.hint = QLabel("支持格式: jsonl / csv / json / txt（训练前建议先做“训练预检”）")
         lay.addWidget(self.hint)
@@ -80,6 +84,12 @@ class DatasetPage(QWidget, AsyncApiMixin):
     def refresh(self):
         self.hint.setText("正在加载数据集...")
         self._run_api(self.api.list_datasets, self._render_datasets, self._show_load_error)
+
+    def _sync_row_actions(self) -> None:
+        """Row operations require an actual selection (no blind deletes)."""
+        has_selection = self._selected_id() is not None
+        for button in self._row_action_buttons:
+            button.setEnabled(has_selection)
 
     def _render_datasets(self, datasets):
         self.table.setRowCount(len(datasets))
@@ -91,10 +101,10 @@ class DatasetPage(QWidget, AsyncApiMixin):
                 self.table.setItem(row, col, QTableWidgetItem(text))
             self.table.item(row, 0).setData(Qt.UserRole, dataset.get("id"))
         self.hint.setText(f"已加载 {len(datasets)} 个数据集")
-        self.registry_status.set_state(f"{len(datasets)} datasets synced", "online")
+        self.registry_status.set_state(f"已同步 {len(datasets)} 个数据集", "online")
 
     def _show_load_error(self, error):
-        self.registry_status.set_state("Datasets unavailable", "error")
+        self.registry_status.set_state("数据集不可用", "error")
         self.hint.setText(f"加载失败: {error}")
 
     def upload(self):

@@ -39,8 +39,9 @@ class LoginDialog(QDialog):
         subtitle.setProperty("role", "eyebrow")
         subtitle.setAlignment(Qt.AlignCenter)
         root.addWidget(subtitle)
-        self.backend = QLabel(f"●  BACKEND ENDPOINT  {self.api.base_url}")
+        self.backend = QLabel("服务地址")
         self.backend.setProperty("status", "warning")
+        self.backend.setToolTip(str(self.api.base_url))
         self.backend.setAlignment(Qt.AlignCenter)
         root.addWidget(self.backend)
 
@@ -88,8 +89,8 @@ class LoginDialog(QDialog):
         hint = QLabel("登录后继续")
         hint.setProperty("role", "eyebrow")
         layout.addWidget(hint)
-        self.login_user = self._field("WORKSTATION USERNAME")
-        self.login_pwd = self._field("ACCESS PASSWORD", True)
+        self.login_user = self._field("用户名")
+        self.login_pwd = self._field("密码", True)
         self.login_pwd.returnPressed.connect(self.handle_login)
         layout.addWidget(self.login_user)
         layout.addWidget(self.login_pwd)
@@ -128,12 +129,13 @@ class LoginDialog(QDialog):
         try:
             self.api.login(username, password)
         except Exception as error:
-            self.backend.setText(f"●  CONNECTION FAILED  ·  {error}")
+            self.backend.setText("连接失败")
+            self.backend.setToolTip(str(error))
             self.backend.setProperty("status", "error")
             self.backend.style().unpolish(self.backend)
             self.backend.style().polish(self.backend)
             return
-        self.backend.setText("●  BACKEND AUTHENTICATED")
+        self.backend.setText("服务地址")
         self.backend.setProperty("status", "online")
         self.accept()
 

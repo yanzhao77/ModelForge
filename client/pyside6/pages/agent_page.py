@@ -189,7 +189,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         mlay.addWidget(QLabel("最近运行"))
         self.runs_table = QTableWidget()
         self.runs_table.setColumnCount(4)
-        self.runs_table.setHorizontalHeaderLabels(["Run", "Agent", "Status", "Output"])
+        self.runs_table.setHorizontalHeaderLabels(["运行", "智能体", "状态", "输出"])
         self.runs_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.runs_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.runs_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
@@ -246,6 +246,8 @@ class AgentPage(QWidget, AsyncApiMixin):
             QMessageBox.warning(self, format_text(action), message)
 
     def _render_readiness(self, snapshot: dict) -> None:
+        if not isinstance(snapshot, dict):
+            return
         self._model_ready = snapshot.get("level") == "READY"
         target = snapshot.get("default_target") or {}
         self._default_model = target.get("model_name") or ""
@@ -266,7 +268,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         self._agents_loading = False
         self._set_agent_busy(False)
         selected = self.selected_agent()
-        self.matrix_status.set_state(f"{len(agents)} Agents synced", "online")
+        self.matrix_status.set_state(f"已同步 {len(agents)} 个智能体", "online")
         self.agent_list.clear()
         for agent in agents:
             item = QListWidgetItem(f"{agent.get('name', '?')}  ({agent.get('model', '')})")

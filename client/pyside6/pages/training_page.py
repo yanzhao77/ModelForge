@@ -50,7 +50,7 @@ class TrainingPage(QWidget, AsyncApiMixin):
         header = QHBoxLayout()
         header.addWidget(MFSection("模型训练", "训练"))
         header.addStretch(1)
-        self.training_status = MFStatusBadge("Tasks updating", "online")
+        self.training_status = MFStatusBadge("任务更新中", "online")
         header.addWidget(self.training_status)
         examples = QPushButton("示例")
         examples.clicked.connect(lambda: open_examples("training", self))
@@ -63,7 +63,7 @@ class TrainingPage(QWidget, AsyncApiMixin):
         layout.addWidget(splitter, 1)
 
     def _build_config_panel(self):
-        box = QGroupBox("Training configuration")
+        box = QGroupBox("训练配置")
         form = QFormLayout(box)
         self.base_model = QComboBox()
         self.base_model.setEditable(True)
@@ -106,7 +106,7 @@ class TrainingPage(QWidget, AsyncApiMixin):
         self.task_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.task_table.itemSelectionChanged.connect(self._on_task_selected)
         layout.addWidget(self.task_table, 1)
-        detail = QGroupBox("Run detail")
+        detail = QGroupBox("运行详情")
         detail_layout = QVBoxLayout(detail)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)

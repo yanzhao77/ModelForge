@@ -3,6 +3,8 @@
 Shows ONLY real events from the backend (spec 51 forbids fake thinking
 labels). While the model is generating without reasoning events, the UI
 shows "Generating...".
+All markup colors resolve from the active theme palette so light and dark
+modes stay readable; no hardcoded hex colors are emitted.
 """
 import json
 
@@ -12,12 +14,12 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
+from theme.tokens import FONT_MONO, LIGHT
 
 
 class EventStreamWorker(QThread):
@@ -44,24 +46,47 @@ class EventStreamWorker(QThread):
             self.failed.emit(safe_api_error_text(e))
 
 
-class ToolCallCard(QFrame):
-    """One tool call card: name, arguments, result (spec 50)."""
+def _timeline_palette(widget: QWidget) -> dict:
+    """Resolve the active application palette for theme-aware markup."""
+    window = widget.window()
+    manager = getattr(window, "theme_manager", None)
+    if manager is not None:
+        try:
+            return manager.palette()
+        except Exception:
+            pass
+    return LIGHT
 
-    def __init__(self, tool_name: str, arguments: dict, output: str = "", parent=None):
+
+class ToolCallCard(QFrame):
+    """One tool call card: name, arguments, result (spec 50).
+
+    The timeline renders cards as theme-aware HTML inside its QTextBrowser,
+    so ``str(card)`` intentionally returns markup instead of an object repr.
+    """
+
+    def __init__(self, tool_name: str, arguments: dict, output: str = "", palette: dict | None = None, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.StyledPanel)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 6, 8, 6)
-        head = QLabel(f"<b style='color:#1565C0'>🛠 {tool_name}</b>")
-        head.setStyleSheet("background: transparent;")
-        lay.addWidget(head)
-        if arguments:
-            args_label = QLabel(f"<span style='color:#666'>参数: {json.dumps(arguments, ensure_ascii=False)}</span>")
-            lay.addWidget(args_label)
-        if output:
-            out_label = QLabel(f"<span style='color:#2E7D32'>结果: {output[:300]}</span>")
-            out_label.setWordWrap(True)
-            lay.addWidget(out_label)
+        self._palette = palette or LIGHT
+        self._tool_name = tool_name
+        self._arguments = arguments or {}
+        self._output = output or ""
+
+    def to_html(self) -> str:
+        p = self._palette
+        html = f"<b style='color:{p['text']}'>{self._tool_name}</b>"
+        if self._arguments:
+            html += (
+                f"<br><span style='color:{p['muted']}'>参数: "
+                f"{json.dumps(self._arguments, ensure_ascii=False)}</span>"
+            )
+        if self._output:
+            html += f"<br><span style='color:{p['success']}'>结果: {self._output[:300]}</span>"
+        return html
+
+    def __str__(self) -> str:
+        return self.to_html()
 
 
 class RunTimeline(QWidget, AsyncApiMixin):
@@ -81,14 +106,14 @@ class RunTimeline(QWidget, AsyncApiMixin):
         lay = QVBoxLayout(self)
         self.view = QTextBrowser()
         self.view.setOpenExternalLinks(False)
-        self.view.setStyleSheet("font-family: monospace;")
+        self.view.setStyleSheet(f"font-family: {FONT_MONO};")
         lay.addWidget(self.view, 1)
         controls = QHBoxLayout()
-        self.approve_btn = QPushButton("✅ 批准")
+        self.approve_btn = QPushButton("批准")
         self.approve_btn.setVisible(False)
         self.approve_btn.clicked.connect(self.approve)
         controls.addWidget(self.approve_btn)
-        self.reject_btn = QPushButton("⛔ 拒绝")
+        self.reject_btn = QPushButton("拒绝")
         self.reject_btn.setVisible(False)
         self.reject_btn.clicked.connect(self.reject)
         controls.addWidget(self.reject_btn)
@@ -106,56 +131,62 @@ class RunTimeline(QWidget, AsyncApiMixin):
         self.reject_btn.setVisible(False)
         self.worker = EventStreamWorker(self.api, run_id, after_sequence)
         self.worker.event_received.connect(self._on_event)
-        self.worker.failed.connect(lambda e: self.view.append(f"<span style='color:#D32F2F'>[错误] {e}</span>"))
-        self.worker.finished_run.connect(lambda _: self.view.append("<b style='color:#2E7D32'>✔ 运行结束</b>"))
+        self.worker.failed.connect(lambda e: self.view.append(f"<span style='color:{_timeline_palette(self)['danger']}'>[错误] {e}</span>"))
+        self.worker.finished_run.connect(lambda _: self.view.append(f"<b style='color:{_timeline_palette(self)['success']}'>✔ 运行结束</b>"))
         self.worker.start()
 
     def _on_event(self, event: dict):
+        p = _timeline_palette(self)
         etype = event.get("event_type", "")
         ts = (event.get("timestamp") or "")[11:19]
         payload = event.get("payload") or {}
         if etype == "run.started":
-            self.view.append(f"<span style='color:#1565C0'>▶ {ts} Run Started</span>")
+            self.view.append(f"<span style='color:{p['text']}'>▶ {ts} 运行开始</span>")
         elif etype == "run.created":
-            self.view.append(f"<span style='color:#888'>· {ts} Run Created</span>")
+            self.view.append(f"<span style='color:{p['muted']}'>· {ts} 运行已创建</span>")
         elif etype == "model.request.started":
             # spec 51: no fake thinking labels - show Generating on real LLM work
-            self.view.append(f"<span style='color:#333'>▸ {ts} LLM Generating...</span>")
+            self.view.append(f"<span style='color:{p['text']}'>▸ {ts} LLM Generating...</span>")
         elif etype == "model.request.completed":
             usage = payload.get("usage") or {}
-            self.view.append(f"<span style='color:#333'>◂ {ts} LLM Done (tokens={usage.get('total_tokens', 0)})</span>")
+            self.view.append(f"<span style='color:{p['muted']}'>◂ {ts} LLM 完成（tokens={usage.get('total_tokens', 0)}）</span>")
         elif etype == "tool.call.started":
-            self.view.append(f"<span style='color:#E65100'>🔧 {ts} Tool {payload.get('tool', '?')}</span>")
+            self.view.append(f"<span style='color:{p['warning']}'>▸ {ts} 工具 {payload.get('tool', '?')} 执行中</span>")
         elif etype == "tool.call.completed":
-            self.view.append(f"<span style='color:#2E7D32'>   ✔ {ts} Tool Result ({payload.get('duration', 0)}s)</span>")
+            self.view.append(f"<span style='color:{p['success']}'>   ✔ {ts} 工具结果（{payload.get('duration', 0)}s）</span>")
             self._append_tool_card(payload)
         elif etype == "tool.call.failed":
-            self.view.append(f"<span style='color:#D32F2F'>   ✘ {ts} Tool Failed: {payload.get('error', '')}</span>")
+            self.view.append(f"<span style='color:{p['danger']}'>   ✘ {ts} 工具失败: {payload.get('error', '')}</span>")
         elif etype == "human.approval.required":
-            self.view.append(f"<span style='color:#F57C00'>❓ {ts} 需要人工批准: {payload.get('tool', '?')}</span>")
+            self.view.append(f"<span style='color:{p['warning']}'>? {ts} 需要人工批准: {payload.get('tool', '?')}</span>")
             self.approve_btn.setVisible(True)
             self.reject_btn.setVisible(True)
         elif etype == "human.approval.granted":
-            self.view.append(f"<span style='color:#2E7D32'>✅ {ts} 已批准</span>")
+            self.view.append(f"<span style='color:{p['success']}'>✔ {ts} 已批准</span>")
             self.approve_btn.setVisible(False)
             self.reject_btn.setVisible(False)
         elif etype == "human.approval.denied":
-            self.view.append(f"<span style='color:#D32F2F'>⛔ {ts} 已拒绝</span>")
+            self.view.append(f"<span style='color:{p['danger']}'>✘ {ts} 已拒绝</span>")
             self.approve_btn.setVisible(False)
             self.reject_btn.setVisible(False)
         elif etype == "agent.response":
-            self.view.append(f"<span style='color:#1565C0'>💬 {ts} {payload.get('content', '')[:200]}</span>")
+            self.view.append(f"<span style='color:{p['accent']}'>{ts} {payload.get('content', '')[:200]}</span>")
         elif etype == "run.completed":
-            self.view.append(f"<span style='color:#2E7D32'>■ {ts} Completed ({payload.get('duration', 0)}s)</span>")
+            self.view.append(f"<span style='color:{p['success']}'>■ {ts} 已完成（{payload.get('duration', 0)}s）</span>")
         elif etype in ("run.failed", "run.timeout"):
-            self.view.append(f"<span style='color:#D32F2F'>■ {ts} {etype} - {payload.get('error', '')}</span>")
+            self.view.append(f"<span style='color:{p['danger']}'>■ {ts} {etype} - {payload.get('error', '')}</span>")
         elif etype == "run.cancelled":
-            self.view.append(f"<span style='color:#888'>■ {ts} Cancelled</span>")
+            self.view.append(f"<span style='color:{p['muted']}'>■ {ts} 已取消</span>")
         sb = self.view.verticalScrollBar()
         sb.setValue(sb.maximum())
 
     def _append_tool_card(self, payload: dict):
-        card = ToolCallCard(payload.get("tool", "?"), payload.get("arguments") or {}, payload.get("output", ""))
+        card = ToolCallCard(
+            payload.get("tool", "?"),
+            payload.get("arguments") or {},
+            payload.get("output", ""),
+            palette=_timeline_palette(self),
+        )
         self.view.append("")
         self.view.append(str(card))
 
@@ -173,7 +204,7 @@ class RunTimeline(QWidget, AsyncApiMixin):
         self.approve_btn.setEnabled(False)
         self.reject_btn.setEnabled(False)
         action = "批准" if approved else "拒绝"
-        self.view.append(f"<span style='color:#1565C0'>[正在{action}] Run #{run_id[:8]}</span>")
+        self.view.append(f"<span style='color:{_timeline_palette(self)['accent']}'>[正在{action}] Run #{run_id[:8]}</span>")
         operation = self.api.approve_agent_run if approved else self.api.reject_agent_run
         self._run_api(
             lambda: operation(run_id),
@@ -185,7 +216,7 @@ class RunTimeline(QWidget, AsyncApiMixin):
         self._approval_pending = False
         if run_id != self.run_id:
             return
-        self.view.append(f"<span style='color:#2E7D32'>[已{action}] 等待服务事件确认</span>")
+        self.view.append(f"<span style='color:{_timeline_palette(self)['success']}'>[已{action}] 等待服务事件确认</span>")
         self.approve_btn.setVisible(False)
         self.reject_btn.setVisible(False)
 
@@ -193,7 +224,7 @@ class RunTimeline(QWidget, AsyncApiMixin):
         self._approval_pending = False
         if run_id != self.run_id:
             return
-        self.view.append(f"<span style='color:#D32F2F'>[{action}失败] {format_api_error(error)}</span>")
+        self.view.append(f"<span style='color:{_timeline_palette(self)['danger']}'>[{action}失败] {format_api_error(error)}</span>")
         self.approve_btn.setEnabled(True)
         self.reject_btn.setEnabled(True)
 

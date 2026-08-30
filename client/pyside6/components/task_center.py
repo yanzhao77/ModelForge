@@ -127,21 +127,28 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         layout.addLayout(export_actions)
         self.setWidget(container)
 
+    def _set_connection_status(self, status: str) -> None:
+        """Apply a semantic status color via QSS properties (theme-aware)."""
+        self.connection.setProperty("status", status)
+        style = self.connection.style()
+        style.unpolish(self.connection)
+        style.polish(self.connection)
+
     def _snapshot_state_changed(self, connected, error):
         if connected:
             self.connection.setText("● 任务快照已同步")
-            self.connection.setStyleSheet("color: #2e7d32;")
+            self._set_connection_status("online")
         else:
             self.connection.setText(f"● {format_text('任务快照不可达。{error}', error=format_api_error(error))}")
-            self.connection.setStyleSheet("color: #c62828;")
+            self._set_connection_status("error")
 
     def _stream_state_changed(self, online, error):
         if online:
             self.connection.setText("● 实时任务流已连接")
-            self.connection.setStyleSheet("color: #1565c0;")
+            self._set_connection_status("info")
         else:
             self.connection.setText(f"◌ {format_text('实时任务流已断开，正在重连。{error}', error=format_api_error(error))}")
-            self.connection.setStyleSheet("color: #ef6c00;")
+            self._set_connection_status("warning")
 
     def refresh(self):
         active = self.store.summary.get("active", 0)
