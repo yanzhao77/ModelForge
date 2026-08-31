@@ -39,7 +39,9 @@ jobs:
         run: |
           pytest tests/ -q --cov=backend/app --cov-fail-under=75 --cov-report=term-missing --cov-report=xml:coverage.xml
       - name: Security dependency audit (runtime)
-        run: pip-audit -r requirements.txt --format json --output release-artifacts/pip-audit-runtime.json
+        run: |
+          mkdir -p release-artifacts
+          pip-audit -r requirements.txt --format json --output release-artifacts/pip-audit-runtime.json
       - name: Security dependency audit (development)
         run: pip-audit -r requirements-dev.txt --format json --output release-artifacts/pip-audit-dev.json
       - name: Generate development inventory SBOM (full venv)
