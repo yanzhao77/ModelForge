@@ -239,8 +239,10 @@ jobs:
         run: |
           set -e
           CONTAINER="modelforge-rc-${{ github.run_id }}"
+          CONTAINER_DB_URL=$(echo "$DATABASE_URL" | sed 's|localhost|host.docker.internal|')
           docker run -d --name "$CONTAINER" -p 8000:8000 \
-            -e DATABASE_URL="$DATABASE_URL" \
+            --add-host=host.docker.internal:host-gateway \
+            -e DATABASE_URL="$CONTAINER_DB_URL" \
             -e JWT_SECRET="$JWT_SECRET" \
             -e MODELFORGE_ENV="$MODELFORGE_ENV" \
             -e CORS_ALLOW_ORIGINS="https://console.example.test" \
