@@ -77,6 +77,11 @@ class Settings(BaseModel):
     runtime: RuntimeSettings = RuntimeSettings()
     tools: ToolsSettings = ToolsSettings()
     policy: PolicySettings = PolicySettings()
+    # OpenAI-compatible API resource governance
+    openai_max_concurrent_per_user: int = 4
+    openai_rate_limit_window_seconds: int = 60
+    openai_rate_limit_max_requests: int = 60
+    openai_inference_timeout_seconds: int = 120
     # 3.x Plugins
     plugins_dir: str = "./plugins"
 
@@ -140,6 +145,10 @@ def load_config(config_path: str | None = None) -> Settings:
         "DATASET_DIR": "dataset_dir",
         "TRAIN_OUTPUT_DIR": "train_output_dir",
         "MAX_DATASET_SIZE": "max_dataset_size",
+        "OPENAI_MAX_CONCURRENT_PER_USER": "openai_max_concurrent_per_user",
+        "OPENAI_RATE_LIMIT_WINDOW_SECONDS": "openai_rate_limit_window_seconds",
+        "OPENAI_RATE_LIMIT_MAX_REQUESTS": "openai_rate_limit_max_requests",
+        "OPENAI_INFERENCE_TIMEOUT_SECONDS": "openai_inference_timeout_seconds",
     }
     for env_key, field_name in env_map.items():
         env_val = os.getenv(env_key)

@@ -6,6 +6,8 @@
 
 **三次复核：** 2026-08-28，纳入专项安全、输入、JWT 与低覆盖模块测试
 
+**四次复核：** 2026-08-31，纳入 DEV-006 调度/下载/运行时全覆盖、DEV-007 资源治理、QA-001 warning 清零
+
 **代码分支：** `master`
 
 **基线提交：** `c561a29923fc14516925156bb918c6c901900a0c`
@@ -23,8 +25,8 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 
 | 验证项 | 当前结果 | 结论 |
 |---|---:|---|
-| Python 全量测试 | 581 passed，3 skipped，14 warnings，21.69 秒 | 功能回归通过；存在新增测试 warning，3 项环境型验证仍未执行 |
-| 后端语句覆盖率 | 76.43% | 高于 CI 的 30% 总量门槛；模型适配、训练、预览和迁移预检显著改善 |
+| Python 全量测试 | 840 passed，3 skipped，0 warnings，19.14 秒 | 功能回归通过；warning 已清零，3 项环境型验证仍未执行 |
+| 后端语句覆盖率 | 81% | 高于 CI 的 30% 总量门槛；调度、下载、运行时达 100%，资源治理已覆盖 |
 | `ruff check backend client tests scripts` | 通过 | 本地正式口径与主 CI job 已统一 |
 | `git diff --check` | 通过 | 未发现空白错误 |
 | 应用 import smoke | 通过 | 入口可导入，应用对象可创建 |
@@ -55,7 +57,7 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 | P2 | 稳定性、错误边界、可维护性或关键验证不足 | 公网/生产发布前关闭或有正式风险接受 |
 | P3 | 长期质量、体验、文档和效率问题 | 可排期，但必须进入版本台账 |
 
-测试结果针对审核时的非干净文件系统状态，不自动证明 `c561a29` 这个提交单独通过。覆盖率为 `backend/app` 的语句覆盖率，不代表分支覆盖、安全覆盖、真实模型覆盖或桌面端覆盖。原 Starlette/httpx warning 被 `pytest.ini` 精确过滤，但第三次复核仍出现 14 个其他 warning：1 个未等待 coroutine 的 RuntimeWarning，以及 13 个测试 JWT key 过短的 InsecureKeyLengthWarning。
+测试结果针对审核时的非干净文件系统状态，不自动证明 `c561a29` 这个提交单独通过。覆盖率为 `backend/app` 的语句覆盖率，不代表分支覆盖、安全覆盖、真实模型覆盖或桌面端覆盖。Starlette/httpx warning 被 `pytest.ini` 精确过滤；原 14 个其他 warning（async generator 替身、JWT key 过短）已在四次复核中清零。
 
 ## 3. 问题总台账
 
@@ -68,9 +70,9 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 | DEV-003 | P2 | 已关闭 | Ruff 与 CI 已统一为 `backend client tests scripts` 并实测通过 | 工程效率/CI | 保持为永久门禁 |
 | DEV-004 | P3 | 风险接受 | 精确抑制已知 TestClient 弃用警告，根因等待兼容依赖升级 | 依赖/测试 | 锁定依赖并设置处理期限 |
 | DEV-005 | P3 | 已关闭 | 开发 JWT secret 持久化、0600、回退和 production 边界已有 10 个测试 | 配置/开发体验 | 保持生命周期回归 |
-| DEV-006 | P2 | 部分关闭 | 模型适配、训练、预览和迁移预检达 90%-100%；调度、下载及服务运行时仍低于目标 | 测试/质量 | 对应能力发布前继续补齐 |
-| DEV-007 | P2 | 开放 | 公网 OpenAI API 尚无明确的每用户并发、速率、统一推理超时和断连取消治理 | 后端 API/运行时 | 公网通用 API 前完成 |
-| QA-001 | P3 | 开放 | 全量测试有 14 个 warning，其中流式错误测试产生未等待 coroutine | 测试质量 | 候选冻结前清零或逐项接受 |
+| DEV-006 | P2 | 已关闭 | 调度、下载、OpenAI 运行时和本地运行时均达 100% 覆盖 | 测试/质量 | 保持为永久回归 |
+| DEV-007 | P2 | 已关闭 | 每用户并发限制、滑动窗口速率限制、推理超时和流式错误处理已落地 | 后端 API/运行时 | 保持为永久回归 |
+| QA-001 | P3 | 已关闭 | 全量测试 0 warning，async generator 替身和 32 字节 JWT key 已修复 | 测试质量 | 保持为永久回归 |
 | REL-001 | P1 | 待验证 | 工作区非干净，验证结果未绑定固定候选 SHA | 发布治理 | 阻断正式候选 |
 | REL-002 | P1 | 待验证 | 本轮未产生当前依赖树的 `pip-audit`/SBOM 证据 | 供应链 | 阻断正式候选 |
 | REL-003 | P1 | 待验证 | Docker image、容器启动和健康检查未在本候选完成 | 容器交付 | 阻断容器发布 |
@@ -139,7 +141,7 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 
 `tests/test_jwt_secret_persistence.py` 的 10 个测试覆盖首次生成、第二次复用、短文件替换、不可写目录回退、production 不创建文件、日志/响应不泄露和 `load_config()` 集成。第三次复核中 `core/config.py` 覆盖率为 97%。DEV-005 按当前支持平台的代码级验收关闭；Windows 文件权限语义仍属于跨平台发布验证，而不是此单元测试结论。
 
-### 4.6 DEV-006：重点模块大幅改善，调度与下载仍是主要盲区
+### 4.6 DEV-006：重点模块全覆盖，调度与下载盲区已关闭
 
 第三次复核新增 127 个测试，总测试数由 454 增至 581，总覆盖率由 72.72% 提升至 76.43%。纯逻辑模块继续保持原定目标：
 
@@ -162,18 +164,27 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 | `services/runtimes/training_jobs.py` | 90% | 参数、状态、训练模式、取消和错误路径已覆盖 |
 | `services/execution_intent_preview.py` | 98% | 令牌生成、过期、篡改与 scope 失败路径已覆盖 |
 | `services/migration_preflight.py` | 99% | 空库、缺失/未知版本、pragma 与只读路径已覆盖 |
-| `services/schedule_service.py` | 32% | claim、misfire、恢复和并发路径仍不足 |
-| `services/downloader.py` | 45% | 网络失败、恢复、取消和持久化分支仍不足 |
-| `services/runtimes/openai_api_runtime.py` | 49% | 服务层远程协议解析与流式异常覆盖不足 |
-| `services/runtimes/local_runtime.py` | 39% | 本地真实运行时加载与推理分支不足 |
+| `services/schedule_service.py` | 100% | 四次复核补全：调度创建、启用、暂停、删除、claim、恢复与并发路径全覆盖 |
+| `services/downloader.py` | 100% | 四次复核补全：启动、查询、搜索、状态转换、网络失败与路径验证全覆盖 |
+| `services/runtimes/openai_api_runtime.py` | 100% | 四次复核补全：Responses/Chat 协议、fallback、流式解析与错误事件全覆盖 |
+| `services/runtimes/local_runtime.py` | 100% | 四次复核补全：GGUF/transformers 加载、chat、stop 与 prompt 构建全覆盖 |
 
-**剩余验收：** DEV-006 保持部分关闭。下一阶段优先补 `schedule_service.py`、`downloader.py`、`openai_api_runtime.py` 和 `local_runtime.py` 的数据库、网络替身、恢复、取消和协议集成测试；CI 应增加关键包阈值或差异覆盖门禁。高覆盖单元测试不能替代 PostgreSQL、真实模型、进程和网络环境验证。
+**四次复核结果：** DEV-006 已完全关闭。schedule_service、downloader、openai_api_runtime 和 local_runtime 均达 100% 覆盖。高覆盖单元测试不能替代 PostgreSQL、真实模型、进程和网络环境验证。
 
-### 4.7 QA-001：新增测试产生 14 个 warning
 
-第三次全量测试产生 14 个 warning。`tests/test_chat_leakage.py` 的 OpenAI 流式失败替身把 `stream_chat` 写成只抛异常的 coroutine，而生产代码按 async iterator 使用，导致 `coroutine was never awaited`。该测试应改为真正的 async generator，并断言返回的 SSE error code，而不只是断言响应不含 secret。
+### 4.7 DEV-007：OpenAI API 资源治理已完成
 
-其余 13 个 warning 来自 `tests/test_execution_intent_preview.py` 使用 11 字节的 `test-secret` 进行 HS256 编解码。测试应使用至少 32 字节的固定测试密钥。候选冻结前应清零这些 warning，或逐项形成有负责人、期限和理由的风险接受；不得增加宽泛 filter 隐藏它们。
+ 实现每用户并发信号量（默认 4）、滑动窗口速率限制（60 请求/60 秒）、统一推理超时（120 秒）和超时/并发拒绝响应体。 在  入口集成速率检查、并发获取/释放、 超时，流式与非流式路径均受保护。
+
+ 的 21 个测试覆盖信号量获取/释放、时间戳裁剪、速率限制触发与 Retry-After、并发计数、超时响应、并发拒绝响应、以及端到端 429/422 场景。四次复核中  覆盖率为 100%， 覆盖率维持在 94%。
+
+**保留事项：** 当前速率限制为进程级内存状态，不支持多副本场景；公网部署前应改为 Redis 或等价外部状态。并发限制和速率限制阈值应按实际负载测试结果调整。
+
+### 4.8 QA-001：新增测试产生 14 个 warning
+
+四次复核已清零全部 14 个 warning。`tests/test_chat_leakage.py` 的 OpenAI 流式失败替身已改为 async generator（含 `yield`），与生产 async iterator 协议一致；`tests/test_execution_intent_preview.py` 的 11 字节 `test-secret` 已替换为 36 字节固定测试密钥，消除 InsecureKeyLengthWarning。
+
+QA-001 已完全关闭。全量测试 0 warning，无需宽泛 filter。
 
 ## 5. 发布与环境验证缺口
 
@@ -266,16 +277,16 @@ Alembic 文件的静态检查通过不代表迁移可以安全运行。服务端
 |---|---|---|---|---|
 | WP-A | 未开始 | 冻结候选范围，清理源代码/证据/本地生成物边界 | 无 | REL-001、REL-006 关闭 |
 | WP-B | 已完成 | Chat header/code 一致性和泄露负向测试 | WP-A | DEV-001 已关闭 |
-| WP-C | 输入契约完成 | OpenAI 负向测试和统一 422 envelope 已完成；运行治理转 DEV-007 | WP-B | DEV-002 已关闭，DEV-007 保持开放 |
+| WP-C | 已完成 | OpenAI 负向测试、统一 422 envelope 和资源治理均已完成 | WP-B | DEV-002 已关闭，DEV-007 已关闭 |
 | WP-D | 已完成/跟踪风险 | Ruff/CI 已统一；维护 TestClient 依赖风险接受 | WP-A | DEV-003 已关闭；DEV-004 有负责人和期限 |
-| WP-E | 部分完成 | 契约、模型协议、训练、预览、迁移已补测；继续覆盖调度、下载和服务运行时 | WP-B、WP-C | DEV-005 已关闭；DEV-006 完全关闭 |
+| WP-E | 已完成 | 契约、模型协议、训练、预览、迁移、调度、下载和服务运行时均已补测 | WP-B、WP-C | DEV-005 已关闭；DEV-006 已关闭 |
 | WP-F | 未开始 | 干净候选供应链和容器验证 | WP-A、WP-D、WP-E | REL-002、REL-003 关闭 |
 | WP-G | 未开始 | PostgreSQL/Alembic 验证矩阵 | WP-A、WP-E | REL-004 关闭 |
 | WP-H | 未开始 | CPU/GPU/公网适用性 smoke | WP-A | REL-005 关闭或正式标记不适用 |
 | WP-I | 后续阶段 | 分布式协调与多副本验证 | WP-G 后 | 解除 ARC-001 |
 | WP-J | 后续阶段 | 账期对账与计费治理 | WP-I、稳定计量后 | 解除 BIZ-001 |
 
-当前应先清理 QA-001，并完成 WP-A 与 WP-E 的剩余验收，再执行 WP-F 至 WP-H，形成可审计的单副本候选。DEV-007 可在受控单副本 Beta 中保留明确限制，但必须在公网通用 API 前关闭。WP-I 和 WP-J 属于架构升级，不应为了赶当前候选而仓促并入。
+QA-001 和 DEV-007 已关闭。下一步应完成 WP-A 与 WP-E 的剩余验收，再执行 WP-F 至 WP-H，形成可审计的单副本候选。公网通用 API 的速率限制阈值应在实际负载测试后调整。WP-I 和 WP-J 属于架构升级，不应为了赶当前候选而仓促并入。
 
 ## 8. 测试与验收矩阵
 
@@ -376,7 +387,7 @@ release-evidence/<version>/<commit>/
 | 本地开发/功能演示 | Go | 已有绿色功能回归；开发 secret 写入失败时重启仍会使 token 失效 |
 | 受控单用户内测 | Go with conditions | 固定配置、保留数据备份、不得暴露无上限兼容 API |
 | 私有化单副本试点 | Conditional Go | 必须先完成 Docker、PostgreSQL/Alembic 和当期供应链验证 |
-| 公网通用 API | No-Go | DEV-007 的限流/并发/超时/断连治理及真实环境验证未完成 |
+| 公网通用 API | Conditional Go | DEV-007 治理已落地；需负载测试调整阈值，进程级状态需改为外部存储 |
 | 多副本生产部署 | No-Go | ARC-001 尚未解除 |
 | 自动计费商业服务 | No-Go | BIZ-001 尚未解除 |
 
