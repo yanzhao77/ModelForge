@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import install_empty_state
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -47,6 +48,10 @@ class SessionSidebar(QWidget, AsyncApiMixin):
         self.session_list.customContextMenuRequested.connect(self._show_menu)
         self.session_list.itemClicked.connect(self._on_clicked)
         layout.addWidget(self.session_list)
+        self._empty_toggle = install_empty_state(
+            self.session_list, "暂无会话", "点击“+ 新建对话”开始；会话与消息保存在本机服务。"
+        )[0]
+        self._empty_toggle(True)
 
     def _set_loading(self, loading):
         self._loading = loading
@@ -68,6 +73,7 @@ class SessionSidebar(QWidget, AsyncApiMixin):
             self.session_list.addItem(item)
             if session["id"] == self.current_session_id:
                 self.session_list.setCurrentItem(item)
+        self._empty_toggle(not sessions)
         self.status.setText(f"已同步 {len(sessions)} 个会话。")
 
     def _load_failed(self, error):

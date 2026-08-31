@@ -101,7 +101,7 @@ class TestClientStructure:
         src = open(path, encoding="utf-8").read()
         assert "class RunTimeline" in src
         assert "def _append_tool_summary" in src
-        assert "QPlainTextEdit" in src
+        assert "QTextBrowser" in src
         assert "class EventStreamWorker" in src
 
     def test_no_fake_thinking(self):

@@ -16,7 +16,6 @@ if str(APP) not in sys.path:
 
 from services.runtimes.openai_api_runtime import OpenAIRuntime
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

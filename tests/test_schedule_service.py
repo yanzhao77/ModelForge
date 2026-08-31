@@ -5,7 +5,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -14,11 +14,9 @@ APP = os.path.join(ROOT, "backend", "app")
 if APP not in sys.path:
     sys.path.insert(0, APP)
 
-from sqlalchemy.exc import IntegrityError
-
 from models.records import ScheduledJob, ScheduleExecution
 from services.schedule_service import ScheduleService
-
+from sqlalchemy.exc import IntegrityError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -393,7 +391,7 @@ class TestUpdateDraft:
         db = MagicMock()
         svc = _svc(db)
         job = _make_job(enabled=False)
-        result = svc.update_draft(job, {"name": "new-name", "max_failures": 10})
+        svc.update_draft(job, {"name": "new-name", "max_failures": 10})
         assert job.name == "new-name"
         assert job.max_failures == 10
         db.commit.assert_called_once()
@@ -535,9 +533,6 @@ class TestEnableDesired:
     def test_sets_enabled(self, mock_next_run):
         mock_next_run.return_value = datetime(2026, 1, 2, 0, 0)
         db = MagicMock()
-        job = _make_job(enabled=False, next_run_at=None)
-        result = ScheduleService(_svc(db).db if False else db).enable_desired(job)
-        # access svc through direct construction
         svc = ScheduleService(db)
         job2 = _make_job(enabled=False, next_run_at=None)
         svc.enable_desired(job2)
@@ -1029,7 +1024,7 @@ class TestRecordExecution:
         job = _make_job(failure_count=5)
         db = MagicMock()
         svc = ScheduleService(db)
-        result = svc.record_execution(job, "run_1", "triggered")
+        svc.record_execution(job, "run_1", "triggered")
         assert job.failure_count == 0
         db.add.assert_called_once()
         db.commit.assert_called_once()

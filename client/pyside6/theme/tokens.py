@@ -15,12 +15,14 @@ LIGHT = {
     "bg": "#F7F7F8", "surface": "#FFFFFF", "surface_subtle": "#FAFAFA",
     "hover": "#F1F1F2", "border": "rgba(0, 0, 0, 0.08)", "border_strong": "rgba(0, 0, 0, 0.14)",
     "text": "#18181B", "muted": "#71717A", "dim": "#A1A1AA", "accent": "#18181B",
-    "accent_fg": "#FFFFFF", "success": "#16A34A", "warning": "#D97706", "danger": "#DC2626", "selection": "#EDEDEF",
+    "accent_fg": "#FFFFFF", "success": "#16A34A", "warning": "#D97706", "danger": "#DC2626",
+    "info": "#2563EB", "selection": "#EDEDEF",
 }
 
 DARK = {
     "bg": "#0F0F10", "surface": "#18181B", "surface_subtle": "#202023",
     "hover": "#28282B", "border": "rgba(255, 255, 255, 0.08)", "border_strong": "rgba(255, 255, 255, 0.14)",
     "text": "#F4F4F5", "muted": "#A1A1AA", "dim": "#71717A", "accent": "#F4F4F5",
-    "accent_fg": "#18181B", "success": "#4ADE80", "warning": "#FBBF24", "danger": "#FB7185", "selection": "#2A2A2E",
+    "accent_fg": "#18181B", "success": "#4ADE80", "warning": "#FBBF24", "danger": "#FB7185",
+    "info": "#60A5FA", "selection": "#2A2A2E",
 }

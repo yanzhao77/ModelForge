@@ -3,5 +3,6 @@
   "settings.title": "Settings", "settings.general": "General", "settings.appearance": "Appearance", "settings.language": "Language", "settings.backend": "Service Connection", "settings.about": "About", "settings.theme": "Theme", "settings.display_language": "Display Language",
   "theme.light": "Light", "theme.dark": "Dark", "theme.system": "System",
   "action.refresh": "Refresh", "action.examples": "Examples", "action.manage": "Manage", "action.verify": "Verify Connection", "action.save": "Save", "action.delete": "Delete",
-  "status.connected": "Connected", "status.login_required": "Login Required", "footer.connecting": "Connecting to ModelForge Server…"
+  "status.connected": "Connected", "status.login_required": "Login Required", "footer.connecting": "Connecting to ModelForge Server…",
+  "footer.connected": "Connected to the ModelForge service", "footer.task_stream_connected": "Task updates connected", "footer.task_stream_reconnecting": "Reconnecting task updates…"
 }

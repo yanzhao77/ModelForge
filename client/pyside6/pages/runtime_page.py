@@ -104,7 +104,7 @@ class RuntimePage(QWidget, AsyncApiMixin):
             self.model_combo.setCurrentText(current)
         self.model_combo.blockSignals(False)
         self.status.setText(f"已同步 {len(models)} 个模型；运行时状态已刷新。")
-        self.connection.set_state("RUNTIME SYNCHRONIZED", "online")
+        self.connection.set_state("运行时已同步", "online")
         self.output.setPlainText(json.dumps(runtime, ensure_ascii=False, indent=2))
 
     def _refresh_failed(self, error):

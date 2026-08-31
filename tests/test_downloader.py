@@ -10,8 +10,6 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
-from models.records import DownloadTaskRecord
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -19,7 +17,7 @@ from models.records import DownloadTaskRecord
 
 def _make_task(task_id: str = "aa" * 16, **overrides) -> MagicMock:
     """Return a mock DownloadTaskRecord with sensible defaults."""
-    task = MagicMock(spec=DownloadTaskRecord)
+    task = MagicMock(spec=[])
     task.id = task_id
     task.user_id = overrides.get("user_id", 1)
     task.repo_id = overrides.get("repo_id", "owner/repo")
@@ -418,9 +416,11 @@ class TestSchedule:
         dl = Downloader()
         mock_loop = MagicMock()
         with patch("asyncio.get_running_loop", return_value=mock_loop), \
-             patch.object(dl, "_run", new_callable=AsyncMock):
+             patch.object(dl, "_run", new_callable=AsyncMock) as mock_run:
             dl._schedule("aa" * 16)
             mock_loop.create_task.assert_called_once()
+            mock_loop.create_task.call_args.args[0].close()
+            mock_run.assert_called_once_with("aa" * 16)
 
 
 # ---------------------------------------------------------------------------
@@ -447,12 +447,15 @@ class TestRun:
         from services.downloader import Downloader
 
         dl = Downloader()
-        with patch.object(dl, "_set_state", return_value=None) as mock_set:
-            await dl._run("aa" * 16)
-            mock_set.assert_called_once()
-            mock_set.assert_called_with(
-                "aa" * 16, status="RUNNING", progress=0, message="Download started"
-            )
+        calls = []
+        def fake_set_state(task_id, **kwargs):
+            calls.append((task_id, kwargs))
+            return None
+
+        dl._set_state = fake_set_state
+        await dl._run("aa" * 16)
+        assert len(calls) == 1
+        assert calls[0] == ("aa" * 16, {"status": "RUNNING", "progress": 0, "message": "Download started"})
 
     @pytest.mark.asyncio
     async def test_run_successful_download(self, _mock_hf):
@@ -460,23 +463,25 @@ class TestRun:
 
         task = _make_task()
         dl = Downloader()
-        with patch.object(dl, "_set_state", return_value=task) as mock_set, \
-             patch("services.downloader.settings") as mock_settings, \
+        calls = []
+
+        def fake_set_state(task_id, **kwargs):
+            calls.append((task_id, kwargs))
+            return task
+
+        dl._set_state = fake_set_state
+        with patch("services.downloader.settings") as mock_settings, \
              patch("services.downloader.Path") as mock_path_cls:
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path = MagicMock()
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=mock_path)
 
-            async def _fake_to_thread(func, *args, **kwargs):
-                return func(*args, **kwargs)
+            await dl._run("aa" * 16)
 
-            with patch("asyncio.to_thread", side_effect=_fake_to_thread):
-                await dl._run("aa" * 16)
-
-            statuses = [c.kwargs["status"] for c in mock_set.call_args_list]
+            statuses = [c[1]["status"] for c in calls]
             assert statuses == ["RUNNING", "RUNNING", "COMPLETED"]
-            assert mock_set.call_args_list[-1].kwargs["completed"] is True
+            assert calls[-1][1].get("completed") is True
 
     @pytest.mark.asyncio
     async def test_run_failed_download(self, _mock_hf):
@@ -484,8 +489,14 @@ class TestRun:
 
         task = _make_task()
         dl = Downloader()
-        with patch.object(dl, "_set_state", return_value=task) as mock_set, \
-             patch("services.downloader.settings") as mock_settings, \
+        calls = []
+
+        def fake_set_state(task_id, **kwargs):
+            calls.append((task_id, kwargs))
+            return task
+
+        dl._set_state = fake_set_state
+        with patch("services.downloader.settings") as mock_settings, \
              patch("services.downloader.Path") as mock_path_cls:
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
@@ -494,7 +505,7 @@ class TestRun:
             with patch("asyncio.to_thread", side_effect=Exception("download error")):
                 await dl._run("aa" * 16)
 
-        last = mock_set.call_args_list[-1].kwargs
+        last = calls[-1][1]
         assert last["status"] == "FAILED"
         assert last["error_code"] == "MODEL_DOWNLOAD_FAILED"
         assert last["completed"] is True
@@ -506,18 +517,15 @@ class TestRun:
 
         task = _make_task()
         dl = Downloader()
-        with patch.object(dl, "_set_state", return_value=task) as mock_set, \
-             patch("services.downloader.settings") as mock_settings, \
+        dl._set_state = lambda task_id, **kwargs: task
+
+        with patch("services.downloader.settings") as mock_settings, \
              patch("services.downloader.Path") as mock_path_cls:
             mock_settings.hf_endpoint = "https://my-mirror.com"
             mock_settings.model_dir = "./models"
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=MagicMock())
 
-            async def _fake_to_thread(func, *args, **kwargs):
-                return func(*args, **kwargs)
-
-            with patch("asyncio.to_thread", side_effect=_fake_to_thread):
-                await dl._run("aa" * 16)
+            await dl._run("aa" * 16)
 
         assert os.environ.get("HF_ENDPOINT") == "https://my-mirror.com"
 
@@ -527,20 +535,17 @@ class TestRun:
 
         task = _make_task()
         dl = Downloader()
-        with patch.object(dl, "_set_state", return_value=task), \
-             patch("services.downloader.settings") as mock_settings, \
+        dl._set_state = lambda task_id, **kwargs: task
+
+        with patch("services.downloader.settings") as mock_settings, \
              patch("services.downloader.Path") as mock_path_cls:
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=MagicMock())
 
-            async def _fake_to_thread(func, *args, **kwargs):
-                return func(*args, **kwargs)
-
-            with patch("asyncio.to_thread", side_effect=_fake_to_thread):
-                with patch("os.environ", {}) as mock_env:
-                    await dl._run("aa" * 16)
-                    assert "HF_ENDPOINT" not in mock_env
+            with patch("os.environ", {}) as mock_env:
+                await dl._run("aa" * 16)
+                assert "HF_ENDPOINT" not in mock_env
 
     @pytest.mark.asyncio
     async def test_run_passes_filename_as_allow_patterns(self, _mock_hf):
@@ -548,19 +553,18 @@ class TestRun:
 
         task = _make_task(filename="model.gguf")
         dl = Downloader()
-        with patch.object(dl, "_set_state", return_value=task), \
-             patch("services.downloader.settings") as mock_settings, \
+        dl._set_state = lambda task_id, **kwargs: task
+
+        with patch("services.downloader.settings") as mock_settings, \
              patch("services.downloader.Path") as mock_path_cls:
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=MagicMock())
 
-            async def _fake_to_thread(func, *args, **kwargs):
-                return func(*args, **kwargs)
+            await dl._run("aa" * 16)
 
-            with patch("asyncio.to_thread", side_effect=_fake_to_thread) as mock_thread:
-                await dl._run("aa" * 16)
-                assert mock_thread.call_args.kwargs.get("allow_patterns") == ["model.gguf"]
+            _mock_hf.snapshot_download.assert_called_once()
+            assert _mock_hf.snapshot_download.call_args.kwargs.get("allow_patterns") == ["model.gguf"]
 
     @pytest.mark.asyncio
     async def test_run_no_filename_no_allow_patterns(self, _mock_hf):
@@ -568,19 +572,18 @@ class TestRun:
 
         task = _make_task(filename=None)
         dl = Downloader()
-        with patch.object(dl, "_set_state", return_value=task), \
-             patch("services.downloader.settings") as mock_settings, \
+        dl._set_state = lambda task_id, **kwargs: task
+
+        with patch("services.downloader.settings") as mock_settings, \
              patch("services.downloader.Path") as mock_path_cls:
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=MagicMock())
 
-            async def _fake_to_thread(func, *args, **kwargs):
-                return func(*args, **kwargs)
+            await dl._run("aa" * 16)
 
-            with patch("asyncio.to_thread", side_effect=_fake_to_thread) as mock_thread:
-                await dl._run("aa" * 16)
-                assert "allow_patterns" not in mock_thread.call_args.kwargs
+            _mock_hf.snapshot_download.assert_called_once()
+            assert "allow_patterns" not in _mock_hf.snapshot_download.call_args.kwargs
 
     @pytest.mark.asyncio
     async def test_run_repo_id_slash_replaced(self, _mock_hf):
@@ -588,19 +591,16 @@ class TestRun:
 
         task = _make_task(repo_id="org/model-name")
         dl = Downloader()
-        with patch.object(dl, "_set_state", return_value=task), \
-             patch("services.downloader.settings") as mock_settings, \
+        dl._set_state = lambda task_id, **kwargs: task
+
+        with patch("services.downloader.settings") as mock_settings, \
              patch("services.downloader.Path") as mock_path_cls:
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             div = mock_path_cls.return_value.__truediv__
             div.return_value = MagicMock()
 
-            async def _fake_to_thread(func, *args, **kwargs):
-                return func(*args, **kwargs)
-
-            with patch("asyncio.to_thread", side_effect=_fake_to_thread):
-                await dl._run("aa" * 16)
+            await dl._run("aa" * 16)
             div.assert_called_with("org_model-name")
 
     @pytest.mark.asyncio
@@ -609,19 +609,16 @@ class TestRun:
 
         task = _make_task()
         dl = Downloader()
+        dl._set_state = lambda task_id, **kwargs: task
         mock_target = MagicMock()
-        with patch.object(dl, "_set_state", return_value=task), \
-             patch("services.downloader.settings") as mock_settings, \
+
+        with patch("services.downloader.settings") as mock_settings, \
              patch("services.downloader.Path") as mock_path_cls:
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=mock_target)
 
-            async def _fake_to_thread(func, *args, **kwargs):
-                return func(*args, **kwargs)
-
-            with patch("asyncio.to_thread", side_effect=_fake_to_thread):
-                await dl._run("aa" * 16)
+            await dl._run("aa" * 16)
             mock_target.mkdir.assert_called_once()
             assert mock_target.mkdir.call_args.kwargs.get("parents") is True
             assert mock_target.mkdir.call_args.kwargs.get("exist_ok") is True
@@ -633,12 +630,12 @@ class TestRun:
 
 class TestGetDownloader:
     def test_get_downloader_returns_singleton(self):
-        from services.downloader import get_downloader, downloader
+        from services.downloader import downloader, get_downloader
 
         assert get_downloader() is downloader
 
     def test_downloader_is_downloader_class(self):
-        from services.downloader import downloader, Downloader
+        from services.downloader import Downloader, downloader
 
         assert isinstance(downloader, Downloader)
 

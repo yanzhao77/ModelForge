@@ -7,7 +7,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helper: ensure heavy third-party modules are never actually imported
 # ---------------------------------------------------------------------------
@@ -28,7 +27,6 @@ def _patch_modules():
 # Import the module under test (lazy imports inside methods are mocked at call time)
 # ---------------------------------------------------------------------------
 from services.runtimes.local_runtime import LocalRuntime  # noqa: E402
-
 
 # ====== __init__ ===========================================================
 
@@ -284,7 +282,7 @@ class TestChatGGUF:
         self.rt._model = mock_llama_instance
         self.rt._is_gguf = True
         messages = [{"role": "user", "content": "test"}]
-        result = await self.rt.chat("model.gguf", messages, max_new_tokens=512, temperature=0.2)
+        await self.rt.chat("model.gguf", messages, max_new_tokens=512, temperature=0.2)
 
         _, kwargs = mock_llama_instance.call_args
         assert kwargs["max_tokens"] == 512

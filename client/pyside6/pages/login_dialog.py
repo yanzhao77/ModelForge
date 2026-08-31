@@ -44,7 +44,7 @@ class LoginDialog(QDialog, AsyncApiMixin):
         root.addWidget(subtitle)
         self.backend = QLabel("服务状态：正在检查本地服务")
         self.backend.setProperty("status", "warning")
-        self.backend.setToolTip(self.api.base_url)
+        self.backend.setToolTip(str(self.api.base_url))
         self.backend.setAccessibleName("服务端连接状态")
         self.backend.setAlignment(Qt.AlignCenter)
         root.addWidget(self.backend)

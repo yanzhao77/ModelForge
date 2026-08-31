@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import install_empty_state
 from i18n.ui_localizer import current, format_api_error, text
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -27,7 +28,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         self.api = api
         layout = QVBoxLayout(self)
         title = QLabel("控制中心")
-        title.setObjectName("pageTitle")
+        title.setProperty("role", "pageTitle")
         layout.addWidget(title)
         hint = QLabel("管理记忆、运行产物、知识集合、插件配置与模型洞察。页面不会启动模型、运行 Agent 或安装扩展。")
         hint.setWordWrap(True)
@@ -40,6 +41,16 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         self.insight_list = QListWidget()
         self.database_list = QListWidget()
         self.audit_list = QListWidget()
+        self._empty_toggles = {
+            self.memory_list: install_empty_state(self.memory_list, "暂无记忆", "新建记忆后，跨会话记忆条目将显示在这里。")[0],
+            self.artifact_list: install_empty_state(self.artifact_list, "暂无运行产物", "训练与运行产生的脱敏产物将显示在这里。")[0],
+            self.collection_list: install_empty_state(self.collection_list, "暂无知识集合", "新建集合并归类知识文档后显示在这里。")[0],
+            self.profile_list: install_empty_state(self.profile_list, "暂无插件/MCP 配置档", "创建插件或 MCP 配置档后显示在这里。")[0],
+            self.insight_list: install_empty_state(self.insight_list, "尚无调用指标", "发生模型调用后，脱敏聚合指标将显示在这里。")[0],
+            self.database_list: install_empty_state(self.database_list, "暂无诊断输出", "运行只读迁移预检或诊断后显示在这里。")[0],
+            self.audit_list: install_empty_state(self.audit_list, "暂无操作审计记录", "控制面操作发生审计事件后显示在这里。")[0],
+        }
+        self._tab_buttons: dict = {}
         self._memories: list[dict] = []
         self._artifacts: list[dict] = []
         self._collections: list[dict] = []
@@ -59,23 +70,38 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         layout.addWidget(self.refresh_button)
         self.refresh()
 
+    # Buttons that operate on a selected row must stay disabled without one.
+    _SELECTION_ACTIONS = {"编辑所选记忆", "删除所选记忆", "查看所选产物", "删除所选产物", "归类现有文档", "管理所选集合", "预览所选配置档", "删除所选配置档"}
+
     def _tab(self, target, action_text, callback, secondary_text=None, secondary_callback=None, tertiary_text=None, tertiary_callback=None):
         page = QWidget()
         layout = QVBoxLayout(page)
-        if callback:
-            button = QPushButton(action_text)
-            button.clicked.connect(callback)
+        buttons = []
+        for btn_text, btn_callback in (
+            (action_text, callback),
+            (secondary_text, secondary_callback),
+            (tertiary_text, tertiary_callback),
+        ):
+            if not btn_callback:
+                continue
+            button = QPushButton(btn_text)
+            button.clicked.connect(btn_callback)
+            if btn_text in self._SELECTION_ACTIONS:
+                button.setEnabled(False)
+                buttons.append(button)
             layout.addWidget(button)
-        if secondary_callback:
-            button = QPushButton(secondary_text)
-            button.clicked.connect(secondary_callback)
-            layout.addWidget(button)
-        if tertiary_callback:
-            button = QPushButton(tertiary_text)
-            button.clicked.connect(tertiary_callback)
-            layout.addWidget(button)
+        if buttons:
+            self._tab_buttons[target] = buttons
+            target.itemSelectionChanged.connect(
+                lambda target=target, buttons=buttons: self._sync_tab_actions(target, buttons)
+            )
         layout.addWidget(target, 1)
         return page
+
+    def _sync_tab_actions(self, target, buttons) -> None:
+        has_selection = bool(target.currentItem())
+        for button in buttons:
+            button.setEnabled(has_selection)
 
     def refresh(self):
         self.refresh_button.setEnabled(False)
@@ -103,10 +129,14 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
         self._budget_status = insight_data.get("budget_status") or {}
         self._fill(self.insight_list, [f"{item.get('model_ref')} · 成功 {item.get('success_count')}/{item.get('request_count')} · 失败 {item.get('error_count', 0)}（429={item.get('error_429_count', 0)} / 超时={item.get('timeout_count', 0)}）· 平均延迟 {item.get('average_latency_ms') or '—'} ms · 估算成本 {item.get('cost_estimate', 0)}" for item in insight_data.get("insights", [])], "尚无脱敏聚合调用指标。")
 
-    @staticmethod
-    def _fill(target, lines, empty):
+    def _fill(self, target, lines, empty):
         target.clear()
-        target.addItems(lines or [empty])
+        has_rows = bool(lines)
+        if has_rows:
+            target.addItems(lines)
+        toggle = self._empty_toggles.get(target)
+        if toggle is not None:
+            toggle(not has_rows)
 
     @staticmethod
     def _tr(source: str, **values) -> str:

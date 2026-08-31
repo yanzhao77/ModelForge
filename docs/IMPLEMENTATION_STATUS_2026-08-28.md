@@ -20,9 +20,10 @@
 | 项目 API | `pytest -q tests/test_api_platform_v2.py` | 3 passed，覆盖密钥撤销、项目绑定、幂等、账本和配额拒绝。 |
 | 依赖漏洞与 SBOM | `pip-audit -r requirements.txt`；CycloneDX JSON | 未发现已知漏洞；已在验证环境生成 SBOM。 |
 | 服务端编排 | `docker compose -f docker-compose.server.yml config`（使用仅校验用环境变量） | 通过；生产密钥变量缺失时会故意拒绝渲染。 |
+| Docker 端到端启动验证（2026-08-30 本机补验） | 本机 Docker Desktop（WSL2，engine 29.7.2）构建 `modelforge:server` 并以 `docker-compose.server.yml` 启动 PostgreSQL 16 全链；冒烟 `/healthz`、注册/登录（JWT）→ `/auth/me` → 会话创建与列表 → 模型列表，并直查 PostgreSQL 落库与 `alembic_version` | 通过；`postgres` healthy、`migrate` 退出码 0（版本 `0002_api_platform`）、`volume-init` 退出码 0、`app` healthy；`/api/v2` 未认证请求被 401 拦截；生产 CORS 校验按预期拒绝 `http://` 源后以 HTTPS 源通过。基础镜像因 docker.io 不可直连经 `docker.m.daocloud.io` 拉取后重打标签。 |
 
 ## 发布决策与已知边界
 
-当前变更满足本地 SQLite 档与受控单副本服务端试点的代码级准入条件。容器镜像在当前验证环境构建超过 90 秒且没有输出，已主动终止；因此 **Docker 端到端启动验证尚未完成**，CI 仍应在干净执行器上继续承担该门禁。
+当前变更满足本地 SQLite 档与受控单副本服务端试点的代码级准入条件。2026-08-28 记录的 Docker 端到端缺口（容器镜像构建超时主动终止）已于 **2026-08-30 在本机完成补验并通过**（环境：Windows 10 + Docker Desktop WSL2；过程与结论见上表"验证证据"），CI 仍应在干净执行器上继续承担该门禁。
 
 PostgreSQL 服务端档要求先运行 Alembic，随后才允许应用启动。未引入外部队列或 Pub/Sub 前，服务端部署仍应固定为单应用副本；SSE 的数据库 cursor 保持权威，进程内 EventBus 仅为单副本加速通知。`trial-v1` 用量账本支持配额、用量导出和人工对账，不应在完成一个账期对账与多副本压测前接入自动支付。

@@ -1,8 +1,15 @@
 """Reusable widgets for the ModelForge Future AI Workstation."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class MFPanel(QFrame):
@@ -89,3 +96,36 @@ class MFEmptyState(MFPanel):
         detail_label.setWordWrap(True)
         self.layout.addWidget(title_label)
         self.layout.addWidget(detail_label)
+
+
+class _EmptyStateWatcher(QObject):
+    """Keeps an MFEmptyState overlay sized to its host view's viewport."""
+
+    def __init__(self, view: QAbstractItemView, overlay: MFEmptyState):
+        super().__init__(view)
+        self._view = view
+        self._overlay = overlay
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if obj is self._view.viewport() and event.type() == QEvent.Resize:
+            self._overlay.setGeometry(self._view.viewport().rect())
+        return False
+
+
+def install_empty_state(view: QAbstractItemView, title: str, detail: str):
+    """Overlay an MFEmptyState on a list/table; returns a set_empty(bool) toggle.
+
+    The view stays in its existing layout; the overlay lives in the viewport,
+    so callers only flip visibility when data arrives.
+    """
+    overlay = MFEmptyState(title, detail, view.viewport())
+    overlay.hide()
+    watcher = _EmptyStateWatcher(view, overlay)
+    view._mf_empty_overlay = overlay
+
+    def set_empty(empty: bool) -> None:
+        overlay.setGeometry(view.viewport().rect())
+        overlay.setVisible(empty)
+
+    return set_empty, watcher

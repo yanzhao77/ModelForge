@@ -3,7 +3,7 @@ from __future__ import annotations
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
-from i18n.ui_localizer import format_api_error
+from i18n.ui_localizer import format_api_error, format_text
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
@@ -100,7 +100,7 @@ class ChatPage(QWidget, AsyncApiMixin):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
         header = QHBoxLayout()
-        header.addWidget(MFSection("对话", "聊天"))
+        header.addWidget(MFSection("会话工作区", "对话"))
         header.addStretch(1)
         self.chat_status = MFStatusBadge("未选择模型", "warning")
         header.addWidget(self.chat_status)
@@ -194,13 +194,15 @@ class ChatPage(QWidget, AsyncApiMixin):
         if provider:
             self.model_input.setText(provider["default_model"])
             self.load_btn.setText("使用远程服务")
-            self.chat_status.set_state(f"远程模型已就绪：{provider['name']}", "online")
+            self.chat_status.set_state(format_text("已选择 {name}", name=provider["name"]), "online")
         else:
             self.load_btn.setText("使用模型")
             self.chat_status.set_state("未选择模型", "warning")
         self._set_composer_enabled()
 
     def _render_readiness(self, snapshot: dict) -> None:
+        if not isinstance(snapshot, dict):
+            return
         self._model_ready = snapshot.get("level") == "READY"
         target = snapshot.get("default_target")
         if target and not self.model_input.text().strip():

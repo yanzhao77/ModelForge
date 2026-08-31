@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import install_empty_state
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -25,7 +26,7 @@ class ExtensionsPage(QWidget, AsyncApiMixin):
         self._plugins: list[dict] = []
         layout = QVBoxLayout(self)
         title = QLabel("扩展治理")
-        title.setObjectName("pageTitle")
+        title.setProperty("role", "pageTitle")
         layout.addWidget(title)
         note = QLabel("页面只显示已加载扩展。健康检查和生命周期变更均需管理员显式点击；操作前会显示依赖、工具与影响范围。")
         note.setWordWrap(True)
@@ -34,23 +35,38 @@ class ExtensionsPage(QWidget, AsyncApiMixin):
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self._render_detail)
         body.addWidget(self.list, 1)
+        self._empty_toggle = install_empty_state(
+            self.list, "尚无已加载扩展", "此页面不会自动发现、加载或安装扩展；管理员显式操作后显示在这里。"
+        )[0]
+        self._empty_toggle(True)
         side = QVBoxLayout()
         self.detail = QLabel("选择已加载扩展查看详情。")
         self.detail.setWordWrap(True)
         side.addWidget(self.detail, 1)
         self.health_button = QPushButton("检查健康状态")
         self.health_button.clicked.connect(self._health)
+        self.health_button.setEnabled(False)
         side.addWidget(self.health_button)
+        self._lifecycle_buttons = []
         for label, action in (("启动扩展", "start"), ("停止扩展", "stop"), ("挂载扩展", "mount"), ("卸载挂载", "unmount"), ("卸载扩展", "unload")):
             button = QPushButton(label)
             button.clicked.connect(lambda _checked=False, value=action: self._confirm_action(value))
+            button.setEnabled(False)
             side.addWidget(button)
+            self._lifecycle_buttons.append(button)
         self.refresh_button = QPushButton("刷新已加载扩展")
         self.refresh_button.clicked.connect(self.refresh)
         side.addWidget(self.refresh_button)
         body.addLayout(side, 2)
         layout.addLayout(body, 1)
         self.refresh()
+
+    def _sync_selection_actions(self) -> None:
+        """Lifecycle actions require a selected loaded extension."""
+        has_selection = self._selected() is not None
+        self.health_button.setEnabled(has_selection)
+        for button in self._lifecycle_buttons:
+            button.setEnabled(has_selection)
 
     def _selected(self) -> dict | None:
         item = self.list.currentItem()
@@ -80,11 +96,13 @@ class ExtensionsPage(QWidget, AsyncApiMixin):
             item = QListWidgetItem(f"{plugin.get('name')} · {plugin.get('status')} · {plugin.get('version', '—')}")
             item.setData(Qt.ItemDataRole.UserRole, plugin)
             self.list.addItem(item)
+        self._empty_toggle(not self._plugins)
         if not self._plugins:
             self.detail.setText("尚无已加载扩展。此页面不会自动发现、加载或安装扩展。")
 
     def _render_detail(self) -> None:
         plugin = self._selected()
+        self._sync_selection_actions()
         if not plugin:
             return
         self.detail.setText("\n".join([

@@ -1,3 +1,5 @@
+"""Layout metrics for the responsive desktop application shell."""
+
 SIDEBAR_WIDTH = 236
 SIDEBAR_COLLAPSED_WIDTH = 64
 TOPBAR_HEIGHT = 68
