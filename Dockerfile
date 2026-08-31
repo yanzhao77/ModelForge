@@ -13,8 +13,9 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install (lightweight: no requirements-ai.txt)
+# psycopg2-binary is required by SQLAlchemy's PostgreSQL dialect (psycopg v3 alone is not enough)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt psycopg2-binary
 
 # Copy application code (data/models/logs are gitignored and skipped by .dockerignore)
 COPY . .
