@@ -247,12 +247,12 @@ jobs:
             -e MODELFORGE_ENV="$MODELFORGE_ENV" \
             -e CORS_ALLOW_ORIGINS="https://console.example.test" \
             modelforge:rc-${{ github.sha }}
-          trap 'docker logs "$CONTAINER" || true; docker rm -f "$CONTAINER" || true' EXIT
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/healthz; then exit 0; fi
             sleep 5
           done
           echo "FAIL: /healthz not reachable after 150s"
+          docker logs "$CONTAINER" || true
           exit 1
       - name: Verify API smoke (register, login, /auth/me)
         run: |
