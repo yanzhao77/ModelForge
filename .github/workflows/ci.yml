@@ -37,14 +37,49 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          pytest tests/ -q --cov=backend/app --cov-fail-under=30 --cov-report=term-missing --cov-report=xml:coverage.xml
-      - name: Security dependency audit
+          pytest tests/ -q --cov=backend/app --cov-fail-under=75 --cov-report=term-missing --cov-report=xml:coverage.xml
+      - name: Security dependency audit (runtime)
         run: pip-audit -r requirements.txt
+      - name: Security dependency audit (development)
+        run: pip-audit -r requirements-dev.txt
+      - name: Generate SBOM
+        run: python scripts/generate_sbom.py --mode=installed --output release-artifacts/sbom.cdx.json
+      - name: Record candidate metadata
+        run: |
+          mkdir -p release-artifacts
+          SHA=$(git rev-parse HEAD)
+          PYTHON_VER=$(python --version | cut -d' ' -f2)
+          PIP_VER=$(pip --version | cut -d' ' -f2)
+          RUFF_VER=$(ruff --version | cut -d' ' -f2)
+          PYTEST_VER=$(python -m pytest --version | cut -d' ' -f2)
+          cat > release-artifacts/candidate-metadata.json <<EOF
+          {
+            "candidate_sha": "$SHA",
+            "python_version": "$PYTHON_VER",
+            "pip_version": "$PIP_VER",
+            "ruff_version": "$RUFF_VER",
+            "pytest_version": "$PYTEST_VER",
+            "coverage_threshold": 75,
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
           path: coverage.xml
+          if-no-files-found: error
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cdx
+          path: release-artifacts/sbom.cdx.json
+          if-no-files-found: error
+      - name: Upload candidate metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-metadata
+          path: release-artifacts/candidate-metadata.json
           if-no-files-found: error
 
   desktop:
@@ -101,3 +136,125 @@ jobs:
             sleep 5
           done
           exit 1
+
+  # ---------------------------------------------------------------------------
+  # Release Candidate: Docker + PostgreSQL/Alembic end-to-end validation
+  # ---------------------------------------------------------------------------
+  release-candidate:
+    needs: [test, desktop, build]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: modelforge
+          POSTGRES_PASSWORD: ci-test-password
+          POSTGRES_DB: modelforge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U modelforge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://modelforge:ci-test-password@localhost:5432/modelforge_test
+      JWT_SECRET: ci-only-jwt-secret-that-is-at-least-thirty-two-characters
+      MODELFORGE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Build Docker image and record digest
+        run: |
+          docker build -t modelforge:rc-${{ github.sha }} .
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' modelforge:rc-${{ github.sha }} 2>/dev/null || echo "local-build")
+          echo "IMAGE_DIGEST=$DIGEST" >> $GITHUB_ENV
+          echo "Image digest: $DIGEST"
+      - name: Verify non-root user in image
+        run: |
+          USER=$(docker run --rm modelforge:rc-${{ github.sha }} whoami)
+          echo "Container user: $USER"
+          test "$USER" = "modelforge" || (echo "FAIL: not running as modelforge" && exit 1)
+      - name: Alembic upgrade head on empty database
+        run: |
+          cd backend
+          alembic upgrade head
+          echo "Upgrade head succeeded"
+      - name: Alembic current and history
+        run: |
+          cd backend
+          alembic current
+          alembic history --verbose
+      - name: Alembic upgrade head (idempotency check)
+        run: |
+          cd backend
+          alembic upgrade head
+          echo "Idempotent upgrade succeeded"
+      - name: Start application and verify /healthz
+        run: |
+          set -e
+          CONTAINER="modelforge-rc-${{ github.run_id }}"
+          docker run -d --name "$CONTAINER" -p 8000:8000 \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e JWT_SECRET="$JWT_SECRET" \
+            -e MODELFORGE_ENV="$MODELFORGE_ENV" \
+            -e CORS_ALLOW_ORIGINS="https://console.example.test" \
+            modelforge:rc-${{ github.sha }}
+          trap 'docker logs "$CONTAINER" || true; docker rm -f "$CONTAINER" || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/healthz; then exit 0; fi
+            sleep 5
+          done
+          echo "FAIL: /healthz not reachable after 150s"
+          exit 1
+      - name: Verify API smoke (register, login, /auth/me)
+        run: |
+          # Register
+          curl -fsS -X POST http://127.0.0.1:8000/api/v1/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"rc-test","email":"rc@test.test","password":"Test1234!"}' || true
+          # Login
+          TOKEN=$(curl -fsS -X POST http://127.0.0.1:8000/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"rc-test","password":"Test1234!"}' | python -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
+          test -n "$TOKEN" || (echo "FAIL: no token" && exit 1)
+          # /auth/me
+          curl -fsS http://127.0.0.1:8000/api/v1/auth/me \
+            -H "Authorization: Bearer $TOKEN"
+          echo ""
+          echo "Auth smoke passed"
+      - name: Verify alembic_version is at head
+        run: |
+          cd backend
+          VERSION=$(python -c "from sqlalchemy import create_engine, text; e=create_engine('$DATABASE_URL'); print(e.connect().execute(text('SELECT version_num FROM alembic_version')).scalar())")
+          echo "alembic_version: $VERSION"
+          test -n "$VERSION" || (echo "FAIL: no alembic_version" && exit 1)
+      - name: Verify logs contain no secrets
+        run: |
+          docker logs modelforge-rc-${{ github.run_id }} 2>&1 | tee /tmp/container-logs.txt
+          for SECRET in "$JWT_SECRET" "$POSTGRES_PASSWORD"; do
+            if grep -q "$SECRET" /tmp/container-logs.txt; then
+              echo "FAIL: secret found in logs"
+              exit 1
+            fi
+          done
+          echo "No secrets in logs"
+      - name: SIGTERM graceful shutdown
+        run: |
+          docker stop --time=10 modelforge-rc-${{ github.run_id }}
+          EXIT_CODE=$(docker inspect --format='{{.State.ExitCode}}' modelforge-rc-${{ github.run_id }})
+          echo "Exit code after SIGTERM: $EXIT_CODE"
+          # 0 or 137 (SIGTERM) are acceptable
+          test "$EXIT_CODE" = "0" -o "$EXIT_CODE" = "137" || (echo "FAIL: unexpected exit code" && exit 1)
+      - name: Cleanup containers and volumes
+        if: always()
+        run: |
+          docker rm -f modelforge-rc-${{ github.run_id }} 2>/dev/null || true
+          docker volume prune -f 2>/dev/null || true

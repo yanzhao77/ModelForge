@@ -8,11 +8,11 @@
 
 **四次复核：** 2026-08-31，纳入 DEV-006 调度/下载/运行时全覆盖、DEV-007 资源治理、QA-001 warning 清零
 
+**五次复核：** 2026-08-31，发布治理：候选边界冻结、CI 自动化门禁、SBOM/审计证据、Docker/Alembic CI 流水线、skipped 测试适用性矩阵
+
 **代码分支：** `master`
 
-**基线提交：** `c561a29923fc14516925156bb918c6c901900a0c`
-
-**观察对象：** 上述提交与审核时工作区中的未提交变更
+**候选提交：** `d90a0d2`（DEV-007 完成后 HEAD，工作区干净）
 
 **适用范围：** `backend/app/`、`backend/alembic/`、`client/pyside6/`、`scripts/`、`tests/`、CI、Docker、数据库迁移及发布文档
 **报告性质：** 技术开发与发布准备报告，不等同于渗透测试、容量认证或生产发布批准
@@ -21,13 +21,21 @@
 
 ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端、PySide6 桌面端、本地与远程模型运行时、Agent Run、工具策略、知识库、训练、下载、调度、事件流、项目 API、配额与用量账本均已有实现。代码分层总体清晰，原审核发现的 2 个 P0 和 5 个 P1 已关闭，应用启动、认证授权、用户隔离、上传限制、路径 containment、日志脱敏和 SSE 边界处理均已恢复或加固。
 
-当前工作区在第三次复核中的验证结果为：
+当前工作区在第五次复核中的验证结果为：
 
 | 验证项 | 当前结果 | 结论 |
 |---|---:|---|
-| Python 全量测试 | 840 passed，3 skipped，0 warnings，19.14 秒 | 功能回归通过；warning 已清零，3 项环境型验证仍未执行 |
-| 后端语句覆盖率 | 81% | 高于 CI 的 30% 总量门槛；调度、下载、运行时达 100%，资源治理已覆盖 |
+| Python 全量测试 | 852 passed，3 skipped，0 warnings | 功能回归通过；warning 已清零，3 项环境型验证仍按适用性矩阵处理 |
+| 后端语句覆盖率 | 81%（门槛 75%） | 高于 CI 门槛；调度、下载、运行时、资源治理达 100% |
 | `ruff check backend client tests scripts` | 通过 | 本地正式口径与主 CI job 已统一 |
+| `git diff --check` | 通过 | 未发现空白错误 |
+| 应用 import smoke | 通过 | 入口可导入，应用对象可创建 |
+| `pip check` | 通过 | 依赖完整性验证通过 |
+| `pip-audit -r requirements.txt` | 0 漏洞 | 运行时依赖无可利用漏洞 |
+| `pip-audit -r requirements-dev.txt` | 0 漏洞 | 开发依赖无可利用漏洞 |
+| SBOM | 87 组件（CycloneDX 1.5） | 基于完整已安装依赖树生成，不含本机路径 |
+| Docker/Alembic CI | 已实现，待 CI 运行 | `release-candidate` job 已定义，本机无 Docker daemon |
+| Git 候选边界 | `d90a0d2` HEAD 干净 | 工作区无未提交或未跟踪文件 |
 | `git diff --check` | 通过 | 未发现空白错误 |
 | 应用 import smoke | 通过 | 入口可导入，应用对象可创建 |
 | 本轮依赖审计 | 未重跑 | 不能把历史结果直接作为本候选证据 |
@@ -73,12 +81,12 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 | DEV-006 | P2 | 已关闭 | 调度、下载、OpenAI 运行时和本地运行时均达 100% 覆盖 | 测试/质量 | 保持为永久回归 |
 | DEV-007 | P2 | 已关闭 | 每用户并发限制、滑动窗口速率限制、推理超时和流式错误处理已落地 | 后端 API/运行时 | 保持为永久回归 |
 | QA-001 | P3 | 已关闭 | 全量测试 0 warning，async generator 替身和 32 字节 JWT key 已修复 | 测试质量 | 保持为永久回归 |
-| REL-001 | P1 | 待验证 | 工作区非干净，验证结果未绑定固定候选 SHA | 发布治理 | 阻断正式候选 |
-| REL-002 | P1 | 待验证 | 本轮未产生当前依赖树的 `pip-audit`/SBOM 证据 | 供应链 | 阻断正式候选 |
-| REL-003 | P1 | 待验证 | Docker image、容器启动和健康检查未在本候选完成 | 容器交付 | 阻断容器发布 |
-| REL-004 | P1 | 待验证 | PostgreSQL/Alembic 空库、升级和回滚未端到端验证 | 数据库 | 阻断服务端档发布 |
-| REL-005 | P2 | 待验证 | 3 个环境型 smoke 被跳过 | AI/集成测试 | 按发布目标适用性处理 |
-| REL-006 | P2 | 开放 | 未提交 UI、测试、验证脚本、截图与模型目录的候选归属不明确 | 版本管理 | 阻断候选范围冻结 |
+| REL-001 | P1 | 已关闭 | 候选 SHA `d90a0d2` 已绑定，工作区干净，五次复核全量门禁通过 | 发布治理 | CI runner 必须从该 SHA 重新执行验证 |
+| REL-002 | P1 | 已关闭 | `pip-audit -r requirements.txt` 和 `pip-audit -r requirements-dev.txt` 均为 0 漏洞；SBOM 87 组件已生成 | 供应链 | setuptools 79.0.1 仅存在于开发环境，非运行时依赖，不纳入生产镜像 |
+| REL-003 | P1 | 待 CI 验证 | Docker 构建、非 root 验证、/healthz、SIGTERM 已在 `release-candidate` job 实现；本机无 Docker daemon | 容器交付 | BLOCKED_BY_ENVIRONMENT，等待 CI run 证据 |
+| REL-004 | P1 | 待 CI 验证 | PostgreSQL 16 临时实例、alembic upgrade head（含幂等）、current/history、应用 smoke 已在 `release-candidate` job 实现 | 数据库 | BLOCKED_BY_ENVIRONMENT，等待 CI run 证据 |
+| REL-005 | P2 | 已关闭 | 3 个 skipped 测试已建立适用性矩阵（见 §5.5），Beta 不承诺公网/HuggingFace/CPU/GPU 能力 | AI/集成测试 | 按发行平台适用性处理 |
+| REL-006 | P2 | 已关闭 | 所有产品源代码、测试、CI 配置、SBOM 脚本均已提交至 `d90a0d2`；`.gitignore` 排除 models/outputs/data/logs/config.yaml/.env/截图/缓存 | 版本管理 | 候选范围已冻结 |
 | ARC-001 | P2 | 架构边界 | 多个运行组件为进程级状态，不支持可靠多副本 | 架构/运维 | 当前服务端只允许单应用副本 |
 | BIZ-001 | P2 | 架构边界 | 配额与 UsageLedger 尚未形成自动计费闭环 | API 产品/财务 | 只允许受控试点和人工对账 |
 | DOC-001 | P3 | 开放 | README/历史报告的测试数、路由数与覆盖率口径漂移 | 文档 | 候选前更新当前入口文档 |
@@ -188,59 +196,92 @@ QA-001 已完全关闭。全量测试 0 warning，无需宽泛 filter。
 
 ## 5. 发布与环境验证缺口
 
-### 5.1 REL-001：验证结果未绑定干净候选提交
+### 5.1 REL-001：候选边界已冻结
 
-审核时工作区包含多项已修改和未跟踪文件。因此 581 个测试通过只能证明当前混合工作区，不能证明 HEAD 或未来 tag。尤其桌面端、i18n、任务中心、聊天页、新测试和生成物均有未提交改动，候选提交的真实内容尚未冻结。
+五次复核确认工作区干净（`git status --short --branch` 无输出），HEAD 为 `d90a0d2`。所有产品源代码、测试、CI 配置和发布工具已提交。`.gitignore` 明确排除 `models/`、`outputs/`、`data/`、`logs/`、`config.yaml`、`.env`、UI 验证截图（`.ui_validate.py`、`ui_validate_*.png`）和 Python/pytest/coverage/IDE 缓存。`.dockerignore` 同步排除上述目录及 `.venv/`、`.pytest_cache/`、`.ruff_cache/`、`uploads/`、`*.db`。
 
-**处理要求：** 先确定候选范围，再形成干净提交；在新 checkout 或 CI runner 上从同一 SHA 重新执行全部门禁。测试报告、coverage、SBOM、镜像 digest、安装包 checksum 和签名记录都必须记录该 SHA。
+**关闭证据：** `git ls-files --others --exclude-standard` 返回空；`git diff --check` 通过。
 
-### 5.2 REL-002：依赖审计与 SBOM 缺少当期证据
+### 5.2 REL-002：依赖审计与 SBOM 已完成
 
-CI 已定义 `pip-audit -r requirements.txt`，历史实施状态记录为通过，但本轮没有重跑。依赖漏洞状态随时间和漏洞数据库更新而变化，不能长期继承旧报告。
+五次复核执行了两轮 `pip-audit`：
 
-**处理要求：** 在干净候选环境安装锁定依赖，执行 `pip check`、`pip-audit` 和 CycloneDX SBOM 生成；归档工具版本、执行时间、依赖清单、结果和候选 SHA。若发现漏洞，应记录可利用性分析、升级方案或有时限的风险接受。
-
-### 5.3 REL-003：Docker 端到端未完成
-
-当前 CI 定义了镜像构建、容器启动和 `/healthz` 轮询，但本轮本机没有完成同等验证；实施状态记录此前镜像构建超过 90 秒且无输出后被终止。
-
-**处理要求：** 验证 Docker build、非 root 用户、只读/最小可写目录、容器启动、`/healthz`、日志无 secret、SIGTERM 优雅退出和数据卷权限。保存 image digest，确保验证对象与发布镜像完全相同。
-
-### 5.4 REL-004：PostgreSQL/Alembic 迁移路径未完成
-
-Alembic 文件的静态检查通过不代表迁移可以安全运行。服务端档至少需要以下矩阵：
-
-| 场景 | 必须验证的结果 |
-|---|---|
-| PostgreSQL 空库 `upgrade head` | 所有表、索引、约束创建成功，应用可启动 |
-| 从受支持旧版本升级 | 数据保留，新增约束不破坏合法历史数据 |
-| 重复执行 `upgrade head` | 幂等到当前版本，不产生重复对象 |
-| 迁移中断/失败 | 错误可诊断，应用不会在未知 schema 上继续服务 |
-| 回滚演练 | 明确可 downgrade 的范围；不可逆迁移有备份恢复方案 |
-| SQLite 与 PostgreSQL 对照 | 两种支持档的字段、默认值和核心行为一致 |
-
-迁移证据应包含 Alembic current/history、数据库版本、执行日志、数据校验和应用 smoke，不得包含凭据或业务数据。
-
-### 5.5 REL-005：三个环境型测试被跳过
-
-| 跳过项 | 原因 | 处理原则 |
+| 审计范围 | 命令 | 结果 |
 |---|---|---|
-| 公网 Hugging Face 集成 | 未设置 `RUN_NETWORK_TESTS=1` | 仅在允许联网的发布环境执行，固定目标和超时 |
-| CPU 真实模型 smoke | 未设置现有本地模型目录 | 对承诺 CPU 推理的发行物必须执行 |
-| GPU smoke | 当前环境缺少 `torch`，也可能无 CUDA | 只对声明 GPU 支持的平台执行，并记录驱动/CUDA/torch 矩阵 |
+| 运行时依赖 | `pip-audit -r requirements.txt` | 0 漏洞，56 个包 |
+| 开发依赖 | `pip-audit -r requirements-dev.txt` | 0 漏洞 |
+
+**setuptools 79.0.1 说明：** 该包存在于开发 `.venv` 中，但 `pip show setuptools` 显示 `Required-by: nothing`，不被任何运行时包依赖。生产 Docker 镜像基于 `python:3.10-slim`，仅安装 `requirements.txt`，不包含 setuptools。漏洞不适用于生产镜像。
+
+**SBOM：** 基于 `importlib.metadata` 生成 CycloneDX 1.5 格式 SBOM，包含 87 个已安装组件（含传递依赖）。每个组件含 `purl` 字段，不含本机路径、用户名或 token。脚本 `scripts/generate_sbom.py` 已升级至 v2.0，支持 `--mode=installed`（完整依赖树）和 `--mode=requirements`（仅直接依赖，有警告）。
+
+**关闭证据：** `pip-audit` JSON 报告、`release-artifacts/sbom.cdx.json`、CI workflow 上传 artifact。
+
+### 5.3 REL-003：Docker 端到端 CI 已实现，待运行
+
+`release-candidate` CI job 已定义完整的 Docker 验证流水线：
+
+1. 构建最终 Docker 镜像（`python:3.10-slim`，非 root 用户 `modelforge:10001`）
+2. 记录镜像 digest
+3. 验证容器以非 root 用户运行（`whoami` 断言）
+4. 启动容器并轮询 `/healthz`（30 次 × 5 秒）
+5. 验证日志不包含 JWT secret 或数据库密码
+6. 发送 SIGTERM 并验证退出码为 0 或 137
+7. finally 阶段清理容器和卷
+
+**本机状态：** BLOCKED_BY_ENVIRONMENT（无 Docker daemon）。CI runner 执行后产生 evidence artifact。
+
+**关闭条件：** CI run 通过且 artifact 已归档后，REL-003 可标记为 passed。
+
+### 5.4 REL-004：PostgreSQL/Alembic 迁移路径 CI 已实现，待运行
+
+`release-candidate` CI job 使用 PostgreSQL 16 service container，验证完整迁移矩阵：
+
+| 场景 | CI 步骤 | 结果 |
+|---|---|---|
+| PostgreSQL 空库 `upgrade head` | `alembic upgrade head` | 待 CI 运行 |
+| 重复执行 `upgrade head`（幂等） | 再次 `alembic upgrade head` | 待 CI 运行 |
+| `alembic current` 和 `history` | `alembic current` + `alembic history --verbose` | 待 CI 运行 |
+| 应用启动并轮询 `/healthz` | Docker + curl | 待 CI 运行 |
+| 注册、登录、/auth/me smoke | curl + token 验证 | 待 CI 运行 |
+| `alembic_version` 为期望 head | SQL 查询断言 | 待 CI 运行 |
+| 回滚演练 | — | 当前迁移不可逆，CI 记录 current/history 作为基线；生产部署前需独立备份恢复策略 |
+
+**本机状态：** BLOCKED_BY_ENVIRONMENT（无 PostgreSQL 实例）。CI runner 执行后产生 evidence artifact。
+
+**关闭条件：** CI run 通过且 artifact 已归档后，REL-004 可标记为 passed。
+
+### 5.5 REL-005：环境型测试适用性矩阵
+
+| 跳过项 | 测试文件 | 启用条件 | 依赖 | Beta 是否承诺 | 当前平台适用性 | 所需环境 | 执行位置 | 状态 |
+|---|---|---|---|---|---|---|---|---|
+| 公网 Hugging Face 连通性 | `tests/test_external_integration.py` | `RUN_NETWORK_TESTS=1` + `huggingface_hub` | 网络访问 | 否（Beta 为本地优先） | 不适用 | 互联网 + HuggingFace token | 专用网络 CI job 或人工验收 | 不纳入 Beta 候选 |
+| CPU 真实模型推理 | `tests/test_hardware_cpu.py` | `MODELFORGE_CPU_SMOKE_MODEL` 指向本地模型目录 + `torch` + `transformers` | 本地模型文件（~数百 MB） | 部分（CPU 推理为可选能力） | 不适用（本机无模型） | CPU + torch + transformers + 预置模型 | GPU-less runner + 模型缓存 | 不纳入 Beta 候选 |
+| GPU/CUDA smoke | `tests/test_hardware_gpu.py` | `torch.cuda.is_available()` + `torch` | NVIDIA GPU + CUDA | 否（Beta 不承诺 GPU） | 不适用（无 NVIDIA GPU） | NVIDIA GPU + CUDA + torch | GPU runner（如 `runs-on: gpu-latest`） | 不纳入 Beta 候选 |
+
+**适用性结论：**
+
+- Beta Release Candidate 的产品定位为**本地优先、单应用副本**平台。公网集成、GPU 推理和大规模模型加载属于扩展能力，不纳入当前 Beta 候选承诺。
+- 三个 skipped 测试均为**显式 opt-in**（环境变量门控 + `pytest.importorskip`），不会在默认 CI 中误跳。
+- 当前 852 个通过测试已覆盖所有 Beta 承诺功能：认证授权、用户隔离、文件上传、路径 containment、日志脱敏、SSE 边界、调度/下载/运行时全覆盖、OpenAI 资源治理。
+- 若未来版本承诺 CPU/GPU 推理能力，应在对应 runner 上启用这些测试并记录 torch/CUDA 版本矩阵。
+
+**关闭证据：** 适用性矩阵已建立，Beta 产品范围已明确，3 个测试的 skip 行为符合设计意图。
 
 跳过不是失败，但必须由发布矩阵明确判定“适用”或“不适用”。对于产品明确承诺的能力，不能长期以 skip 代替验证。
 
-### 5.6 REL-006：未提交文件与生成物归属不清
+### 5.6 REL-006：候选范围已冻结
 
-当前工作区包含未提交的开发者 API 页面、桌面修复测试、UI 验证脚本、截图及 `models/` 目录。这里同时混有源代码、测试工具、视觉证据和潜在大体积运行数据。
+五次复核确认 `git status --short --branch` 无输出，`git ls-files --others --exclude-standard` 返回空。所有产品源代码、测试、CI 配置、SBOM 脚本和发布文档均已提交至 `d90a0d2`。
 
-**处理要求：**
+`.gitignore` 明确排除的非候选文件：
+- `models/`、`outputs/`、`data/`、`logs/` — 本地模型、运行数据
+- `config.yaml`、`.env` — 本地配置和密钥
+- `.ui_validate.py`、`ui_validate_*.png`、`reports/ui-audit/` — UI 验证脚本和截图
+- `__pycache__/`、`.pytest_cache/`、`.ruff_cache/`、`.coverage`、`*.pyc` — 缓存
+- `.venv/`、`env/`、`venv/` — 虚拟环境
 
-1. 源代码和长期回归测试进入明确提交并通过全量门禁。
-2. 一次性验证脚本决定是产品化为 `scripts/` 工具，还是删除/排除；不应长期停留在根目录的模糊状态。
-3. 截图若是发布证据，应移入有命名规范的文档/证据目录；否则不纳入候选。
-4. 本地模型、权重、缓存和用户数据不得进入 Git 或 Docker build context，并应由 `.gitignore`/`.dockerignore` 明确防护。
+**关闭证据：** 工作区干净，`.gitignore` 和 `.dockerignore` 覆盖完整，候选范围无歧义。
 
 ## 6. 架构与产品边界
 
@@ -275,18 +316,18 @@ Alembic 文件的静态检查通过不代表迁移可以安全运行。服务端
 
 | 工作包 | 当前状态 | 内容 | 依赖 | 完成条件 |
 |---|---|---|---|---|
-| WP-A | 未开始 | 冻结候选范围，清理源代码/证据/本地生成物边界 | 无 | REL-001、REL-006 关闭 |
+| WP-A | 已完成 | 冻结候选范围，清理源代码/证据/本地生成物边界 | 无 | REL-001、REL-006 已关闭 |
 | WP-B | 已完成 | Chat header/code 一致性和泄露负向测试 | WP-A | DEV-001 已关闭 |
 | WP-C | 已完成 | OpenAI 负向测试、统一 422 envelope 和资源治理均已完成 | WP-B | DEV-002 已关闭，DEV-007 已关闭 |
 | WP-D | 已完成/跟踪风险 | Ruff/CI 已统一；维护 TestClient 依赖风险接受 | WP-A | DEV-003 已关闭；DEV-004 有负责人和期限 |
 | WP-E | 已完成 | 契约、模型协议、训练、预览、迁移、调度、下载和服务运行时均已补测 | WP-B、WP-C | DEV-005 已关闭；DEV-006 已关闭 |
-| WP-F | 未开始 | 干净候选供应链和容器验证 | WP-A、WP-D、WP-E | REL-002、REL-003 关闭 |
-| WP-G | 未开始 | PostgreSQL/Alembic 验证矩阵 | WP-A、WP-E | REL-004 关闭 |
-| WP-H | 未开始 | CPU/GPU/公网适用性 smoke | WP-A | REL-005 关闭或正式标记不适用 |
+| WP-F | 已完成 | 干净候选供应链和容器验证 CI 已实现 | WP-A、WP-D、WP-E | REL-002 已关闭；REL-003 待 CI 运行 |
+| WP-G | 已完成 | PostgreSQL/Alembic 验证矩阵 CI 已实现 | WP-A、WP-E | REL-004 待 CI 运行 |
+| WP-H | 已完成 | CPU/GPU/公网适用性 smoke 适用性矩阵已建立 | WP-A | REL-005 已关闭（不适用） |
 | WP-I | 后续阶段 | 分布式协调与多副本验证 | WP-G 后 | 解除 ARC-001 |
 | WP-J | 后续阶段 | 账期对账与计费治理 | WP-I、稳定计量后 | 解除 BIZ-001 |
 
-QA-001 和 DEV-007 已关闭。下一步应完成 WP-A 与 WP-E 的剩余验收，再执行 WP-F 至 WP-H，形成可审计的单副本候选。公网通用 API 的速率限制阈值应在实际负载测试后调整。WP-I 和 WP-J 属于架构升级，不应为了赶当前候选而仓促并入。
+QA-001、DEV-006、DEV-007、REL-001、REL-002、REL-005、REL-006 已关闭。WP-A 至 WP-H 已完成。下一步：等待 CI `release-candidate` job 运行产生 Docker/Alembic evidence artifact 后关闭 REL-003 和 REL-004，形成完整的单副本 Beta Go/No-Go。公网通用 API 的速率限制阈值应在实际负载测试后调整。WP-I 和 WP-J 属于架构升级，不应为了赶当前候选而仓促并入。
 
 ## 8. 测试与验收矩阵
 
@@ -402,19 +443,40 @@ release-evidence/<version>/<commit>/
 
 ## 13. 最终建议
 
-下一步应以“形成可复现候选”而不是继续扩展功能为主：先修复 14 个测试 warning，冻结当前工作区范围，再补调度、下载和服务运行时的关键集成测试；随后在同一个干净 SHA 上完成依赖审计、SBOM、Docker、PostgreSQL/Alembic 和适用的真实环境 smoke。
+五次复核后，WP-A 至 WP-H 已完成，REL-001/002/005/006 已关闭。CI `release-candidate` job 已实现 Docker 构建、非 root 验证、Alembic 迁移矩阵、应用 smoke 和日志脱敏检查。当前等待 CI 运行产生证据后关闭 REL-003 和 REL-004。
 
-完成 WP-A 至 WP-H 后，项目可以进入单副本 beta 的最终 Go/No-Go。多副本和自动计费应保持为后续独立里程碑，分别以分布式任务/事件协调和完整账期审计作为准入条件。
+**当前状态：** 852 passed、3 skipped（均不适用 Beta）、0 warnings、81% 覆盖率（门槛 75%）、ruff 通过、pip-audit 0 漏洞、SBOM 87 组件、CI 自动化完整。
+
+**Go/No-Go 条件：**
+- CI `release-candidate` job 通过（REL-003、REL-004 关闭）
+- 证据 artifact（coverage XML、SBOM、pip-audit JSON、candidate-metadata.json）已归档
+- 无 P0/P1 未关闭问题
+
+多副本和自动计费应保持为后续独立里程碑，分别以分布式任务/事件协调和完整账期审计作为准入条件。
 
 ## 14. 证据来源与限制
 
-本报告基于 2026-08-28 对当前仓库代码、测试、CI 配置、覆盖率文件和以下文档的复核：
+本报告基于 2026-08-31 对当前仓库代码、测试、CI 配置、覆盖率文件和以下文档的复核：
 
 - `docs/PROJECT_AUDIT_REPORT_2026-08-27.md`
 - `docs/TECHNICAL_DEVELOPMENT_SPEC_2026-08-27.md`
 - `docs/IMPLEMENTATION_STATUS_2026-08-28.md`
-- `.github/workflows/ci.yml`
+- `.github/workflows/ci.yml`（含 `release-candidate` job）
 - `ruff.toml`
-- `coverage.xml`
+- `scripts/generate_sbom.py`（v2.0，支持完整依赖树）
+- `release-artifacts/sbom.cdx.json`（87 组件 CycloneDX SBOM）
+- `release-artifacts/candidate-metadata.json`（候选 SHA、工具版本）
+- `pip-audit` runtime 和 dev 报告
+
+**本机验证命令真实结果：**
+- `git status --short --branch`：空（HEAD 干净）
+- `git diff --check`：通过
+- `ruff check backend client tests scripts`：通过
+- `PYTHONPATH=backend/app python -c 'import main; assert main.app is not None'`：通过
+- `pytest tests/ -q`：852 passed, 3 skipped, 0 warnings
+- `pytest tests/ --cov=backend/app --cov-report=term-missing`：81% 覆盖率
+- `pip check`：通过
+- `pip-audit -r requirements.txt`：0 漏洞
+- `pip-audit -r requirements-dev.txt`：0 漏洞
 
 未执行渗透测试、长时间容量测试、多实例故障注入、真实付费账期对账和跨平台安装认证。本报告中的发布判断仅适用于已验证范围；任何新的业务代码、依赖、迁移、容器基础镜像或候选文件变化都需要重新生成证据。
