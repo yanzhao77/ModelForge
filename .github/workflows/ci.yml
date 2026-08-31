@@ -225,17 +225,14 @@ jobs:
           test "$USER" = "modelforge" || (echo "FAIL: not running as modelforge" && exit 1)
       - name: Alembic upgrade head on empty database
         run: |
-          cd backend
           alembic upgrade head
           echo "Upgrade head succeeded"
       - name: Alembic current and history
         run: |
-          cd backend
           alembic current
           alembic history --verbose
       - name: Alembic upgrade head (idempotency check)
         run: |
-          cd backend
           alembic upgrade head
           echo "Idempotent upgrade succeeded"
       - name: Start application and verify /healthz
