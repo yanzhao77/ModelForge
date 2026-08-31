@@ -187,6 +187,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://modelforge:ci-test-password@localhost:5432/modelforge_test
       JWT_SECRET: ci-only-jwt-secret-that-is-at-least-thirty-two-characters
+      POSTGRES_PASSWORD: ci-test-password
       MODELFORGE_ENV: production
     steps:
       - uses: actions/checkout@v4
@@ -277,14 +278,16 @@ jobs:
           test -n "$VERSION" || (echo "FAIL: no alembic_version" && exit 1)
       - name: Verify logs contain no secrets
         run: |
-          docker logs modelforge-rc-${{ github.run_id }} 2>&1 | tee /tmp/container-logs.txt
-          for SECRET in "$JWT_SECRET" "$POSTGRES_PASSWORD"; do
-            if grep -q "$SECRET" /tmp/container-logs.txt; then
-              echo "FAIL: secret found in logs"
-              exit 1
-            fi
-          done
-          echo "No secrets in logs"
+          docker logs modelforge-rc-${{ github.run_id }} > /tmp/container-logs.txt 2>&1 || true
+          if grep -q "$JWT_SECRET" /tmp/container-logs.txt; then
+            echo "FAIL: JWT_SECRET found in container logs"
+            exit 1
+          fi
+          if grep -q "$POSTGRES_PASSWORD" /tmp/container-logs.txt; then
+            echo "FAIL: POSTGRES_PASSWORD found in container logs"
+            exit 1
+          fi
+          echo "No secrets in container logs"
       - name: SIGTERM graceful shutdown
         run: |
           docker stop --time=10 modelforge-rc-${{ github.run_id }}
