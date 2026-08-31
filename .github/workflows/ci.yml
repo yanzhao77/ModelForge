@@ -211,6 +211,7 @@ jobs:
         run: |
           mkdir -p release-artifacts
           docker run --rm \
+            --user root \
             -v "$PWD/scripts:/scripts:ro" \
             -v "$PWD/release-artifacts:/out" \
             --entrypoint python \
