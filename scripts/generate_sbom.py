@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from importlib.metadata import distributions
 from pathlib import Path
 
@@ -114,7 +114,7 @@ def main() -> None:
         "serialNumber": "urn:uuid:pending-release-build",
         "version": 1,
         "metadata": {
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "component": {"type": "application", "name": "ModelForge"},
             "tools": [{"name": "generate_sbom.py", "version": "2.0"}],
         },
