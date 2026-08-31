@@ -201,7 +201,10 @@ jobs:
       - name: Build Docker image and record digest
         run: |
           docker build -t modelforge:rc-${{ github.sha }} .
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' modelforge:rc-${{ github.sha }} 2>/dev/null || echo "local-build")
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' modelforge:rc-${{ github.sha }} 2>/dev/null || true)
+          if [ -z "$DIGEST" ]; then
+            DIGEST=$(docker inspect --format='{{.Id}}' modelforge:rc-${{ github.sha }})
+          fi
           echo "IMAGE_DIGEST=$DIGEST" >> $GITHUB_ENV
           echo "Image digest: $DIGEST"
       - name: Generate authoritative runtime SBOM from final Docker image
