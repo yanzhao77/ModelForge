@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import install_empty_state
 from i18n.ui_localizer import current, format_api_error, localize_tree, text
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -33,7 +34,7 @@ class AutomationPage(QWidget, AsyncApiMixin):
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
         title = QLabel("自动化")
-        title.setObjectName("pageTitle")
+        title.setProperty("role", "pageTitle")
         header.addWidget(title)
         header.addStretch(1)
         self.refresh_button = QPushButton("刷新")
@@ -49,32 +50,49 @@ class AutomationPage(QWidget, AsyncApiMixin):
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self._render_detail)
         layout.addWidget(self.list, 1)
+        self._empty_toggle = install_empty_state(
+            self.list, "暂无计划", "先创建草稿，再显式启用。启用后才会按计划创建 Agent Run。"
+        )[0]
+        self._empty_toggle(True)
         self.detail = QLabel("选择一个计划查看详情。")
         self.detail.setWordWrap(True)
         layout.addWidget(self.detail)
         actions = QHBoxLayout()
         self.enable_button = QPushButton("启用")
         self.enable_button.clicked.connect(lambda: self._change_state(True))
+        self.enable_button.setEnabled(False)
         actions.addWidget(self.enable_button)
         self.pause_button = QPushButton("暂停")
         self.pause_button.clicked.connect(lambda: self._change_state(False))
+        self.pause_button.setEnabled(False)
         actions.addWidget(self.pause_button)
         self.run_button = QPushButton("立即运行")
         self.run_button.clicked.connect(self._run_now)
+        self.run_button.setEnabled(False)
         actions.addWidget(self.run_button)
         self.preview_button = QPushButton("查看下五次")
         self.preview_button.clicked.connect(self._preview)
+        self.preview_button.setEnabled(False)
         actions.addWidget(self.preview_button)
         self.history_button = QPushButton("查看执行历史")
         self.history_button.clicked.connect(self._history)
+        self.history_button.setEnabled(False)
         actions.addWidget(self.history_button)
         self.delete_button = QPushButton("删除计划")
         self.delete_button.clicked.connect(self._delete)
+        self.delete_button.setEnabled(False)
         actions.addWidget(self.delete_button)
         actions.addStretch(1)
         layout.addLayout(actions)
         localize_tree(self)
         self.refresh()
+
+    def _sync_plan_actions(self) -> None:
+        """Plan operations require a selected schedule."""
+        has_selection = self._selected() is not None
+        for button in (self.enable_button, self.pause_button, self.run_button,
+                       self.preview_button, self.history_button, self.delete_button):
+            button.setEnabled(has_selection)
 
     @staticmethod
     def _tr(source: str, **values) -> str:
@@ -100,6 +118,7 @@ class AutomationPage(QWidget, AsyncApiMixin):
             kind_key = {"once": "一次", "interval": "间隔", "daily": "每日", "weekly": "每周"}.get(job.get("schedule_kind"), "自定义")
             kind = self._tr(kind_key)
             self.list.addItem(QListWidgetItem(f"{job.get('name', '未命名')} · {state} · {kind}"))
+        self._empty_toggle(not self._jobs)
         self._render_detail(self.list.currentRow())
 
     def _failed(self, error):
@@ -107,6 +126,7 @@ class AutomationPage(QWidget, AsyncApiMixin):
 
     def _render_detail(self, _row):
         job = self._selected()
+        self._sync_plan_actions()
         if not job:
             self.detail.setText(self._tr("暂无计划。先创建草稿，再显式启用。"))
             return

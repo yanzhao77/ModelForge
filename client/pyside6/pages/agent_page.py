@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
-from components.mf.primitives import MFSection, MFStatusBadge
+from components.mf.primitives import MFSection, MFStatusBadge, install_empty_state
 from i18n.ui_localizer import format_api_error, format_text
 from pages.run_timeline import RunTimeline
 from PySide6.QtCore import Qt, QTimer
@@ -176,12 +176,20 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.agent_list = QListWidget()
         self.agent_list.currentItemChanged.connect(lambda *_: self._on_agent_selected())
         lay.addWidget(self.agent_list, 1)
+        self.agent_empty = install_empty_state(
+            self.agent_list, "暂无智能体", "点击“新建智能体”创建定义；删除前需选中条目。"
+        )[0]
+        self.agent_empty(True)
         self.create_btn = QPushButton("新建智能体")
         self.create_btn.clicked.connect(self.create_agent)
         lay.addWidget(self.create_btn)
         self.delete_btn = QPushButton("删除智能体")
         self.delete_btn.clicked.connect(self.delete_agent)
+        self.delete_btn.setEnabled(False)
         lay.addWidget(self.delete_btn)
+        self.agent_list.itemSelectionChanged.connect(
+            lambda: self.delete_btn.setEnabled(self.agent_list.currentItem() is not None)
+        )
         splitter.addWidget(left)
 
         mid = QWidget()
@@ -204,6 +212,7 @@ class AgentPage(QWidget, AsyncApiMixin):
         mlay.addWidget(self.run_btn)
         self.cancel_btn = QPushButton("取消运行")
         self.cancel_btn.clicked.connect(self.cancel_run)
+        self.cancel_btn.setEnabled(False)
         mlay.addWidget(self.cancel_btn)
         self.refresh_btn = QPushButton("刷新")
         self.refresh_btn.clicked.connect(self.refresh_runs)
@@ -235,7 +244,7 @@ class AgentPage(QWidget, AsyncApiMixin):
 
     def _set_run_busy(self, busy: bool):
         self.run_btn.setEnabled(not busy and self._model_ready)
-        self.cancel_btn.setEnabled(not busy)
+        self.cancel_btn.setEnabled(not busy and bool(self.current_run_id))
         self.refresh_btn.setEnabled(not busy)
         self.replay_btn.setEnabled(not busy and bool(self.current_run_id))
 
@@ -272,11 +281,12 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.agent_list.clear()
         for agent in agents:
             item = QListWidgetItem(f"{agent.get('name', '?')}  ({agent.get('model', '')})")
-            item.setData(Qt.UserRole, agent.get("name"))
+            item.setData(Qt.UserRole, agent)
             self.agent_list.addItem(item)
             if agent.get("name") in {selected, self._pending_agent_name}:
                 self.agent_list.setCurrentItem(item)
                 self._pending_agent_name = None
+        self.agent_empty(not agents)
         self.status.setText(f"已同步 {len(agents)} 个 Agent 定义。")
 
     def _agents_failed(self, error: str):
@@ -455,12 +465,15 @@ class AgentPage(QWidget, AsyncApiMixin):
     def _on_run_selected(self):
         rows = self.runs_table.selectionModel().selectedRows()
         if not rows:
+            self.replay_btn.setEnabled(False)
+            self.cancel_btn.setEnabled(False)
             return
         run_id = self.runs_table.item(rows[0].row(), 0).data(Qt.UserRole)
         if run_id and run_id != self.current_run_id:
             self.current_run_id = run_id
             self.timeline.watch(run_id)
         self.replay_btn.setEnabled(bool(self.current_run_id) and not self._runs_loading)
+        self.cancel_btn.setEnabled(bool(self.current_run_id) and not self._runs_loading)
 
     def closeEvent(self, event):
         self._timer.stop()

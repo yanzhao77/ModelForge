@@ -272,9 +272,9 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         elif (page := self._pages.get(destination)) is not None:
             self.stack.setCurrentWidget(page)
         self.shell.set_status(
-            "{} · 已连接到 {}".format(
+            "{} · {}".format(
                 self.translator.t("nav." + destination, destination.title()),
-                self.api.base_url,
+                self.translator.t("footer.connected", "已连接 ModelForge 服务"),
             )
         )
 
@@ -288,7 +288,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.task_center.activateWindow()
 
     def _load_status(self) -> None:
-        self.shell.set_status("正在检查 ModelForge 服务…")
+        self.shell.set_status(self.translator.t("footer.connecting", "正在连接 ModelForge 服务…"))
         self._run_api(
             self.api.get_info, self._show_service_status, self._show_service_error
         )
@@ -298,16 +298,24 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.shell.topbar.set_system(
             True, f"已连接 · {self.api.username or 'Local workspace'}"
         )
-        self.shell.set_status(f"已连接 ModelForge 服务 · {self.api.base_url}")
+        self.shell.set_status(
+            self.translator.t("footer.connected", "已连接 ModelForge 服务"),
+            tooltip=str(self.api.base_url),
+        )
 
     def _show_service_error(self, error: str) -> None:
         self.shell.topbar.set_system(False, "服务不可用")
         self.shell.set_status(f"无法连接服务 · {error}")
 
     def _show_task_stream_status(self, online: bool, error: str) -> None:
-        self.shell.set_status(
-            "任务更新已连接" if online else f"正在重连任务更新 · {error or 'waiting'}"
-        )
+        if online:
+            self.shell.set_status(self.translator.t("footer.task_stream_connected", "任务更新已连接"))
+        else:
+            detail = str(error or "waiting")
+            self.shell.set_status(
+                self.translator.t("footer.task_stream_reconnecting", "正在重连任务更新…"),
+                tooltip=detail,
+            )
 
     def _offer_recovery(self, restored: dict) -> None:
         if not self.recovery.previous_crash:

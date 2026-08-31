@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from components.api_worker import AsyncApiMixin
+from components.mf.primitives import install_empty_state
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -38,7 +39,7 @@ class AgentWorkbenchPage(QWidget, AsyncApiMixin):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         title = QLabel("Agent 工作台")
-        title.setObjectName("pageTitle")
+        title.setProperty("role", "pageTitle")
         layout.addWidget(title)
         hint = QLabel("在这里审阅定义、模板、模型目标、工具权限和知识范围。查看、保存模板和版本回放均不会创建 Agent Run。")
         hint.setWordWrap(True)
@@ -51,8 +52,13 @@ class AgentWorkbenchPage(QWidget, AsyncApiMixin):
         self.agent_list = QListWidget()
         self.agent_list.currentRowChanged.connect(self._load_versions)
         definition_layout.addWidget(self.agent_list, 1)
+        self.agent_empty = install_empty_state(
+            self.agent_list, "尚无 Agent 定义", "请在智能体页面创建定义；创建定义不会自动启动 Run。"
+        )[0]
+        self.agent_empty(True)
         self.save_template_button = QPushButton("将所选定义保存为模板")
         self.save_template_button.clicked.connect(self._save_template)
+        self.save_template_button.setEnabled(False)
         definition_layout.addWidget(self.save_template_button)
         self.open_agents_button = QPushButton("前往智能体页面并显式运行")
         self.open_agents_button.clicked.connect(lambda: self.navigate_requested.emit("agents"))
@@ -65,8 +71,13 @@ class AgentWorkbenchPage(QWidget, AsyncApiMixin):
         self.template_list = QListWidget()
         self.template_list.currentRowChanged.connect(self._render_template)
         template_layout.addWidget(self.template_list, 1)
+        self.template_empty = install_empty_state(
+            self.template_list, "暂无模板", "将所选定义保存为模板后显示在这里。"
+        )[0]
+        self.template_empty(True)
         self.delete_template_button = QPushButton("删除所选模板")
         self.delete_template_button.clicked.connect(self._delete_template)
+        self.delete_template_button.setEnabled(False)
         template_layout.addWidget(self.delete_template_button)
         split.addWidget(templates)
 
@@ -87,6 +98,8 @@ class AgentWorkbenchPage(QWidget, AsyncApiMixin):
 
         split.setSizes([300, 300, 520])
         layout.addWidget(split, 1)
+        self.agent_list.itemSelectionChanged.connect(self._sync_selection_actions)
+        self.template_list.itemSelectionChanged.connect(self._sync_selection_actions)
 
     def refresh(self) -> None:
         self.refresh_button.setEnabled(False)
@@ -118,8 +131,14 @@ class AgentWorkbenchPage(QWidget, AsyncApiMixin):
             item = QListWidgetItem(template.get("name", "未命名模板"))
             item.setData(Qt.ItemDataRole.UserRole, template)
             self.template_list.addItem(item)
+        self.agent_empty(not self._agents)
+        self.template_empty(not self._templates)
         if not self._agents:
             self.detail.setPlainText("尚无 Agent 定义。请在智能体页面创建定义；创建定义不会自动启动 Run。")
+
+    def _sync_selection_actions(self) -> None:
+        self.save_template_button.setEnabled(self._selected_agent() is not None)
+        self.delete_template_button.setEnabled(self._selected_template() is not None)
 
     def _selected_agent(self) -> dict | None:
         item = self.agent_list.currentItem()

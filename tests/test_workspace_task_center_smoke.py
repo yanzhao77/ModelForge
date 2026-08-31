@@ -19,6 +19,8 @@ _spec.loader.exec_module(_desktop_main)
 MainWindow = _desktop_main.MainWindow
 RecoveryManager = _desktop_main.RecoveryManager
 
+_APP = None  # session-long QApplication reference shared across GUI test files
+
 
 class FakeApi:
     username = "qa-user"
@@ -75,7 +77,9 @@ class FakeApi:
 
 
 def main():
-    app = QApplication.instance() or QApplication([])
+    global _APP
+    _APP = QApplication.instance() or QApplication([])
+    app = _APP
     recovery_dir = tempfile.TemporaryDirectory()
     theme_manager = _desktop_main.apply_theme(app)
     from i18n import I18n

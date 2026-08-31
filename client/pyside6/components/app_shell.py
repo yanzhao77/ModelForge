@@ -119,5 +119,6 @@ class AppShell(QWidget):
     def retranslate(self) -> None:
         self.rail.retranslate()
 
-    def set_status(self, text: str) -> None:
+    def set_status(self, text: str, tooltip: str | None = None) -> None:
         self.footer.setText(text)
+        self.footer.setToolTip(tooltip or "")

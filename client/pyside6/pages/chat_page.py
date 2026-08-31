@@ -93,7 +93,7 @@ class ChatPage(QWidget, AsyncApiMixin):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
         header = QHBoxLayout()
-        header.addWidget(MFSection("对话", "聊天"))
+        header.addWidget(MFSection("会话工作区", "对话"))
         header.addStretch(1)
         self.chat_status = MFStatusBadge("未选择模型", "warning")
         header.addWidget(self.chat_status)

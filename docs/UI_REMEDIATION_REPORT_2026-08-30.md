@@ -1,4 +1,4 @@
-# ModelForge 桌面客户端 UI 修改报告（2026-08-30）
+# ModelForge 桌面客户端 UI 修改报告（2026-08-30，追加批次 2026-08-31）
 
 本报告记录针对 `UI_AUDIT_REPORT_2026-08-30.md` 中 P0/P1 发现实施的修改、验证证据与遗留事项。所有修改仅涉及 `client/pyside6/` 展示层与 QA 工具，**未触碰认证、REST 合约、SSE 流、聊天/训练/Agent 行为等红线**，未修改任何后端文件。
 
@@ -67,6 +67,8 @@
 
 ## 3. 遗留事项（P2，未在本批次修改）
 
+> **2026-08-31 更新：本节全部 7 项已由追加批次完成修复，见第 5 节。**
+
 按优先级排序，均已在审计报告 D/E/F 节给出精确位置：
 
 1. **空数据危险按钮**（D1）：扩展治理 7 个操作、自动化 6 个操作、控制中心记忆编辑/删除、智能体"取消运行"——建议复制数据集页的选中驱动模式，并补选择信号。
@@ -87,3 +89,58 @@ docker run --rm -v "$(pwd):/app" -w /app modelforge:gui-test \
 # 视觉截图
 docker run --rm -v "$(pwd):/app" -w /app modelforge:gui-test python reports/render_pages_offscreen.py
 ```
+
+## 5. 追加批次（2026-08-31）：P2 遗留项全量修复
+
+原第 3 节列出的 7 项 P2 遗留事项已全部实施，共改动 15 个文件（12 个源文件 + 2 个测试文件 + 本报告）。仍仅涉展示层，未触碰任何红线。
+
+### D1 空数据危险按钮 → 选中驱动门控
+
+- **通用组件**：`components/mf/primitives.py` 新增 `install_empty_state(view, title, detail)`——以 viewport 覆盖层方式为任意列表/表格挂 `MFEmptyState`（随视口自动缩放），返回 `set_empty(bool)` 开关；不改动任何现有布局。
+- `extensions_page.py`：健康检查 + 5 个生命周期按钮无选中时禁用（`_sync_selection_actions`），"刷新已加载扩展"始终可用。
+- `automation_page.py`：启用/暂停/立即运行/查看下五次/查看执行历史/删除计划 6 个按钮选中驱动（`_sync_plan_actions`）。
+- `control_center_page.py`：`_tab` 工厂对"所选/归类现有"类按钮注册门控（`_SELECTION_ACTIONS` 集合），`itemSelectionChanged` 联动；新建/查看/预检类保持可用。
+- `agent_workbench_page.py`：保存为模板/删除所选模板选中驱动。
+- `agent_page.py`：取消运行改为"有选中 Run 且非忙"才可用（`_set_run_busy` + `_on_run_selected`），删除智能体同样选中驱动。
+
+### D2 页面身份统一
+
+根因是 4 个次级页面用了 `setObjectName("pageTitle")`（QSS 匹配的是动态属性 `role`），标题实际存在但从未生效。已全部改为 `setProperty("role", "pageTitle")`：扩展治理、自动化、控制中心、Agent 工作台，H1 大标题恢复与其它页面一致。
+
+### D3 空态统一 → MFEmptyState 覆盖层
+
+控制中心 7 个列表（记忆/产物/知识集合/插件 MCP/模型洞察/数据库/审计）、扩展治理列表、自动化计划列表、工作台定义/模板列表、智能体页智能体列表、会话侧栏列表（D6）全部改为 `install_empty_state` 空态面板；控制中心 `_fill` 改为实例方法联动空态开关，不再把"暂无记忆。"塞进列表项。
+
+### D4 状态栏脱敏
+
+- `main.py`：页脚不再拼接裸 `base_url`（`_navigate_to`/`_show_service_status`），服务地址移入 tooltip；`_load_status` 复用 `footer.connecting` 键；任务流状态从"原始错误码拼接"（如 `TASK_SSE_DISCONNECTED`）改为语义文案，原始错误详情放 tooltip。
+- `components/app_shell.py`：`set_status(text, tooltip=None)` 支持 tooltip。
+- 任务中心连接行保留 `format_api_error` 的"稳定 code + correlation_id"格式（符合脱敏契约，不回退）。
+- `i18n/zh_CN.json` / `en_US.json` / `ja_JP.json`：新增 `footer.connected` / `footer.task_stream_connected` / `footer.task_stream_reconnecting` 三组三语键。
+
+### D5+D6 命名与会话空态
+
+- `chat_page.py`：页头 `MFSection("对话", "聊天")` → `MFSection("会话工作区", "对话")`，H1 与导航/顶栏一致。
+- 会话侧栏空态见 D3（暂无会话面板）。
+
+### E1 设计文档对齐
+
+`docs/MODELFORGE_DESIGN_SYSTEM.md` 重写为与实现一致的 zinc 体系：双主题调色板 token 表（含 `info`）、accent=前景色、cyan/purple 标注为保留候选色、半径 6/8/10、最小视口 1180×720、metrics 单一来源规则；并补充本次确立的三条规范——`role="pageTitle"` 属性写法、`install_empty_state` 空态规范、选中驱动禁用规范、页脚/状态栏不得暴露端点与错误码、用户可见文案必须走 i18n 轨道。
+
+### F1 测试 QApplication 生命周期
+
+`tests/test_chat_cursor.py` 与 `tests/test_workspace_task_center_smoke.py` 改为模块级持有 QApplication 引用（`_ensure_qapp()`），消除"GUI 测试文件按特定顺序连跑时后跑文件继承已销毁 app 实例导致 fatal abort"的顺序脆弱性；8 个桌面测试文件现在任意顺序连跑均稳定。
+
+### 追加批次验证证据
+
+| 验证项 | 方式 | 结果 |
+|---|---|---|
+| 静态检查 | 容器内 `ruff check client/pyside6` | 0 问题 |
+| i18n 资源 | 三个语言 JSON 解析 | 全部合法 |
+| GUI 测试（批次 2 + phase6/phase8） | 容器内 pytest | **23 passed** |
+| GUI 测试（批次 1） | 容器内 pytest | **9 passed** |
+| 视觉回归 | 重渲染 31 张截图并目检 | 控制中心/扩展治理/自动化/工作台 H1 生效；扩展页 6 按钮与控制中心编辑/删除空数据时呈禁用态；工作台/对话/扩展/自动化空态面板替代空白；页脚不再出现裸 URL 与原始错误码 |
+
+### 本批次改动文件
+
+`components/mf/primitives.py`、`components/app_shell.py`、`pages/control_center_page.py`、`pages/extensions_page.py`、`pages/automation_page.py`、`pages/agent_workbench_page.py`、`pages/agent_page.py`、`pages/session_sidebar.py`、`pages/chat_page.py`、`main.py`、`i18n/{zh_CN,en_US,ja_JP}.json`、`tests/test_chat_cursor.py`、`tests/test_workspace_task_center_smoke.py`、`docs/MODELFORGE_DESIGN_SYSTEM.md`、本报告。
