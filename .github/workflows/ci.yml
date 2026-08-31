@@ -256,16 +256,15 @@ jobs:
           exit 1
       - name: Verify API smoke (register, login, /auth/me)
         run: |
-          # Register
           curl -fsS -X POST http://127.0.0.1:8000/api/v1/auth/register \
             -H 'Content-Type: application/json' \
             -d '{"username":"rc-test","email":"rc@test.test","password":"Test1234!"}' || true
-          # Login
-          TOKEN=$(curl -fsS -X POST http://127.0.0.1:8000/api/v1/auth/login \
+          LOGIN_RESP=$(curl -fsS -X POST http://127.0.0.1:8000/api/v1/auth/login \
             -H 'Content-Type: application/json' \
-            -d '{"username":"rc-test","password":"Test1234!"}' | python -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
-          test -n "$TOKEN" || (echo "FAIL: no token" && exit 1)
-          # /auth/me
+            -d '{"username":"rc-test","password":"Test1234!"}')
+          echo "Login response: $LOGIN_RESP"
+          TOKEN=$(echo "$LOGIN_RESP" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('token') or d.get('access_token',''))")
+          test -n "$TOKEN" || (echo "FAIL: no token in $LOGIN_RESP" && exit 1)
           curl -fsS http://127.0.0.1:8000/api/v1/auth/me \
             -H "Authorization: Bearer $TOKEN"
           echo ""
