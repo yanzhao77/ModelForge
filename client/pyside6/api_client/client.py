@@ -1,9 +1,16 @@
 """API Client for communicating with ModelForge backend (REST + SSE)."""
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Dict
 
 import httpx
+
+_CHAT_STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=3.0, write=30.0, pool=30.0)
+_LONG_STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=12.0, write=30.0, pool=30.0)
+
+
+def _is_cancelled(cancel_event: Callable[[], bool] | None) -> bool:
+    return bool(cancel_event and cancel_event())
 
 
 class ApiClientError(RuntimeError):
@@ -116,6 +123,72 @@ class ModelForgeClient:
     def clear_default_model(self) -> dict:
         return self._delete("/api/v1/models/default")
 
+    # ---- project API control plane (JWT-authenticated desktop management) ----
+
+    def list_organizations(self) -> list[dict]:
+        return self._get("/api/v2/organizations").get("organizations", [])
+
+    def create_organization(self, name: str) -> dict:
+        return self._post("/api/v2/organizations", json={"name": name})
+
+    def list_api_projects(self) -> list[dict]:
+        return self._get("/api/v2/projects").get("projects", [])
+
+    def create_api_project(self, organization_id: str, name: str, environment: str) -> dict:
+        return self._post(
+            f"/api/v2/organizations/{organization_id}/projects",
+            json={"name": name, "environment": environment},
+        )
+
+    def list_project_agents(self, project_id: str) -> list[dict]:
+        return self._get(f"/api/v2/projects/{project_id}/agents").get("bindings", [])
+
+    def bind_project_agent(self, project_id: str, agent_id: str) -> dict:
+        return self._post(f"/api/v2/projects/{project_id}/agents", json={"agent_id": agent_id})
+
+    def list_project_keys(self, project_id: str) -> list[dict]:
+        return self._get(f"/api/v2/projects/{project_id}/keys").get("keys", [])
+
+    def create_project_key(
+        self,
+        project_id: str,
+        name: str,
+        scopes: list[str] | None = None,
+        expires_at: str | None = None,
+    ) -> dict:
+        payload = {"name": name, "scopes": scopes or ["agent:run", "usage:read"]}
+        if expires_at:
+            payload["expires_at"] = expires_at
+        return self._post(f"/api/v2/projects/{project_id}/keys", json=payload)
+
+    def revoke_project_key(self, project_id: str, key_id: str, *, confirm: bool = False) -> dict:
+        return self._post(
+            f"/api/v2/projects/{project_id}/keys/{key_id}/revoke",
+            json={"confirm": confirm},
+        )
+
+    def update_project_quota(
+        self,
+        project_id: str,
+        *,
+        max_concurrent_runs: int,
+        daily_token_limit: int,
+        monthly_token_limit: int,
+        per_run_token_limit: int,
+    ) -> dict:
+        return self._put(
+            f"/api/v2/projects/{project_id}/quota",
+            json={
+                "max_concurrent_runs": max_concurrent_runs,
+                "daily_token_limit": daily_token_limit,
+                "monthly_token_limit": monthly_token_limit,
+                "per_run_token_limit": per_run_token_limit,
+            },
+        )
+
+    def project_usage(self, project_id: str) -> dict:
+        return self._get(f"/api/v2/projects/{project_id}/usage")
+
     # ---- remote providers (API keys are write-only and never returned) ----
     def list_remote_providers(self) -> list[dict]:
         return self._get("/api/v1/providers").get("providers", [])
@@ -179,10 +252,16 @@ class ModelForgeClient:
         )
 
     def stream_chat(
-        self, model: str, messages: list, session_id: int | None = None, provider_id: int | None = None
+        self,
+        model: str,
+        messages: list,
+        session_id: int | None = None,
+        provider_id: int | None = None,
+        *,
+        cancel_event: Callable[[], bool] | None = None,
     ) -> Iterator[dict]:
-        """Yield SSE events: {type: delta|done|error, data: ...}."""
-        with httpx.Client(timeout=None) as client, client.stream(
+        """Yield chat SSE events with heartbeat-backed cooperative cancellation."""
+        with httpx.Client(timeout=_CHAT_STREAM_TIMEOUT) as client, client.stream(
             "POST",
             f"{self.base_url}/api/v1/chat/stream",
             json={"model": model, "messages": messages, "session_id": session_id, "provider_id": provider_id},
@@ -190,6 +269,8 @@ class ModelForgeClient:
         ) as resp:
             self._raise_for_status(resp)
             for line in resp.iter_lines():
+                if _is_cancelled(cancel_event):
+                    return
                 line = line.strip()
                 if not line.startswith("data: "):
                     continue
@@ -199,7 +280,7 @@ class ModelForgeClient:
                     continue
                 yield event
                 if event.get("type") in ("done", "error"):
-                    break
+                    return
 
     # ---- sessions ----
 
@@ -483,12 +564,18 @@ class ModelForgeClient:
         data = self._get(f"/api/v1/agent/runs/{run_id}/events", params={"after_sequence": after_sequence})
         return data.get("events", [])
 
-    def stream_agent_run(self, run_id: str, after_sequence: int = 0) -> Iterator[dict]:
-        """Yield Agent Run SSE events while sending equivalent query and header cursors."""
+    def stream_agent_run(
+        self,
+        run_id: str,
+        after_sequence: int = 0,
+        *,
+        cancel_event: Callable[[], bool] | None = None,
+    ) -> Iterator[dict]:
+        """Yield Agent Run SSE events with cursor replay and cooperative cancellation."""
         cursor = max(0, after_sequence)
         headers = self._headers()
         headers["Last-Event-ID"] = str(cursor)
-        with httpx.Client(timeout=None) as client, client.stream(
+        with httpx.Client(timeout=_LONG_STREAM_TIMEOUT) as client, client.stream(
             "GET",
             f"{self.base_url}/api/v1/agent/runs/{run_id}/stream",
             params={"after_sequence": cursor},
@@ -523,6 +610,8 @@ class ModelForgeClient:
                 return result
 
             for line in resp.iter_lines():
+                if _is_cancelled(cancel_event):
+                    return
                 line = line.rstrip("\r")
                 if not line:
                     payload = flush_event()
@@ -698,12 +787,17 @@ class ModelForgeClient:
     def onboarding_state(self) -> dict:
         return self._get("/api/v1/tasks/onboarding/state")
 
-    def stream_tasks(self, after_id: int = 0):
-        """Yield decoded global task SSE events from a durable cursor."""
+    def stream_tasks(
+        self,
+        after_id: int = 0,
+        *,
+        cancel_event: Callable[[], bool] | None = None,
+    ):
+        """Yield task SSE events with durable cursor replay and cooperative cancellation."""
         cursor = max(0, after_id)
         headers = self._headers()
         headers["Last-Event-ID"] = str(cursor)
-        with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0, write=30.0, pool=30.0)) as client:
+        with httpx.Client(timeout=_LONG_STREAM_TIMEOUT) as client:
             with client.stream(
                 "GET", f"{self.base_url}/api/v1/tasks/stream",
                 headers=headers, params={"after_id": cursor},
@@ -711,6 +805,8 @@ class ModelForgeClient:
                 self._raise_for_status(response)
                 event: dict = {}
                 for line in response.iter_lines():
+                    if _is_cancelled(cancel_event):
+                        return
                     if not line:
                         if event.get("data"):
                             import json

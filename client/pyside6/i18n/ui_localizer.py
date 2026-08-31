@@ -7,10 +7,12 @@ from __future__ import annotations
 
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QComboBox,
     QGroupBox,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QTabWidget,
     QTextEdit,
@@ -52,6 +54,13 @@ _TEXT = {
     "通用": ("通用", "General", "一般"), "外观": ("外观", "Appearance", "外観"), "语言": ("语言", "Language", "言語"),
     "服务连接": ("服务连接", "Service Connection", "サービス接続"), "关于": ("关于", "About", "について"),
     "浅色": ("浅色", "Light", "ライト"), "深色": ("深色", "Dark", "ダーク"), "跟随系统": ("跟随系统", "System", "システム"),
+    "用户名": ("用户名", "Username", "ユーザー名"), "密码": ("密码", "Password", "パスワード"), "确认密码": ("确认密码", "Confirm Password", "パスワードを確認"),
+    "邮箱（可选）": ("邮箱（可选）", "Email (optional)", "メール（任意）"), "登录工作区": ("登录工作区", "Sign In to Workspace", "ワークスペースにログイン"),
+    "服务状态：正在检查本地服务": ("服务状态：正在检查本地服务", "Service status: checking local service", "サービス状態：ローカルサービスを確認中"),
+    "停止": ("停止", "Stop", "停止"), "正在加载对话…": ("正在加载对话…", "Loading conversation…", "会話を読み込み中…"),
+    "正在准备本地模型…": ("正在准备本地模型…", "Preparing local model…", "ローカルモデルを準備中…"), "模型已就绪": ("模型已就绪", "Model ready", "モデルの準備が完了しました"),
+    "无法响应": ("无法响应", "Unable to respond", "応答できません"), "正在生成回复": ("正在生成回复", "Generating response", "応答を生成中"),
+    "运行结束": ("运行结束", "Run finished", "実行終了"), "批准": ("批准", "Approve", "承認"), "拒绝": ("拒绝", "Reject", "拒否"),
     "显示语言": ("显示语言", "Display Language", "表示言語"), "工作区": ("工作区", "Workspace", "ワークスペース"),
     "已连接": ("已连接", "Connected", "接続済み"), "需要登录": ("需要登录", "Login Required", "ログインが必要"),
     "起步示例": ("起步示例", "Starter Examples", "スターター例"), "复制模板": ("复制模板", "Copy Template", "テンプレートをコピー"),
@@ -190,9 +199,14 @@ def format_text(source: str, **values) -> str:
 
 
 def format_api_error(error) -> str:
-    """Render only the stable code and optional correlation identifier at UI boundaries."""
-    code = getattr(error, "code", None) or "OPERATION_FAILED"
+    """Render only stable worker/API error codes at user-interface boundaries."""
+    code = getattr(error, "code", None)
     correlation = getattr(error, "correlation_id", None)
+    if not code and isinstance(error, str):
+        candidate = error.split("(", 1)[0].strip()
+        if candidate and all(char.isalnum() or char in {"_", "-"} for char in candidate):
+            code = candidate
+    code = code or "OPERATION_FAILED"
     if correlation:
         return format_text("请求未完成（{code}）。关联标识：{correlation}", code=code, correlation=correlation)
     return format_text("请求未完成（{code}）。", code=code)
@@ -217,7 +231,7 @@ def localize_tree(root: QWidget, translator=None) -> None:
             widget.setText(text(_source(widget, "text", widget.text()), locale))
         elif isinstance(widget, QLineEdit):
             widget.setPlaceholderText(text(_source(widget, "placeholder", widget.placeholderText()), locale))
-        elif isinstance(widget, QTextEdit):
+        elif isinstance(widget, (QTextEdit, QPlainTextEdit)):
             widget.setPlaceholderText(text(_source(widget, "placeholder", widget.placeholderText()), locale))
         elif isinstance(widget, QGroupBox):
             widget.setTitle(text(_source(widget, "title", widget.title()), locale))
@@ -241,3 +255,23 @@ def localize_tree(root: QWidget, translator=None) -> None:
         action.setText(text(_source(action, "text", action.text()), locale))
     if root.windowTitle():
         root.setWindowTitle(text(_source(root, "window_title", root.windowTitle()), locale))
+    _apply_accessibility(root)
+
+
+def _apply_accessibility(root: QWidget) -> None:
+    """Provide a usable default name where legacy widgets have no explicit label."""
+    for widget in [root, *root.findChildren(QWidget)]:
+        if widget.accessibleName():
+            continue
+        if isinstance(widget, QLineEdit):
+            name = widget.placeholderText().replace("…", "").strip()
+            widget.setAccessibleName(name or "文本输入")
+            if widget.echoMode() == QLineEdit.Password:
+                widget.setAccessibleDescription("密码输入内容不会显示。")
+        elif isinstance(widget, (QTextEdit, QPlainTextEdit)):
+            name = widget.placeholderText().replace("…", "").strip()
+            widget.setAccessibleName(name or "文本内容")
+        elif isinstance(widget, QComboBox):
+            widget.setAccessibleName(widget.currentText() or "选择选项")
+        elif isinstance(widget, QAbstractButton):
+            widget.setAccessibleName(widget.text().replace("…", "").strip() or "操作按钮")

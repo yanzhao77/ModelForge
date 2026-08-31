@@ -6,10 +6,9 @@ Create Date: 2026-08-28
 """
 from __future__ import annotations
 
-from alembic import op
-
-from core.database import Base
 import models.records  # noqa: F401 -- register mappings
+from alembic import op
+from core.database import Base
 
 revision = "0001_server_baseline"
 down_revision = None

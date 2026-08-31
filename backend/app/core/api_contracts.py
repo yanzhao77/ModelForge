@@ -13,13 +13,15 @@ def correlation_id() -> str:
 
 def problem(status_code: int, code: str, message: str, *, correlation: str | None = None) -> HTTPException:
     """Return a predictable problem detail without exception internals."""
+    corr = correlation or correlation_id()
     return HTTPException(
         status_code=status_code,
         detail={
             "code": code,
             "message": message,
-            "correlation_id": correlation or correlation_id(),
+            "correlation_id": corr,
         },
+        headers={"X-Correlation-ID": corr},
     )
 
 

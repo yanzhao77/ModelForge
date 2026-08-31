@@ -10,7 +10,7 @@ APP = ROOT / "backend" / "app"
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from api.chat import _stream_error
+from api.chat import _classify_chat_exception
 from services.remote_provider_service import RemoteProviderError, normalize_base_url
 from services.runtimes.openai_api_runtime import OpenAIRuntime
 
@@ -80,7 +80,9 @@ def test_responses_chat_falls_back_only_when_endpoint_is_unsupported():
 
 def test_stream_error_diagnostic_is_safe_and_retry_aware():
     response = httpx.Response(429, request=httpx.Request("POST", "https://api.example.test/v1/responses"))
-    detail = _stream_error(httpx.HTTPStatusError("limited", request=response.request, response=response))
+    exc = httpx.HTTPStatusError("limited", request=response.request, response=response)
+    classification = _classify_chat_exception(exc)
+    detail = classification.to_stream_dict()
     assert detail == {
         "code": "RATE_LIMITED",
         "message": "远程服务正在限流。请稍后由用户手动重试。",

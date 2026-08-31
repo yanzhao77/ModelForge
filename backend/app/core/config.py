@@ -180,7 +180,21 @@ def load_config(config_path: str | None = None) -> Settings:
         result.session_cookie_samesite = "none"
     elif secret in _INSECURE_JWT_SECRETS:
         # Do not silently sign development JWTs with a public, predictable key.
-        result.jwt_secret = secrets.token_urlsafe(48)
+        # Persist the generated secret to survive process restarts during development.
+        secret_path = Path(result.data_dir) / ".dev_jwt_secret"
+        try:
+            if secret_path.exists():
+                persisted = secret_path.read_text(encoding="utf-8").strip()
+                if len(persisted) >= 32:
+                    result.jwt_secret = persisted
+                    return result
+            generated = secrets.token_urlsafe(48)
+            secret_path.parent.mkdir(parents=True, exist_ok=True)
+            secret_path.write_text(generated, encoding="utf-8")
+            os.chmod(str(secret_path), 0o600)
+            result.jwt_secret = generated
+        except OSError:
+            result.jwt_secret = secrets.token_urlsafe(48)
     return result
 
 

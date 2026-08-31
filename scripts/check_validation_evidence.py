@@ -11,7 +11,6 @@ import argparse
 import json
 from pathlib import Path
 
-
 REQUIRED_GATES = (
     "b2_migration",
     "c3_concurrency",

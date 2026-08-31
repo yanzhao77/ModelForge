@@ -1,5 +1,3 @@
-"""Conversation-first chat with local and remote OpenAI-compatible model selection."""
-
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
@@ -12,17 +10,18 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 
 class StreamWorker(QThread):
+    """Reads a chat stream outside the GUI event loop."""
+
     delta = Signal(str)
     done = Signal(str)
     failed = Signal(str)
@@ -36,13 +35,14 @@ class StreamWorker(QThread):
         full = ""
         try:
             for event in self.api.stream_chat(
-                self.model, self.messages, self.session_id, self.provider_id
+                self.model, self.messages, self.session_id, self.provider_id,
+                cancel_event=self.interruption_requested,
             ):
                 if self.isInterruptionRequested():
                     return
                 kind = event.get("type")
                 if kind == "delta":
-                    content = event.get("data", "")
+                    content = str(event.get("data", ""))
                     full += content
                     self.delta.emit(content)
                 elif kind == "done":
@@ -51,14 +51,19 @@ class StreamWorker(QThread):
                 elif kind == "error":
                     self.failed.emit(self._format_error(event.get("data")))
                     return
-            self.done.emit(full)
+            if not self.isInterruptionRequested():
+                self.done.emit(full)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            if not self.isInterruptionRequested():
+                self.failed.emit(format_api_error(exc))
+
+    def interruption_requested(self) -> bool:
+        return self.isInterruptionRequested()
 
     @staticmethod
     def _format_error(data) -> str:
         if not isinstance(data, dict):
-            return str(data or "模型服务返回错误。")
+            return "模型服务返回错误。"
         code = data.get("code", "REMOTE_ERROR")
         message = data.get("message", "模型服务返回错误。")
         retry = "当前消息未自动重发，请确认后手动重试。" if data.get("retryable") else "请修复配置后再重试。"
@@ -66,7 +71,7 @@ class StreamWorker(QThread):
 
 
 class ChatPage(QWidget, AsyncApiMixin):
-    """Streaming conversation workspace with a safe remote-provider selector."""
+    """Streaming conversation workspace with safe, plain-text message rendering."""
 
     def __init__(self, api, readiness_store=None, parent=None):
         QWidget.__init__(self, parent)
@@ -75,11 +80,13 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.readiness_store = readiness_store
         self._model_ready = False
         self.session_refresher = None
+        self._stream_active = False
         self._init_ui()
         self._run_api(
             self.api.list_remote_providers,
             self._render_remote_providers,
             lambda _error: None,
+            request_key="providers",
         )
         if self.readiness_store:
             self.readiness_store.changed.connect(self._render_readiness)
@@ -101,39 +108,63 @@ class ChatPage(QWidget, AsyncApiMixin):
         model_row = QHBoxLayout()
         self.model_input = QLineEdit()
         self.model_input.setPlaceholderText("选择本地模型，或已配置的远程模型")
+        self.model_input.setAccessibleName("模型名称")
         model_row.addWidget(self.model_input, 1)
         self.provider_select = QComboBox()
+        self.provider_select.setAccessibleName("模型服务")
         self.provider_select.addItem("本地运行时", None)
         self.provider_select.currentIndexChanged.connect(self._provider_changed)
         model_row.addWidget(self.provider_select)
         self.load_btn = QPushButton("使用模型")
+        self.load_btn.setAccessibleName("使用所选模型")
         self.load_btn.clicked.connect(self.load_model)
         model_row.addWidget(self.load_btn)
         self.kb_check = QCheckBox("使用知识库")
+        self.kb_check.setAccessibleName("使用知识库回答")
         model_row.addWidget(self.kb_check)
         layout.addLayout(model_row)
-        self.display = QTextEdit()
+        self.display = QPlainTextEdit()
         self.display.setReadOnly(True)
+        self.display.setAccessibleName("对话记录")
         self.display.setPlaceholderText("对话内容将显示在这里。")
         layout.addWidget(self.display, 1)
         composer = QHBoxLayout()
         self.msg_input = QLineEdit()
+        self.msg_input.setAccessibleName("消息内容")
         self.msg_input.setPlaceholderText("向 ModelForge 发送消息…")
         self.msg_input.returnPressed.connect(self.send_message)
         composer.addWidget(self.msg_input, 1)
         examples = QPushButton("示例")
+        examples.setAccessibleName("打开对话示例")
         examples.clicked.connect(
             lambda: open_examples(
                 "chat", self, lambda example: self.msg_input.setText(example.template)
             )
         )
         composer.addWidget(examples)
+        self.stop_btn = QPushButton("停止")
+        self.stop_btn.setAccessibleName("停止生成")
+        self.stop_btn.setToolTip("停止当前生成")
+        self.stop_btn.clicked.connect(self.stop_stream)
+        self.stop_btn.setEnabled(False)
+        composer.addWidget(self.stop_btn)
         self.send_btn = QPushButton("发送")
         self.send_btn.setProperty("accent", True)
+        self.send_btn.setAccessibleName("发送消息")
         self.send_btn.clicked.connect(self.send_message)
         self.send_btn.setEnabled(False)
         composer.addWidget(self.send_btn)
         layout.addLayout(composer)
+
+    def _append_notice(self, title: str, detail: str = "") -> None:
+        self.display.appendPlainText(title)
+        if detail:
+            self.display.appendPlainText(detail)
+        self.display.appendPlainText("")
+        self._scroll_to_end()
+
+    def _scroll_to_end(self) -> None:
+        self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum())
 
     def _render_remote_providers(self, providers):
         selected = self._provider_id()
@@ -163,10 +194,11 @@ class ChatPage(QWidget, AsyncApiMixin):
         if provider:
             self.model_input.setText(provider["default_model"])
             self.load_btn.setText("使用远程服务")
-            self.chat_status.set_state(f"{provider['name']} selected", "online")
+            self.chat_status.set_state(f"远程模型已就绪：{provider['name']}", "online")
         else:
             self.load_btn.setText("使用模型")
             self.chat_status.set_state("未选择模型", "warning")
+        self._set_composer_enabled()
 
     def _render_readiness(self, snapshot: dict) -> None:
         self._model_ready = snapshot.get("level") == "READY"
@@ -180,21 +212,32 @@ class ChatPage(QWidget, AsyncApiMixin):
                     if isinstance(provider, dict) and provider.get("id") == provider_id:
                         self.provider_select.setCurrentIndex(index)
                         break
-        self.send_btn.setEnabled(self._model_ready)
-        self.chat_status.set_state(
-            "模型已就绪" if self._model_ready else "请先配置可用模型",
-            "online" if self._model_ready else "warning",
-        )
+        self._set_composer_enabled()
+        if self._provider() is None:
+            self.chat_status.set_state(
+                "模型已就绪" if self._model_ready else "请先配置可用模型",
+                "online" if self._model_ready else "warning",
+            )
+
+    def _chat_ready(self) -> bool:
+        return self._model_ready or self._provider() is not None
+
+    def _set_composer_enabled(self) -> None:
+        self.send_btn.setEnabled(self._chat_ready() and not self._stream_active)
+        self.msg_input.setEnabled(not self._stream_active)
+        self.stop_btn.setEnabled(self._stream_active)
 
     def set_session(self, session_id):
+        self.stop_stream(silent=True)
         self.session_id = session_id
         self.display.clear()
         self.messages = []
-        self.display.append("[Loading conversation…]")
+        self._append_notice("正在加载对话…")
         self._run_api(
             lambda: self.api.list_messages(session_id),
             lambda messages: self._render_session(session_id, messages),
             self._session_load_failed,
+            request_key="session-load",
         )
 
     def _render_session(self, session_id, messages):
@@ -203,45 +246,38 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.display.clear()
         self.messages = []
         for message in messages:
-            self._append_msg(message["role"], message["content"])
-            self.messages.append(
-                {"role": message["role"], "content": message["content"]}
-            )
+            self._append_msg(message["role"], str(message["content"]))
+            self.messages.append({"role": message["role"], "content": message["content"]})
 
     def _session_load_failed(self, error):
-        self.display.append(f"[会话加载未完成] {format_api_error(error)}")
+        self._append_notice("会话加载未完成", format_api_error(error))
 
     def load_model(self):
-        if not self._model_ready:
+        if not self._chat_ready():
             QMessageBox.information(self, "模型尚未就绪", "请先在模型工作区完成模型配置或远程服务验证。")
             return
         model = self.model_input.text().strip()
         if not model:
-            QMessageBox.warning(
-                self, "请选择模型", "请输入模型名称，或选择已配置的远程模型服务。"
-            )
+            QMessageBox.warning(self, "请选择模型", "请输入模型名称，或选择已配置的远程模型服务。")
             return
         provider = self._provider()
         if provider:
             self.chat_status.set_state(f"{provider['name']} · {model}", "online")
-            self.display.append(
-                "<p><b>Remote provider ready</b><br>Messages will be sent through the selected OpenAI-compatible provider.</p>"
-            )
+            self._append_notice("远程模型已就绪", "消息将发送到所选的 OpenAI 兼容服务。")
             return
         self.load_btn.setEnabled(False)
-        self.display.append("<p><b>Preparing local model…</b></p>")
+        self._append_notice("正在准备本地模型…")
         self._run_api(
             lambda: self.api.runtime_start(model),
             lambda _result: self._model_loaded(model),
             self._model_load_failed,
+            request_key="model-start",
         )
 
     def _model_loaded(self, model):
         self.load_btn.setEnabled(True)
-        self.chat_status.set_state(f"{model} ready", "online")
-        self.display.append(
-            "<p><b>Model ready</b><br>Start a conversation when you are ready.</p>"
-        )
+        self.chat_status.set_state(f"{model} 已就绪", "online")
+        self._append_notice("模型已就绪", "现在可以开始对话。")
 
     def _model_load_failed(self, error):
         self.load_btn.setEnabled(True)
@@ -249,19 +285,17 @@ class ChatPage(QWidget, AsyncApiMixin):
 
     def _append_msg(self, role, content):
         name = "你" if role == "user" else "ModelForge"
-        self.display.append(f"<p><b>{name}</b><br>{content}</p>")
+        self._append_notice(name, content)
 
     def send_message(self):
         text, model = self.msg_input.text().strip(), self.model_input.text().strip()
-        if not self._model_ready:
+        if not self._chat_ready():
             QMessageBox.information(self, "模型尚未就绪", "请先在模型工作区配置并验证一个可用模型。")
             return
         if not text:
             return
         if not model:
-            QMessageBox.warning(
-                self, "请选择模型", "Enter a model name before sending a message."
-            )
+            QMessageBox.warning(self, "请选择模型", "请先输入或选择模型名称。")
             return
         if self.worker and self.worker.isRunning():
             return
@@ -276,68 +310,77 @@ class ChatPage(QWidget, AsyncApiMixin):
         self._append_msg("user", text)
         self.messages.append({"role": "user", "content": text})
         self.msg_input.clear()
-        self.send_btn.setEnabled(False)
+        self._stream_active = True
+        self._set_composer_enabled()
         if self.kb_check.isChecked():
             self._run_api(
                 lambda: self.api.knowledge_answer(model, text, top_k=3),
                 self._show_kb_answer,
                 self._show_kb_failure,
+                request_key="knowledge-answer",
             )
             return
-        self.display.append("<p><b>ModelForge</b><br>")
-        self.display.moveCursor(QTextCursor.End)
-        self.worker = StreamWorker(
-            self.api, model, self.messages, self.session_id, provider_id
-        )
+        self.display.appendPlainText("ModelForge")
+        self._scroll_to_end()
+        self.worker = StreamWorker(self.api, model, self.messages, self.session_id, provider_id)
         self.worker.delta.connect(self._on_delta)
         self.worker.done.connect(self._on_done)
         self.worker.failed.connect(self._on_failed)
+        self.worker.finished.connect(self._stream_finished)
         self.worker.start()
 
     def _show_kb_answer(self, result):
-        answer = result.get("answer", "")
-        self.display.append(f"<b>ModelForge</b><br>{answer}<br>")
-        for source in result.get("sources", []):
-            self.display.append(
-                f"<span>[Source: {source.get('source')} @ {source.get('score', 0)}]</span><br>"
-            )
+        answer = str(result.get("answer", ""))
+        self._append_msg("assistant", answer)
+        sources = result.get("sources", [])
+        if sources:
+            lines = [f"来源：{source.get('source', '-')}（相关度 {source.get('score', 0)}）" for source in sources]
+            self._append_notice("参考来源", "\n".join(lines))
         self.messages.append({"role": "assistant", "content": answer})
-        self.send_btn.setEnabled(True)
+        self._stream_finished()
 
     def _show_kb_failure(self, error):
-        self.display.append(f"<b>Unable to answer</b><br>{error}<br>")
-        self.send_btn.setEnabled(True)
+        self._append_notice("无法回答", format_api_error(error))
+        self._stream_finished()
 
     def _on_delta(self, chunk):
         cursor = self.display.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.display.setTextCursor(cursor)
         self.display.insertPlainText(chunk)
-        self.display.verticalScrollBar().setValue(
-            self.display.verticalScrollBar().maximum()
-        )
+        self._scroll_to_end()
 
     def _on_done(self, full):
-        self.display.append("</p>")
+        self.display.appendPlainText("\n")
         self.messages.append({"role": "assistant", "content": full})
-        self.send_btn.setEnabled(True)
         if self.session_id:
             self._run_api(
                 lambda: self.api.auto_title(self.session_id),
-                lambda _result: (
-                    self.session_refresher() if self.session_refresher else None
-                ),
+                lambda _result: self.session_refresher() if self.session_refresher else None,
                 lambda _error: None,
+                request_key="auto-title",
             )
 
     def _on_failed(self, error):
-        self.display.append(f"<br><b>Unable to respond</b><br>{error}</p>")
-        self.send_btn.setEnabled(True)
+        self._append_notice("无法响应", format_api_error(error))
+
+    def _stream_finished(self) -> None:
+        self._stream_active = False
+        self._set_composer_enabled()
+
+    def stop_stream(self, silent: bool = False) -> None:
+        worker = self.worker
+        if worker and worker.isRunning():
+            worker.requestInterruption()
+            if not silent:
+                self._append_notice("已请求停止生成", "连接关闭后将停止接收输出。")
+        self._stream_active = False
+        self._set_composer_enabled()
 
     def shutdown_stream(self) -> None:
+        self.stop_stream(silent=True)
         worker = self.worker
         self.worker = None
         if worker and worker.isRunning():
-            worker.requestInterruption()
             worker.wait(2500)
         self.shutdown_async_api()

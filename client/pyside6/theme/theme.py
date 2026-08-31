@@ -23,14 +23,18 @@ def application_stylesheet(p: dict) -> str:
     QLabel[status="online"] {{ color: {p["success"]}; }} QLabel[status="warning"] {{ color: {p["warning"]}; }} QLabel[status="error"] {{ color: {p["danger"]}; }}
     QPushButton {{ background: {p["surface"]}; border: 1px solid {p["border_strong"]}; border-radius: {t.RADIUS_SM}px; padding: 7px 12px; min-height: 18px; font-weight: 550; }}
     QPushButton:hover {{ background: {p["hover"]}; }} QPushButton:pressed {{ background: {p["selection"]}; }}
+    QPushButton:focus {{ border: 2px solid {p["accent"]}; padding: 6px 11px; }}
     QPushButton:disabled {{ color: {p["dim"]}; border-color: {p["border"]}; }}
     QPushButton[accent="true"] {{ background: {p["accent"]}; color: {p["accent_fg"]}; border-color: {p["accent"]}; }}
     QPushButton[nav="true"] {{ text-align: left; color: {p["muted"]}; background: transparent; border: 1px solid transparent; padding: 8px 10px; font-size: 12px; font-weight: 500; }}
     QPushButton[nav="true"]:hover {{ color: {p["text"]}; background: {p["hover"]}; }}
     QPushButton[nav="true"]:checked {{ color: {p["text"]}; background: {p["selection"]}; border-color: transparent; font-weight: 600; }}
+    QPushButton[nav="true"]:focus {{ border: 2px solid {p["accent"]}; padding: 7px 9px; }}
     QLineEdit, QTextEdit, QTextBrowser, QPlainTextEdit, QComboBox {{ background: {p["surface"]}; border: 1px solid {p["border_strong"]}; border-radius: {t.RADIUS_SM}px; padding: 8px 10px; selection-background-color: {p["selection"]}; }}
-    QLineEdit:focus, QTextEdit:focus, QComboBox:focus {{ border-color: {p["text"]}; }}
-    QTableWidget, QListWidget, QTreeWidget {{ background: {p["surface"]}; alternate-background-color: {p["surface_subtle"]}; border: 1px solid {p["border"]}; outline: 0; }}
+    QLineEdit:focus, QTextEdit:focus, QTextBrowser:focus, QPlainTextEdit:focus, QComboBox:focus {{ border: 2px solid {p["accent"]}; padding: 7px 9px; }}
+    QCheckBox:focus, QTabBar::tab:focus {{ outline: 2px solid {p["accent"]}; outline-offset: 2px; }}
+    QTableWidget, QListWidget, QTreeWidget {{ background: {p["surface"]}; alternate-background-color: {p["surface_subtle"]}; border: 1px solid {p["border"]}; }}
+    QTableWidget:focus, QListWidget:focus, QTreeWidget:focus {{ border: 2px solid {p["accent"]}; }}
     QTableWidget::item, QListWidget::item {{ padding: 8px; border-bottom: 1px solid {p["border"]}; }}
     QTableWidget::item:selected, QListWidget::item:selected {{ background: {p["selection"]}; color: {p["text"]}; }}
     QHeaderView::section {{ background: {p["surface_subtle"]}; color: {p["muted"]}; border: 0; border-bottom: 1px solid {p["border"]}; padding: 8px; font-size: 11px; font-weight: 600; }}

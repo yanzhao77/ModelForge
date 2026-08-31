@@ -25,7 +25,7 @@ jobs:
       - name: Verify whitespace and lint
         run: |
           git diff --check
-          ruff check backend/app client/pyside6 tests
+          ruff check backend client tests scripts
       - name: Import and lifecycle smoke
         env:
           PYTHONPATH: backend/app

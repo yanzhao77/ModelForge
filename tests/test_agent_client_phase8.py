@@ -100,14 +100,15 @@ class TestClientStructure:
         assert os.path.exists(path)
         src = open(path, encoding="utf-8").read()
         assert "class RunTimeline" in src
-        assert "class ToolCallCard" in src
+        assert "def _append_tool_summary" in src
+        assert "QPlainTextEdit" in src
         assert "class EventStreamWorker" in src
 
     def test_no_fake_thinking(self):
         path = os.path.join(self.BASE, "pages", "run_timeline.py")
         src = open(path, encoding="utf-8").read()
         assert "Thinking..." not in src
-        assert "Generating..." in src
+        assert "正在生成回复" in src
 
     def test_main_has_agent_workspace(self):
         path = os.path.join(self.BASE, "main.py")

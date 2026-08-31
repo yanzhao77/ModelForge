@@ -6,7 +6,6 @@ import argparse
 import os
 import sys
 
-
 REQUIRED = {
     "windows": (
         "MF_WINDOWS_SIGNING_CERT_BASE64",

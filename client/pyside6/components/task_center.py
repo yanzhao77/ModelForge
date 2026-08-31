@@ -5,6 +5,7 @@ import json
 
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
+from components.mf.primitives import MFEmptyState
 from i18n.ui_localizer import format_api_error, format_text
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -68,6 +70,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         self.status_filter.currentIndexChanged.connect(self.refresh)
         filters.addWidget(self.status_filter)
         self.search = QLineEdit()
+        self.search.setAccessibleName("搜索任务")
         self.search.setPlaceholderText("筛选任务标题或来源…")
         self.search.textChanged.connect(self.refresh)
         filters.addWidget(self.search, 1)
@@ -75,11 +78,21 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
 
         splitter = QSplitter(Qt.Vertical)
         self.list = QListWidget()
+        self.list.setAccessibleName("任务列表")
+        self.list.setToolTip("使用状态筛选或标题搜索定位任务。")
         self.list.itemSelectionChanged.connect(self._show_selected)
         self.list.itemChanged.connect(lambda _: self._update_batch_action())
-        splitter.addWidget(self.list)
+        self.empty_list = MFEmptyState(
+            "暂无任务",
+            "发起对话、训练或 Agent Run 后，执行进度和需要处理的事项会显示在这里。",
+        )
+        self.list_stack = QStackedWidget()
+        self.list_stack.addWidget(self.list)
+        self.list_stack.addWidget(self.empty_list)
+        splitter.addWidget(self.list_stack)
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
+        self.detail.setAccessibleName("所选任务详情")
         self.detail.setMaximumHeight(155)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
@@ -88,6 +101,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         splitter.addWidget(self.detail)
         self.logs = QTextEdit()
         self.logs.setReadOnly(True)
+        self.logs.setAccessibleName("所选任务日志和事件")
         self.logs.setLineWrapMode(QTextEdit.NoWrap)
         self.logs.setPlaceholderText("选择任务后点击“查看日志”加载执行日志与事件轨迹。")
         splitter.addWidget(self.logs)
@@ -152,6 +166,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         checked = self._checked_retry_task_ids()
         status = self.status_filter.currentData()
         query = self.search.text().strip().lower()
+        self.list.setUpdatesEnabled(False)
         self.list.clear()
         for task in self.store.ordered_tasks():
             if status and task.get("status") != status:
@@ -168,6 +183,8 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
             self.list.addItem(item)
             if task.get("task_id") == selected:
                 self.list.setCurrentItem(item)
+        self.list.setUpdatesEnabled(True)
+        self.list_stack.setCurrentIndex(0 if self.list.count() else 1)
         self._show_selected()
         self._update_batch_action()
 

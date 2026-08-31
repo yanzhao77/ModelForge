@@ -24,6 +24,7 @@ from pages.automation_page import AutomationPage
 from pages.chat_page import ChatPage
 from pages.control_center_page import ControlCenterPage
 from pages.dataset_page import DatasetPage
+from pages.developer_api_page import DeveloperApiPage
 from pages.extensions_page import ExtensionsPage
 from pages.knowledge_page import KnowledgePage
 from pages.login_dialog import LoginDialog
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         "agents": "智能体",
         "workbench": "Agent 工作台",
         "extensions": "扩展治理",
+        "developer": "开发者 API",
         "tasks": "任务",
         "runtime": "运行时",
         "activity": "活动",
@@ -135,6 +137,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.agent_workbench_page.navigate_requested.connect(self._navigate_to)
         self.activity_page = ActivityPage(self.task_store)
         self.control_center_page = ControlCenterPage(self.api)
+        self.developer_api_page = DeveloperApiPage(self.api)
         self.automation_page = AutomationPage(self.api)
         self.extensions_page = ExtensionsPage(self.api)
         self.settings_page = SettingsPage(
@@ -156,6 +159,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             "runtime": self.runtime_page,
             "activity": self.activity_page,
             "control": self.control_center_page,
+            "developer": self.developer_api_page,
             "automation": self.automation_page,
             "extensions": self.extensions_page,
             "settings": self.settings_page,
@@ -200,6 +204,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 "agents",
                 "workbench",
                 "automation",
+                "developer",
                 "control",
                 "extensions",
                 "activity",
@@ -222,13 +227,14 @@ class MainWindow(QMainWindow, AsyncApiMixin):
     def _init_command_menu(self) -> None:
         menu = self.menuBar()
         menu.setNativeMenuBar(False)
-        menu.setVisible(False)
+        menu.setVisible(True)
         command = menu.addMenu("命令")
         for title, key in (
             ("概览", "overview"),
             ("对话", "chat"),
             ("任务", "tasks"),
             ("运行时", "runtime"),
+            ("开发者 API", "developer"),
             ("设置", "settings"),
         ):
             action = QAction(title, self)
@@ -272,9 +278,8 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         elif (page := self._pages.get(destination)) is not None:
             self.stack.setCurrentWidget(page)
         self.shell.set_status(
-            "{} · 已连接到 {}".format(
-                self.translator.t("nav." + destination, destination.title()),
-                self.api.base_url,
+            "当前工作区：{}".format(
+                self.translator.t("nav." + destination, destination.title())
             )
         )
 
@@ -296,17 +301,17 @@ class MainWindow(QMainWindow, AsyncApiMixin):
     def _show_service_status(self, info: dict) -> None:
         _version = info.get("version", "Unavailable")
         self.shell.topbar.set_system(
-            True, f"已连接 · {self.api.username or 'Local workspace'}"
+            True, f"已登录：{self.api.username or '本地工作区'}"
         )
-        self.shell.set_status(f"已连接 ModelForge 服务 · {self.api.base_url}")
+        self.shell.set_status("服务已连接，可开始工作。")
 
     def _show_service_error(self, error: str) -> None:
-        self.shell.topbar.set_system(False, "服务不可用")
-        self.shell.set_status(f"无法连接服务 · {error}")
+        self.shell.topbar.set_system(False, "本地服务未连接")
+        self.shell.set_status(f"无法连接服务：{error}")
 
     def _show_task_stream_status(self, online: bool, error: str) -> None:
         self.shell.set_status(
-            "任务更新已连接" if online else f"正在重连任务更新 · {error or 'waiting'}"
+            "任务更新已连接" if online else f"任务更新正在重连：{error or '等待服务响应'}"
         )
 
     def _offer_recovery(self, restored: dict) -> None:

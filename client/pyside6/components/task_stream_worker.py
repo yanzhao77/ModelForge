@@ -44,7 +44,10 @@ class TaskStreamWorker(QThread):
         while not self.isInterruptionRequested():
             should_resync = False
             try:
-                for event in self.api.stream_tasks(self._cursor):
+                for event in self.api.stream_tasks(
+                    self._cursor,
+                    cancel_event=self.interruption_requested,
+                ):
                     if self.isInterruptionRequested():
                         return
                     if event.get("event") == "resync_required":
@@ -78,3 +81,6 @@ class TaskStreamWorker(QThread):
                 while not self.isInterruptionRequested() and time.monotonic() < deadline:
                     time.sleep(0.1)
                 delay = min(15.0, delay * 2)
+
+    def interruption_requested(self) -> bool:
+        return self.isInterruptionRequested()

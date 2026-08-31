@@ -25,9 +25,11 @@ from api import (
     train,
     workspaces,
 )
+from core.api_contracts import correlation_id
 from core.config import settings
 from core.database import init_db
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from services.agent_engine import get_engine
@@ -67,6 +69,42 @@ async def lifespan(app: FastAPI):
 
 task_retry_monitor = RetryTaskMonitor(nudge=task_outbox_publisher.nudge)
 app = FastAPI(title="ModelForge", version="3.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def openai_validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Convert Pydantic validation errors to OpenAI-compatible error envelope for /v1/ paths."""
+    # Only apply OpenAI error envelope to /v1/ paths
+    if not request.url.path.startswith("/v1/"):
+        from fastapi.exception_handlers import request_validation_exception_handler
+        return await request_validation_exception_handler(request, exc)
+
+    correlation = correlation_id()[:64]
+    errors = exc.errors()
+    if errors:
+        first_error = errors[0]
+        loc = " -> ".join(str(x) for x in first_error.get("loc", []))
+        msg = f"Invalid request: {first_error.get('msg', 'validation failed')} at {loc}"
+    else:
+        msg = "Invalid request: validation failed"
+
+    def _openai_error(code: str, message: str, correlation: str) -> dict:
+        return {
+            "error": {
+                "message": message,
+                "type": "server_error",
+                "code": code,
+                "param": None,
+            },
+            "correlation_id": correlation,
+        }
+
+    return JSONResponse(
+        _openai_error("REQUEST_INVALID", msg, correlation),
+        status_code=422,
+        headers={"X-Request-ID": correlation, "X-Correlation-ID": correlation},
+    )
+
 
 app.add_middleware(
     CORSMiddleware,

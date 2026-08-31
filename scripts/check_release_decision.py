@@ -11,7 +11,6 @@ import json
 import re
 from pathlib import Path
 
-
 REQUIRED_GATES = (
     "i1_migration",
     "i2_concurrency_events",

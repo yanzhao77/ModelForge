@@ -8,22 +8,26 @@ from core.security import get_current_user
 from fastapi import APIRouter, Depends, Header
 from fastapi.responses import JSONResponse, StreamingResponse
 from models.records import User
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from services.runtime_registry import get_runtime
 
 router = APIRouter(tags=["openai"])
 
+_MAX_MESSAGE_COUNT = 100
+_MAX_SINGLE_CONTENT_LENGTH = 200000
+_MAX_TOTAL_PROMPT_CHARS = 1000000
+
 
 class OpenAIMessage(BaseModel):
-    role: str
-    content: str
+    role: str = Field(pattern="^(system|developer|user|assistant)$")
+    content: str = Field(min_length=1, max_length=_MAX_SINGLE_CONTENT_LENGTH)
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "default-model"
-    messages: list[OpenAIMessage]
-    temperature: float | None = 0.7
-    max_tokens: int | None = 2048
+    model: str = Field(min_length=1, max_length=255, default="default-model")
+    messages: list[OpenAIMessage] = Field(min_length=1, max_length=_MAX_MESSAGE_COUNT)
+    temperature: float | None = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=2048, ge=1, le=32768)
     stream: bool | None = False
 
 
@@ -70,6 +74,15 @@ async def chat_completions(
     """Proxy a user-authorized model request without exposing runtime errors."""
     del user  # Authentication dependency remains required; no identity is echoed.
     correlation = (request_id or correlation_id())[:64]
+
+    total_chars = sum(len(m.content) for m in req.messages)
+    if total_chars > _MAX_TOTAL_PROMPT_CHARS:
+        return JSONResponse(
+            _openai_error("REQUEST_INVALID", f"Total prompt content exceeds {_MAX_TOTAL_PROMPT_CHARS} characters.", correlation),
+            status_code=422,
+            headers={"X-Request-ID": correlation},
+        )
+
     messages = [{"role": message.role, "content": message.content} for message in req.messages]
     if req.stream:
         async def gen():
@@ -95,7 +108,7 @@ async def chat_completions(
         return StreamingResponse(
             gen(),
             media_type="text/event-stream",
-            headers={"X-Request-ID": correlation},
+            headers={"X-Request-ID": correlation, "X-Correlation-ID": correlation},
         )
     try:
         result = await get_runtime().chat(
