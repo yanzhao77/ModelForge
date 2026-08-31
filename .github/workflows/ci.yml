@@ -219,6 +219,52 @@ jobs:
             modelforge:rc-${{ github.sha }} \
             /scripts/generate_sbom.py --mode=installed --source-label="docker-image:modelforge:rc-${{ github.sha }}" --output /out/sbom-image.cdx.json
           echo "Runtime SBOM source: final Docker image modelforge:rc-${{ github.sha }}"
+      - name: Audit installed packages in final image
+        run: |
+          mkdir -p release-artifacts
+          IMAGE_ID=$(docker inspect --format='{{.Id}}' modelforge:rc-${{ github.sha }})
+          IMAGE_DIGEST="${IMAGE_DIGEST:-$(docker inspect --format='{{index .RepoDigests 0}}' modelforge:rc-${{ github.sha }} 2>/dev/null || echo "$IMAGE_ID")}"
+          PYTHON_VER=$(docker run --rm --user root modelforge:rc-${{ github.sha }} python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+          PIP_VER=$(docker run --rm --user root modelforge:rc-${{ github.sha }} python -m pip --version | awk '{print $2}')
+          SETUPTOOLS_VER=$(docker run --rm --user root modelforge:rc-${{ github.sha }} python -c "import importlib.metadata; print(importlib.metadata.version('setuptools'))" 2>/dev/null || echo "NOT INSTALLED")
+          PKG_COUNT=$(docker run --rm --user root modelforge:rc-${{ github.sha }} python -c "import importlib.metadata; print(len(list(importlib.metadata.distributions())))")
+          docker run --rm \
+            --user root \
+            -v "$PWD/release-artifacts:/out" \
+            --entrypoint python \
+            modelforge:rc-${{ github.sha }} \
+            -c "
+          import importlib.metadata, json, sys
+          seen = set()
+          lines = []
+          for dist in importlib.metadata.distributions():
+              name = dist.metadata['Name']
+              if name in seen:
+                  continue
+              seen.add(name)
+              version = dist.metadata['Version'] or 'unknown'
+              lines.append(f'{name}=={version}')
+          lines.sort()
+          with open('/out/image-installed-requirements.txt', 'w') as f:
+              f.write('\n'.join(lines) + '\n')
+          print(f'{len(lines)} packages exported')
+          "
+          echo "=== Image Audit Summary ==="
+          echo "Image ID:        $IMAGE_ID"
+          echo "Image Digest:    $IMAGE_DIGEST"
+          echo "Python version:  $PYTHON_VER"
+          echo "pip version:     $PIP_VER"
+          echo "setuptools:      $SETUPTOOLS_VER"
+          echo "Package count:   $PKG_COUNT"
+          echo "image-installed-requirements.txt written"
+          # Verify setuptools appears in exported list
+          if ! grep -qi "^setuptools==" release-artifacts/image-installed-requirements.txt; then
+            echo "WARNING: setuptools not found in exported requirements list"
+          fi
+          # Audit the exported list
+          pip-audit -r release-artifacts/image-installed-requirements.txt \
+            --format json --output release-artifacts/pip-audit-image.json
+          echo "pip-audit-image.json written"
       - name: Verify non-root user in image
         run: |
           USER=$(docker run --rm modelforge:rc-${{ github.sha }} whoami)
