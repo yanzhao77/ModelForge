@@ -39,11 +39,18 @@ jobs:
         run: |
           pytest tests/ -q --cov=backend/app --cov-fail-under=75 --cov-report=term-missing --cov-report=xml:coverage.xml
       - name: Security dependency audit (runtime)
-        run: pip-audit -r requirements.txt
+        run: pip-audit -r requirements.txt --format json --output release-artifacts/pip-audit-runtime.json
       - name: Security dependency audit (development)
-        run: pip-audit -r requirements-dev.txt
-      - name: Generate SBOM
-        run: python scripts/generate_sbom.py --mode=installed --output release-artifacts/sbom.cdx.json
+        run: pip-audit -r requirements-dev.txt --format json --output release-artifacts/pip-audit-dev.json
+      - name: Generate development inventory SBOM (full venv)
+        run: python scripts/generate_sbom.py --mode=installed --source-label="development-venv (requirements.txt + requirements-dev.txt + requirements-gui.txt)" --output release-artifacts/sbom-dev.cdx.json
+      - name: Generate runtime SBOM (isolated runtime venv)
+        run: |
+          python -m venv .venv-runtime
+          .venv-runtime/bin/pip install --upgrade pip
+          .venv-runtime/bin/pip install -r requirements.txt
+          .venv-runtime/bin/python scripts/generate_sbom.py --mode=installed --source-label="isolated-runtime-venv (requirements.txt only)" --output release-artifacts/sbom-runtime.cdx.json
+          echo "Runtime SBOM source: isolated runtime venv (requirements.txt only)"
       - name: Record candidate metadata
         run: |
           mkdir -p release-artifacts
@@ -69,11 +76,29 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: error
-      - name: Upload SBOM
+      - name: Upload runtime SBOM (authoritative)
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-cdx
-          path: release-artifacts/sbom.cdx.json
+          name: sbom-runtime-cdx
+          path: release-artifacts/sbom-runtime.cdx.json
+          if-no-files-found: error
+      - name: Upload development inventory SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-dev-cdx
+          path: release-artifacts/sbom-dev.cdx.json
+          if-no-files-found: error
+      - name: Upload runtime pip-audit JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-runtime
+          path: release-artifacts/pip-audit-runtime.json
+          if-no-files-found: error
+      - name: Upload development pip-audit JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-dev
+          path: release-artifacts/pip-audit-dev.json
           if-no-files-found: error
       - name: Upload candidate metadata
         uses: actions/upload-artifact@v4
@@ -177,6 +202,16 @@ jobs:
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' modelforge:rc-${{ github.sha }} 2>/dev/null || echo "local-build")
           echo "IMAGE_DIGEST=$DIGEST" >> $GITHUB_ENV
           echo "Image digest: $DIGEST"
+      - name: Generate authoritative runtime SBOM from final Docker image
+        run: |
+          mkdir -p release-artifacts
+          docker run --rm \
+            -v "$PWD/scripts:/scripts:ro" \
+            -v "$PWD/release-artifacts:/out" \
+            --entrypoint python \
+            modelforge:rc-${{ github.sha }} \
+            /scripts/generate_sbom.py --mode=installed --source-label="docker-image:modelforge:rc-${{ github.sha }}" --output /out/sbom-image.cdx.json
+          echo "Runtime SBOM source: final Docker image modelforge:rc-${{ github.sha }}"
       - name: Verify non-root user in image
         run: |
           USER=$(docker run --rm modelforge:rc-${{ github.sha }} whoami)
@@ -258,3 +293,10 @@ jobs:
         run: |
           docker rm -f modelforge-rc-${{ github.run_id }} 2>/dev/null || true
           docker volume prune -f 2>/dev/null || true
+      - name: Upload release-candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-evidence
+          path: release-artifacts/
+          if-no-files-found: warn

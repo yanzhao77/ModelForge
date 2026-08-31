@@ -167,6 +167,8 @@ cython_debug/
 
 # ZCode CLI session artifacts
 .zcode/
+# OpenCode CLI session artifacts (not source, not output)
+.omo/
 
 # Offscreen UI audit screenshots (regenerable via reports/render_pages_offscreen.py)
 reports/ui-audit/

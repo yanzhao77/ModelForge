@@ -72,14 +72,34 @@ def main() -> None:
     )
     parser.add_argument("--requirements", type=Path, default=ROOT / "requirements.txt")
     parser.add_argument("--output", type=Path, default=ROOT / "release-artifacts" / "sbom.cdx.json")
+    parser.add_argument(
+        "--source-label",
+        type=str,
+        default=None,
+        help="Explicit source label to record in SBOM metadata. "
+        "REQUIRED when claiming a runtime or image source; otherwise the SBOM "
+        "will be marked as 'unspecified-installed' which is NOT authoritative "
+        "for production runtime claim.",
+    )
     args = parser.parse_args()
 
     if args.mode == "installed":
         components = _components_from_installed()
-        source_label = f"installed ({len(components)} packages)"
+        if args.source_label:
+            source_label = args.source_label
+        else:
+            source_label = f"unspecified-installed ({len(components)} packages)"
+            print(
+                "WARNING: --source-label not provided. SBOM source is recorded as "
+                "'unspecified-installed' which does not claim a runtime or image "
+                "source. For authoritative runtime SBOM, pass "
+                "'--source-label=isolated-runtime-venv' or "
+                "'--source-label=docker-image:<tag>'.",
+                file=sys.stderr,
+            )
     else:
         components = _components_from_requirements(args.requirements)
-        source_label = str(args.requirements.relative_to(ROOT))
+        source_label = args.source_label or str(args.requirements.relative_to(ROOT))
         print(
             "WARNING: --mode=requirements only lists direct dependencies. "
             "Transitive packages are NOT included. Use --mode=installed for "
