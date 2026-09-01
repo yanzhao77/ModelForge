@@ -139,7 +139,7 @@ ModelForge
 │   ├── services/           # 业务层（21+ 服务）
 │   └── plugins/            # SPI 插件包
 ├── client/pyside6/         # PySide6 多语言桌面客户端（概览/对话/模型/数据/训练/知识/智能体/任务/运行时/设置）
-├── tests/                  # pytest（398 通过、3 跳过）
+├── tests/                  # pytest（866 通过、3 跳过）
 ├── docs/                   # 技术报告/审计/插件架构/API 参考/开发计划
 ├── requirements*.txt       # base / dev / gui / ai 四层依赖
 └── config.yaml             # 配置文件（支持环境变量覆盖）

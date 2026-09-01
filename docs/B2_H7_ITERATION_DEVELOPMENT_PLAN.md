@@ -1,5 +1,7 @@
 # ModelForge B2–H7 下一迭代技术开发计划
 
+> **注意：** 历史开发计划，基于 v0.1.2-dev 阶段编写。不代表 v0.1.3-beta.1 发行状态。
+
 **版本定位：** `v0.1.2-dev` 稳定性与并发治理迭代。
 **作者：** Manus AI
 **范围：** FastAPI、SQLAlchemy/SQLite、Agent Runtime、SSE、PySide6 与发行工程。

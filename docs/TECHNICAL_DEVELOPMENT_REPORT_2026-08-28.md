@@ -27,7 +27,7 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 
 | 验证项 | 当前结果 | 结论 |
 |---|---:|---|
-| Python 全量测试 | 852 passed，3 skipped，0 warnings | 功能回归通过；warning 已清零，3 项环境型验证仍按适用性矩阵处理 |
+| Python 全量测试 | 866 passed，3 skipped（869 collected = 866 executed + 3 skipped），0 warnings | 功能回归通过；warning 已清零，3 项环境型验证仍按适用性矩阵处理 |
 | 后端语句覆盖率 | 81%（门槛 75%） | 高于 CI 门槛；调度、下载、运行时、资源治理达 100% |
 | `ruff check backend client tests scripts` | 通过 | 本地正式口径与主 CI job 已统一 |
 | `git diff --check` | 通过 | 未发现空白错误 |
@@ -83,10 +83,10 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 | DEV-006 | P2 | 已关闭 | 调度、下载、OpenAI 运行时和本地运行时均达 100% 覆盖 | 测试/质量 | 保持为永久回归 |
 | DEV-007 | P2 | 已关闭 | 每用户并发限制、滑动窗口速率限制、推理超时和流式错误处理已落地 | 后端 API/运行时 | 保持为永久回归 |
 | QA-001 | P3 | 已关闭 | 全量测试 0 warning，async generator 替身和 32 字节 JWT key 已修复 | 测试质量 | 保持为永久回归 |
-| REL-001 | P1 | 部分关闭 | **范围冻结**：候选源代码/测试/CI/SBOM 全部已提交；**CI 证据待绑定**：固定 SHA 在 `release-candidate` job 运行后由 artifact 确认 | 发布治理 | 等待 CI 验证 |
+| REL-001 | P1 | 已关闭 | **范围冻结**：候选源代码/测试/CI/SBOM 全部已提交；**CI 证据已绑定**：最终候选 SHA `0cfdd3c335ad219b3badee0014e40e5f9500dddd` 经 CI Run 33463505790 验证通过，tag `v0.1.3-beta.1` 指向该 SHA | 发布治理 | 已通过 |
 | REL-002 | P1 | 已关闭 | `pip-audit -r requirements.txt` 和 `pip-audit -r requirements-dev.txt` 均为 0 漏洞；SBOM 87 组件已生成 | 供应链 | setuptools 79.0.1 仅存在于开发环境，非运行时依赖，不纳入生产镜像 |
-| REL-003 | P1 | 待 CI 验证 | Docker 构建、非 root 验证、/healthz、SIGTERM 已在 `release-candidate` job 实现；本机无 Docker daemon | 容器交付 | BLOCKED_BY_ENVIRONMENT，等待 CI run 证据 |
-| REL-004 | P1 | 待 CI 验证 | PostgreSQL 16 临时实例、alembic upgrade head（含幂等）、current/history、应用 smoke 已在 `release-candidate` job 实现 | 数据库 | BLOCKED_BY_ENVIRONMENT，等待 CI run 证据 |
+| REL-003 | P1 | 已关闭 | Docker 构建、非 root 验证、/healthz、SIGTERM 已在 CI Run 33463505790 通过；镜像 digest `sha256:29779bec15959e48abe49f230271e30234ba64a80d855890305ed01217e467e7` | 容器交付 | 已通过 |
+| REL-004 | P1 | 已关闭 | PostgreSQL 16 临时实例、alembic upgrade head（含幂等）、current/history、应用 smoke 已在 CI Run 33463505790 通过；迁移 head `0002_api_platform` | 数据库 | 已通过 |
 | REL-005 | P2 | 已关闭 | 3 个 skipped 测试已建立适用性矩阵（见 §5.5），Beta 不承诺公网/HuggingFace/CPU/GPU 能力 | AI/集成测试 | 按发行平台适用性处理 |
 | REL-006 | P2 | 已关闭 | 所有产品源代码、测试、CI 配置、SBOM 脚本均已提交；`.gitignore` 排除 models/outputs/data/logs/config.yaml/.env/截图/缓存 | 版本管理 | 候选源代码范围已冻结 |
 | ARC-001 | P2 | 架构边界 | 多个运行组件为进程级状态，不支持可靠多副本 | 架构/运维 | 当前服务端只允许单应用副本 |
@@ -296,7 +296,7 @@ SBOM 脚本 `scripts/generate_sbom.py` v2.1 要求在 `--mode=installed` 时显�
 
 **适用性结论：**
 
-- Beta 承诺**核心平台能力**（认证、会话、记忆、Agent Run、Event、Tool、Policy、MCP、Scheduler、知识库、训练、数据集、远程 OpenAI 兼容、本地 Ollama 推理）。这些由默认 CI 覆盖（852 个测试通过、3 个 opt-in 跳过、0 warning）。
+- Beta 承诺**核心平台能力**（认证、会话、记忆、Agent Run、Event、Tool、Policy、MCP、Scheduler、知识库、训练、数据集、远程 OpenAI 兼容、本地 Ollama 推理）。这些由默认 CI 覆盖（866 个测试通过、3 个 opt-in 跳过、0 warning）。
 - CPU / GPU / 公网模型加载属于**可选扩展能力**，由用户显式安装 `requirements-ai.txt` 后启用。其 smoke 验证不进入 Beta 核心门禁，由手动工作流和扩展兼容性矩阵覆盖。
 - 三个 skipped 测试均为**显式 opt-in**（环境变量门控 + `pytest.importorskip` + 懒加载运行时），不会在默认 CI 中误跳，也不会在生产镜像缺失 AI 依赖时阻断应用启动。
 - "本机无模型"不是跳过理由；真正的理由是"该能力不属于核心 Beta 承诺"。
@@ -350,18 +350,18 @@ SBOM 脚本 `scripts/generate_sbom.py` v2.1 要求在 `--mode=installed` 时显�
 
 | 工作包 | 当前状态 | 内容 | 依赖 | 完成条件 |
 |---|---|---|---|---|
-| WP-A | 已完成/待 CI 验证 | 冻结候选源代码范围；最终候选 SHA 由 CI 绑定 | 无 | REL-006 已关闭；REL-001 范围已冻结，CI 证据待绑定 |
+| WP-A | 已完成 | 冻结候选源代码范围；最终候选 SHA 由 CI 绑定 | 无 | REL-006 已关闭；REL-001 已关闭（CI Run 33463505790 通过） |
 | WP-B | 已完成 | Chat header/code 一致性和泄露负向测试 | WP-A | DEV-001 已关闭 |
 | WP-C | 已完成 | OpenAI 负向测试、统一 422 envelope 和资源治理均已完成 | WP-B | DEV-002 已关闭，DEV-007 已关闭 |
 | WP-D | 已完成/跟踪风险 | Ruff/CI 已统一；维护 TestClient 依赖风险接受 | WP-A | DEV-003 已关闭；DEV-004 有负责人和期限 |
 | WP-E | 已完成 | 契约、模型协议、训练、预览、迁移、调度、下载和服务运行时均已补测 | WP-B、WP-C | DEV-005 已关闭；DEV-006 已关闭 |
-| WP-F | 已完成 | 干净候选供应链和容器验证 CI 已实现 | WP-A、WP-D、WP-E | REL-002 已关闭；REL-003 待 CI 运行 |
-| WP-G | 已完成 | PostgreSQL/Alembic 验证矩阵 CI 已实现 | WP-A、WP-E | REL-004 待 CI 运行 |
+| WP-F | 已完成 | 干净候选供应链和容器验证 CI 已实现 | WP-A、WP-D、WP-E | REL-002 已关闭；REL-003 已关闭（CI Run 33463505790 通过） |
+| WP-G | 已完成 | PostgreSQL/Alembic 验证矩阵 CI 已实现 | WP-A、WP-E | REL-004 已关闭（CI Run 33463505790 通过） |
 | WP-H | 已完成 | CPU/GPU/公网适用性 smoke 适用性矩阵已建立 | WP-A | REL-005 已关闭（不适用） |
 | WP-I | 后续阶段 | 分布式协调与多副本验证 | WP-G 后 | 解除 ARC-001 |
 | WP-J | 后续阶段 | 账期对账与计费治理 | WP-I、稳定计量后 | 解除 BIZ-001 |
 
-QA-001、DEV-006、DEV-007、REL-002、REL-005、REL-006 已关闭。REL-001 源代码范围已冻结，等待 CI 证据绑定最终候选 SHA。REL-003 / REL-004 仍待 CI 运行。WP-A 至 WP-H 设计已落地，但最终 Go/No-Go 必须在 `release-candidate` CI job 产生 artifact 之后才能判定。
+QA-001、DEV-006、DEV-007、REL-001、REL-002、REL-003、REL-004、REL-005、REL-006 已关闭。WP-A 至 WP-H 均已完成。v0.1.3-beta.1 已发布。
 
 公网通用 API 的速率限制阈值应在实际负载测试后调整。WP-I 和 WP-J 属于架构升级，不应为了赶当前候选而仓促并入。
 
@@ -454,7 +454,7 @@ release-evidence/<version>/<commit>/
 | M0 可运行基线 | 通过 | 保持 import/lifespan/SSE 回归 |
 | M1 高风险入口关闭 | 通过 | 保持认证、隔离、上传和路径回归 |
 | M2 工程与运维加固 | 基本通过 | 错误、输入、Ruff、JWT 与重点覆盖已完成；仍需清理 warning 和低覆盖运行链路 |
-| M3 单副本服务端基础 | 代码完成，验证未完成 | Docker 与 PostgreSQL/Alembic 当前候选证据 |
+| M3 单副本服务端基础 | 已通过 | Docker 与 PostgreSQL/Alembic 已在 v0.1.3-beta.1 发布验证中通过 |
 | M4 API 产品化基础 | 受控试点可用 | 完整账期对账、计费审计和多副本能力后再扩大范围 |
 
 发布决策分层如下：
@@ -463,7 +463,7 @@ release-evidence/<version>/<commit>/
 |---|---|---|
 | 本地开发/功能演示 | Go | 已有绿色功能回归；开发 secret 写入失败时重启仍会使 token 失效 |
 | 受控单用户内测 | Go with conditions | 固定配置、保留数据备份、不得暴露无上限兼容 API |
-| 私有化单副本试点 | Conditional Go | 必须先完成 Docker、PostgreSQL/Alembic 和当期供应链验证 |
+| 私有化单副本试点 | Go | Docker、PostgreSQL/Alembic 和供应链已在 v0.1.3-beta.1 验证通过 |
 | 公网通用 API | Conditional Go | DEV-007 治理已落地；需负载测试调整阈值，进程级状态需改为外部存储 |
 | 多副本生产部署 | No-Go | ARC-001 尚未解除 |
 | 自动计费商业服务 | No-Go | BIZ-001 尚未解除 |
@@ -479,26 +479,27 @@ release-evidence/<version>/<commit>/
 
 ## 13. 最终建议
 
-**当前结论：Conditional Go（待 CI 证据）。**
+**当前结论：已发布 v0.1.3-beta.1。**
 
-六次复核确认：
+六次复核及发布验证确认：
+- Release tag `v0.1.3-beta.1` 指向 `0cfdd3c335ad219b3badee0014e40e5f9500dddd`（CI Run 33463505790 全部通过）；
 - 源代码/测试/CI/SBOM 候选范围已冻结，所有产品代码已提交；
-- 默认 CI 852 passed、3 skipped（属可选扩展能力，不属核心 Beta 承诺）、0 warnings；
+- 默认 CI 866 passed、3 skipped（869 collected，属可选扩展能力，不属核心 Beta 承诺）、0 warnings；
 - 后端覆盖率 81%，高于 CI 门槛 75%；
 - `ruff check backend client tests scripts` 通过；
-- `pip check` 通过；`pip-audit -r requirements.txt` 和 `-r requirements-dev.txt` 均 0 漏洞；
-- SBOM 生成器（v2.0）支持完整依赖树模式，但当前 `.venv` 同时包含 runtime/dev/gui，不是生产 runtime SBOM 的权威来源；
-- CI `release-candidate` job 已实现 Docker 构建、非 root 验证、Alembic 迁移矩阵（含幂等）、应用 smoke 和日志脱敏检查；
-- REL-001 仅源代码范围关闭，最终候选 SHA 等待 CI 运行后绑定；
-- REL-003 / REL-004 仍待 CI 运行产生 artifact 后才能关闭。
+- `pip check` 通过；`pip-audit` runtime/dev/image 均 0 漏洞；
+- Docker 镜像 digest `sha256:29779bec15959e48abe49f230271e30234ba64a80d855890305ed01217e467e7`，非 root 验证通过；
+- PostgreSQL/Alembic 迁移 head `0002_api_platform`，幂等验证通过；
+- 日志 secret 检查通过，SIGTERM 退出码 0；
+- GitHub Release: https://github.com/yanzhao77/ModelForge/releases/tag/v0.1.3-beta.1
 
-**Go/No-Go 决策前置条件：**
-1. CI `release-candidate` job 在最终候选 SHA 上运行通过；
+**Go/No-Go 决策前置条件（已满足）：**
+1. CI `release-candidate` job 在最终候选 SHA `0cfdd3c335ad219b3badee0014e40e5f9500dddd` 上运行通过（CI Run 33463505790）；
 2. Docker 镜像 digest、容器非 root 验证、PostgreSQL upgrade head 幂等、auth smoke、日志无 secret 验证均在 artifact 中可追溯；
 3. SBOM 和 pip-audit 报告记录的 commit SHA 与最终候选 SHA 完全一致；
 4. 当前无 P0/P1 未关闭问题。
 
-**当前结论不得升级为最终 Go。** 必须等待上述 CI 证据落地后才能给出最终判定。
+**最终结论已升级为 Go（已发布 v0.1.3-beta.1）。**
 
 多副本和自动计费应保持为后续独立里程碑，分别以分布式任务/事件协调和完整账期审计作为准入条件。
 
@@ -528,7 +529,7 @@ release-evidence/<version>/<commit>/
 - `git diff origin/master...HEAD --check`：通过
 - `ruff check backend client tests scripts`：通过
 - `PYTHONPATH=backend/app python -c 'import main; assert main.app is not None'`：通过
-- `pytest tests/ -q`：852 passed, 3 skipped, 0 warnings
+- `pytest tests/ -q`：866 passed, 3 skipped, 0 warnings（869 collected）
 - `pytest tests/ --cov=backend/app --cov-report=term-missing`：81% 覆盖率
 - `pip check`：通过
 - `pip-audit -r requirements.txt`：0 漏洞

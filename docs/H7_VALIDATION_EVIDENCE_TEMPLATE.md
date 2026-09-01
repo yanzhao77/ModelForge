@@ -7,7 +7,7 @@
 
 每次验证记录必须绑定到一个固定 Git commit SHA、应用版本和执行环境。不得以“历史 CI 通过”替代当前候选提交的证据，也不得把日志中的令牌、API Key、证书、私钥、模型正文、用户输入或完整产物复制进证据包。[1] [2]
 
-> **阻断规则：** 任意 P0/P1 验证缺少“执行人、时间、固定 SHA、结果、日志/截图路径”之一时，不得创建正式 `v0.1.2` 标签、签名资产或 GitHub Release。
+> **阻断规则：** 任意 P0/P1 验证缺少“执行人、时间、固定 SHA、结果、日志/截图路径”之一时，不得创建正式 标签、签名资产或 GitHub Release。
 
 ## 2. 候选身份记录
 
@@ -50,16 +50,16 @@ Windows 和 Linux 签名、SBOM、checksum、原生安装和启动证据必须�
 | 安全/隐私审阅完成 | `TBD` | `TBD` | 无密钥或正文泄露。 |
 | Windows 签名和安装验证 | `TBD` | `TBD` | 受保护审批已完成。 |
 | Linux 签名和安装验证 | `TBD` | `TBD` | 受保护审批已完成。 |
-| 正式 tag 批准 | `TBD` | 用户/发行负责人 | 仅此项完成后可创建 `v0.1.2`。 |
+| 正式 tag 批准 | `TBD` | 用户/发行负责人 | 仅此项完成后可创建正式标签。 |
 | Release 批准 | `TBD` | 用户/发行负责人 | 仅此项完成后可上传资产。 |
 
 在未来收集好脱敏 JSON 证据清单后，可由发行负责人运行以下**结构检查**。它不执行测试、构建、签名、网络访问或 Release 操作，只验证清单是否绑定固定 SHA/版本并包含全部必需 gate：
 
 ```bash
-python scripts/check_validation_evidence.py evidence.json --commit <FULL_SHA> --version 0.1.2
+python scripts/check_validation_evidence.py evidence.json --commit <FULL_SHA> --version 0.1.3-beta.1
 ```
 
 ## 参考资料
 
 [1]: ./B2_H7_ITERATION_DEVELOPMENT_PLAN.md "B2–H7 稳定性与并发治理计划"
-[2]: ./RELEASE_SIGNING_CONFIGURATION.md "v0.1.2 受保护签名配置说明"
+[2]: ./RELEASE_SIGNING_CONFIGURATION.md "受保护签名配置说明"
