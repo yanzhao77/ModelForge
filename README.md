@@ -3,14 +3,14 @@
 > 本地优先的 AI Agent Runtime Platform —— 从模型管理、微调训练到 **Agent Run / Event / Tool / Policy / MCP / Scheduler / Multi-Agent / Composable Plugin** 的一站式平台。
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-398%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-866%20passed-brightgreen)
 ![API](https://img.shields.io/badge/API-92%20routes-important)
-![Desktop](https://img.shields.io/badge/Desktop-0.1.1--beta.1-orange)
+![Desktop](https://img.shields.io/badge/Desktop-0.1.3--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
 基于 **FastAPI 后端 + PySide6 瘦客户端** 架构：后端承载全部业务逻辑（含 Agent Runtime），客户端只做展示与交互。
 
-## 桌面端测试版（0.1.1-beta.1）
+## 桌面端测试版（0.1.3-beta.1）
 
 当前仓库已包含新版 macOS 桌面端测试版：默认使用简体中文，支持中文、English、日本語运行时切换；采用轻量侧边导航和对话优先工作区，并将**本地模型与远程 OpenAI 兼容模型服务统一收敛到“模型”页面**。远程服务默认使用 `/v1/responses`，也可切换到 `/v1/chat/completions`；API Key 仅在后端加密保存，客户端不会回显密钥。登录后，客户端会通过后端权威的模型就绪快照区分“可用、需要配置、配置待修复、服务不可用”四种状态；无可用模型时，首次使用向导只提供显式配置、验证与跳转，不会下载模型、创建会话、Agent Run 或训练任务。
 
@@ -18,7 +18,7 @@
 |---|---|
 | ![ModelForge 概览页面](docs/images/model-forge-overview-zh.png) | ![ModelForge 模型页面](docs/images/model-forge-models-zh.png) |
 
-> 以上截图来自本机测试版实机预览。测试版尚未上传到 GitHub Release；本地打包与预发布资产规范见[桌面端测试版发布指南](docs/DESKTOP_TEST_RELEASE.md)。
+> 以上截图来自本机测试版实机预览。测试版已发布为 [v0.1.3-beta.1 Pre-release](https://github.com/yanzhao77/ModelForge/releases/tag/v0.1.3-beta.1)；本地打包与预发布资产规范见[桌面端测试版发布指南](docs/DESKTOP_TEST_RELEASE.md)。
 
 ## 功能一览
 
@@ -121,7 +121,7 @@ docker rm -f modelforge
 ## 测试
 
 ```bash
-pytest tests/ -q    # 398 个用例通过、3 个按环境跳过（单元 + API 集成 + 桌面离屏 + 数据集/训练/知识库 + Agent Runtime + Plugin）
+pytest tests/ -q    # 866 个用例通过、3 个按环境跳过（单元 + API 集成 + 桌面离屏 + 数据集/训练/知识库 + Agent Runtime + Plugin）
 ```
 
 ## 目录结构
@@ -163,7 +163,7 @@ ModelForge
 
 ## 分支说明
 
-- **master**：当前版本。FastAPI + 瘦客户端 + 3.0 Agent Runtime + 3.x Composable Plugin，398 个测试通过、3 个环境相关测试跳过。
+- **master**：当前版本。FastAPI + 瘦客户端 + 3.0 Agent Runtime + 3.x Composable Plugin，866 个测试通过、3 个环境相关测试跳过。
 - **gui_old**：旧版 v2.0 PySide6 桌面端存档分支（登录/会话/记忆/GGUF 下载/本地推理/微调脚本），不再维护，仅作参考。
 
 ## 文档
@@ -179,6 +179,7 @@ ModelForge
 
 ## 版本历史
 
+- **v0.1.3-beta.1（Beta Release Candidate）**：Chat API 安全错误契约、OpenAI-compatible 输入治理、每用户并发/速率限制/推理超时、流式请求取消与资源释放、JWT 开发密钥持久化、调度/下载/运行时覆盖率补齐、桌面端主题与可访问性修复、Docker/PostgreSQL/Alembic 发布验证（866 测试、0 漏洞）。
 - **v0.1.1-beta.1（桌面测试版）**：统一 Models 管理、远程 OpenAI 兼容模型服务（Responses / Chat Completions）、简体中文默认与中英日切换、聊天流式兼容修复、macOS 测试包与 SHA-256 发布资产支持。
 - **v3.1（3.x）**：Composable Agent & Tool Plugin —— PluginScope/PluginManager/ToolPlugin/AgentPlugin/SkillPlugin/Capability Discovery + Multi-Agent 护栏（parent_run_id/深度/循环/子数/取消级联/预算）。
 - **v3.0**：Agent Runtime —— Agent Run / Event System / Tool Registry / Policy / MCP / Scheduler / Multi-Agent（339 测试基线）。
