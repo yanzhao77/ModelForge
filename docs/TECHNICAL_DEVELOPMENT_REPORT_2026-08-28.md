@@ -14,7 +14,7 @@
 
 **代码分支：** `master`
 
-**候选状态：** **范围已冻结，等待 CI 验证固定 SHA 证据。** 最终 Beta 候选 SHA 在 `release-candidate` CI job 运行通过后由 `GITHUB_SHA` 与 `release-artifacts/candidate-metadata.json` 共同绑定；本报告不预先写死候选 SHA。
+**候选状态：** **v0.1.3-beta.1 已发布。** Release tag `v0.1.3-beta.1` 固定在发布提交 `0cfdd3c335ad219b3badee0014e40e5f9500dddd`；master 后续包含文档修正提交。
 
 **适用范围：** `backend/app/`、`backend/alembic/`、`client/pyside6/`、`scripts/`、`tests/`、CI、Docker、数据库迁移及发布文档
 **报告性质：** 技术开发与发布准备报告，不等同于渗透测试、容量认证或生产发布批准
@@ -36,7 +36,7 @@ ModelForge 当前已经具备较完整的本地 AI 平台骨架：FastAPI 后端
 | `pip-audit -r requirements.txt` | 0 漏洞 | 运行时依赖无可利用漏洞 |
 | `pip-audit -r requirements-dev.txt` | 0 漏洞 | 开发依赖无可利用漏洞 |
 | SBOM | runtime 61 / dev 87（CycloneDX 1.5） | runtime 与 dev 分轨；runtime 由隔离 venv 生成，dev 由开发 `.venv` 生成；最终镜像 SBOM 待 CI |
-| Docker/Alembic CI | 已实现，待 CI 运行 | `release-candidate` job 已定义，本机无 Docker daemon |
+| Docker/Alembic CI | 已在 CI Run 33463505790 通过 | Docker 构建、非 root、/healthz、PostgreSQL upgrade head 幂等均已验证 |
 | Git 候选范围 | 源代码/测试/CI 已提交 | 工作区干净，`.gitignore`/`.dockerignore` 覆盖完整；最终候选 SHA 待 CI 绑定 |
 | `git diff --check` | 通过 | 未发现空白错误 |
 | 应用 import smoke | 通过 | 入口可导入，应用对象可创建 |
@@ -237,39 +237,35 @@ SBOM 脚本 `scripts/generate_sbom.py` v2.1 要求在 `--mode=installed` 时显�
 
 **关闭证据：** `pip-audit-runtime.json`、`pip-audit-dev.json`、`sbom-runtime.cdx.json`（runtime 隔离 venv）、`sbom-image.cdx.json`（待 CI）。CI `release-candidate` job 将以最终镜像 SBOM 为权威 runtime 来源。
 
-### 5.3 REL-003：Docker 端到端 CI 已实现，待运行
+### 5.3 REL-003：Docker 端到端验证已通过
 
-`release-candidate` CI job 已定义完整的 Docker 验证流水线：
+`release-candidate` CI job 已定义完整的 Docker 验证流水线，CI Run 33463505790 已通过：
 
 1. 构建最终 Docker 镜像（`python:3.10-slim`，非 root 用户 `modelforge:10001`）
-2. 记录镜像 digest
+2. 记录镜像 digest `sha256:29779bec15959e48abe49f230271e30234ba64a80d855890305ed01217e467e7`
 3. 验证容器以非 root 用户运行（`whoami` 断言）
 4. 启动容器并轮询 `/healthz`（30 次 × 5 秒）
 5. 验证日志不包含 JWT secret 或数据库密码
 6. 发送 SIGTERM 并验证退出码为 0 或 137
 7. finally 阶段清理容器和卷
 
-**本机状态：** BLOCKED_BY_ENVIRONMENT（无 Docker daemon）。CI runner 执行后产生 evidence artifact。
+**关闭证据：** CI Run 33463505790 artifact 已归档，REL-003 已关闭。
 
-**关闭条件：** CI run 通过且 artifact 已归档后，REL-003 可标记为 passed。
+### 5.4 REL-004：PostgreSQL/Alembic 迁移路径验证已通过
 
-### 5.4 REL-004：PostgreSQL/Alembic 迁移路径 CI 已实现，待运行
-
-`release-candidate` CI job 使用 PostgreSQL 16 service container，验证完整迁移矩阵：
+`release-candidate` CI job 使用 PostgreSQL 16 service container，验证完整迁移矩阵，CI Run 33463505790 已通过：
 
 | 场景 | CI 步骤 | 结果 |
 |---|---|---|
-| PostgreSQL 空库 `upgrade head` | `alembic upgrade head` | 待 CI 运行 |
-| 重复执行 `upgrade head`（幂等） | 再次 `alembic upgrade head` | 待 CI 运行 |
-| `alembic current` 和 `history` | `alembic current` + `alembic history --verbose` | 待 CI 运行 |
-| 应用启动并轮询 `/healthz` | Docker + curl | 待 CI 运行 |
-| 注册、登录、/auth/me smoke | curl + token 验证 | 待 CI 运行 |
-| `alembic_version` 为期望 head | SQL 查询断言 | 待 CI 运行 |
+| PostgreSQL 空库 `upgrade head` | `alembic upgrade head` | 通过 |
+| 重复执行 `upgrade head`（幂等） | 再次 `alembic upgrade head` | 通过 |
+| `alembic current` 和 `history` | `alembic current` + `alembic history --verbose` | 通过 |
+| 应用启动并轮询 `/healthz` | Docker + curl | 通过 |
+| 注册、登录、/auth/me smoke | curl + token 验证 | 通过 |
+| `alembic_version` 为期望 head | SQL 查询断言 | 通过（迁移 head `0002_api_platform`） |
 | 回滚演练 | — | 当前迁移不可逆，CI 记录 current/history 作为基线；生产部署前需独立备份恢复策略 |
 
-**本机状态：** BLOCKED_BY_ENVIRONMENT（无 PostgreSQL 实例）。CI runner 执行后产生 evidence artifact。
-
-**关闭条件：** CI run 通过且 artifact 已归档后，REL-004 可标记为 passed。
+**关闭证据：** CI Run 33463505790 artifact 已归档，REL-004 已关闭。
 
 ### 5.5 REL-005：环境型测试适用性矩阵
 
@@ -524,11 +520,11 @@ release-evidence/<version>/<commit>/
 **SBOM 来源说明：** 本机 `.venv` 同时安装了 runtime、dev 和 gui 依赖，生成的 87 组件 SBOM **不视为生产 runtime 的权威 SBOM**。生产 runtime SBOM 需在 CI `release-candidate` job 中通过隔离的 runtime venv（仅 `requirements.txt`）或最终 Docker 镜像内已安装环境生成，并在 SBOM metadata 中明确 `source` 字段。
 
 **本机验证命令真实结果：**
-- `git status --short --branch`：ahead 1（候选治理提交待 push）
+- `git status --short --branch`：工作区干净（master 同步 origin/master）
 - `git diff --check`：通过
-- `git diff origin/master...HEAD --check`：通过
 - `ruff check backend client tests scripts`：通过
 - `PYTHONPATH=backend/app python -c 'import main; assert main.app is not None'`：通过
+- `pytest tests/ --collect-only -q`：869 collected
 - `pytest tests/ -q`：866 passed, 3 skipped, 0 warnings（869 collected）
 - `pytest tests/ --cov=backend/app --cov-report=term-missing`：81% 覆盖率
 - `pip check`：通过
