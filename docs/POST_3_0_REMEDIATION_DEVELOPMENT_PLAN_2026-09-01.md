@@ -631,3 +631,19 @@ P1 修复按独立提交合并，建议每个问题一个提交或一个可回�
 - SQLite 只读核对：Engine URL=`sqlite:///./data/modelforge.db`；已备份至临时目录（sha256 `273f71e10fb079f932bae6dd6ad45d9f46d29b1454029d068bc89b328cbfdbd3`，与源文件一致）；库内仅 `schema_migrations`（0001/0002/0003 三条记录），无业务表 —— 为 2.1 遗留空壳，无需合并，未做任何修改。
 - 发布资产：`release-artifacts/`（已被 .gitignore 排除）**尚未绑定候选 SHA 323ee01** —— `checksums.txt` 与 `TEST_RELEASE_NOTES.md` 仍为 v0.1.1-beta.1 内容，SBOM 生成时间为 2026-08-31，早于安全整改；无独立 pip-audit 报告文件。`generate_release_manifest.py` 的绑定逻辑正确（git rev-parse HEAD + APP_VERSION + 工件 sha256），生成执行仍属 16.6 未完成项。
 - 未推送远程仓库。
+
+### 16.8 发布资产生成记录（2026-09-02，最终候选代码 HEAD=53e9aa0）
+
+- **最终候选（代码冻结）SHA：`53e9aa0f0880afdaa01f607d0a3c6258dfef4610`**，版本 `0.1.3-beta.1`（`client/pyside6/version.py`）。本小节为收尾文档提交（docs-only），位于候选代码提交之上，不改变候选代码/依赖/测试；发布资产一律绑定候选代码 SHA，不随文档提交漂移。
+- **旧资产隔离**：`release-artifacts/legacy-v0.1.1-beta.1/` 收纳全部旧 v0.1.1-beta.1 资产（zip、checksums、TEST_RELEASE_NOTES、旧 SBOM、旧 pip-audit 报告、旧 candidate-metadata.json）仅作历史证据；顶层目录清空后重新生成。
+- **再生资产清单**（`release-artifacts/`，gitignore 排除，不进入提交）：
+  - `release-manifest.json` —— `git_commit=53e9aa0…`、`version=0.1.3-beta.1`、`platform=macos-arm64`、`artifact=null`（本候选未构建桌面 zip）、`git_tag=null`、`signing=unsigned`、`sbom=sbom.cdx.json`；
+  - `sbom.cdx.json` —— CycloneDX 1.5，installed 模式，**92 组件**，含 fastapi/sqlalchemy/httpx/pydantic/uvicorn/psycopg 等关键依赖；source 标注为当前 Python 环境（三份 requirements 全量安装树）；
+  - `pip-audit-report.json` / `pip-audit-report.txt` —— 独立审计报告，92 依赖 **0 漏洞**，文本报告记录 “No known vulnerabilities found”；
+  - `checksums.txt` —— 上述 5 个文件的 SHA-256 自校验全部 OK；
+  - `RELEASE_NOTES_v0.1.3-beta.1.md` —— 候选发布说明（含下载校验指引与已知限制）。
+- **资产验证**：manifest SHA 精确等于 53e9aa0；扫描全部新资产无 `0.1.1` 版本声明（Release Notes 中仅以历史基线上下文提及）、无 `852`、无旧 SHA（d90a0d2/323ee01 均未出现）；checksums 重算一致；SBOM 覆盖当前 requirements 依赖。
+- **质量门禁最终重跑（全绿）**：`pytest tests/ -q` → **917 passed, 3 skipped in 31.85s**；ruff All checks passed；compileall rc=0；pip check No broken requirements；pip-audit No known vulnerabilities；`api_route_stats.py --check` → 135 paths / 159 operations current。
+- **残余风险**：DNS rebinding TOCTOU（16.2 记录）仍未通过 IP 固定完全闭合，活体测试列入部署环境验证项。
+- **正式发布状态**：**Go/No-Go 待 CI 结果及最终授权**；本地提交未推送远程。
+- 16.6 未完成项状态更新：PG 单副本 smoke（16/16）、SQLite 只读核对、发布资产绑定三项已完成；仅余 DNS-rebinding 活体测试（部署环境项）。
