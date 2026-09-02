@@ -611,7 +611,7 @@ P1 修复按独立提交合并，建议每个问题一个提交或一个可回�
 ### 16.5 提交信息
 
 - 审查基线 commit：`535f3f527df14057ca2a571de852a412b4861c2a`（master，与 origin/master 一致）。
-- 候选提交：`b07121a4114bace8042887c67f67b1101e2468bc`（`feat(security): complete R0-R5 isolation and network hardening`，本地提交，未推送）。
+- 候选提交（当前 HEAD）：`323ee01b96d2f326283cf8757ae07b51cfe19443`（`docs: record candidate commit SHA in remediation report`，本地提交，未推送）；其下的安全功能提交为 `b07121a4114bace8042887c67f67b1101e2468bc`（`feat(security): complete R0-R5 isolation and network hardening`）。
 
 ### 16.6 尚未完成的发布验证项
 
@@ -621,3 +621,13 @@ P1 修复按独立提交合并，建议每个问题一个提交或一个可回�
 4. DNS-rebinding 活体测试（第 16.2 节记录的 TOCTOU 残余风险的实测缓解验证）。
 
 **最终结论：R0–R5 实现完成，候选发布待干净环境和 CI 验证。**
+
+### 16.7 候选发布复核记录（2026-09-02，HEAD=323ee01）
+
+- 复核基线：`master` 分支，HEAD=`323ee01b96d2f326283cf8757ae07b51cfe19443`（本地，未推送）；工作区仅本报告一条修改。
+- 质量门禁重跑（当前工作区实测）：`pytest tests/ -q` → **917 passed, 3 skipped**；`ruff check backend client tests scripts` → All checks passed；`python3 -m compileall -q` → rc=0；`pip check` → No broken requirements；`pip-audit`（基础/开发/GUI 三份需求）→ No known vulnerabilities；`scripts/api_route_stats.py --check` → paths=135 operations=159，current。
+- 隔离验证重跑：4 个安全专项文件 3 种顺序各 **40 passed**，与全量结果一致，无顺序相关单例污染。
+- PostgreSQL 单副本 smoke（postgres:16-alpine，临时容器，端口 55433）：**16/16 PASS** —— alembic 迁移 0001→0002 成功执行；注册/登录；Agent 创建（含 knowledge_config）；Run 创建与查询；跨用户驳回（`SESSION_NOT_FOUND`/`AGENT_NOT_FOUND`/`AGENT_RUN_NOT_FOUND`）；Provider 元数据地址（169.254.169.254）拒绝 `TARGET_NOT_ALLOWED`、公网地址接受；knowledge query 端点可用。
+- SQLite 只读核对：Engine URL=`sqlite:///./data/modelforge.db`；已备份至临时目录（sha256 `273f71e10fb079f932bae6dd6ad45d9f46d29b1454029d068bc89b328cbfdbd3`，与源文件一致）；库内仅 `schema_migrations`（0001/0002/0003 三条记录），无业务表 —— 为 2.1 遗留空壳，无需合并，未做任何修改。
+- 发布资产：`release-artifacts/`（已被 .gitignore 排除）**尚未绑定候选 SHA 323ee01** —— `checksums.txt` 与 `TEST_RELEASE_NOTES.md` 仍为 v0.1.1-beta.1 内容，SBOM 生成时间为 2026-08-31，早于安全整改；无独立 pip-audit 报告文件。`generate_release_manifest.py` 的绑定逻辑正确（git rev-parse HEAD + APP_VERSION + 工件 sha256），生成执行仍属 16.6 未完成项。
+- 未推送远程仓库。
