@@ -82,6 +82,7 @@ class ToolExecutionContext:
     policy: Any | None = None
     cancellation_token: CancellationToken | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    knowledge_binding: dict[str, Any] | None = None
 
     def check_cancelled(self) -> None:
         if self.cancellation_token is not None:

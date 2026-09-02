@@ -62,7 +62,7 @@ class ContextBuilder:
         # session history (spec 5: Session is long-term context)
         if self.history_provider is not None and ctx.session_id is not None:
             try:
-                history = await self.history_provider.load(ctx.session_id, limit=20)
+                history = await self.history_provider.load(ctx.session_id, ctx.user_id, limit=20)
                 prompt.extend(history)
             except Exception:
                 pass

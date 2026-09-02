@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "backend" / "app"
@@ -13,6 +14,15 @@ if str(APP) not in sys.path:
 from api.chat import _classify_chat_exception
 from services.remote_provider_service import RemoteProviderError, normalize_base_url
 from services.runtimes.openai_api_runtime import OpenAIRuntime
+
+
+@pytest.fixture(autouse=True)
+def fake_provider_network_validation(monkeypatch):
+    """Keep protocol tests independent of the host DNS resolver."""
+    monkeypatch.setattr(
+        "services.runtimes.openai_api_runtime.validate_provider_target",
+        lambda url, mode: "api.example.test",
+    )
 
 
 def test_remote_provider_requires_https_except_loopback():

@@ -16,6 +16,15 @@ if str(APP) not in sys.path:
 
 from services.runtimes.openai_api_runtime import OpenAIRuntime
 
+
+@pytest.fixture(autouse=True)
+def fake_provider_network_validation(monkeypatch):
+    """Keep HTTP protocol unit tests independent of the host DNS resolver."""
+    monkeypatch.setattr(
+        "services.runtimes.openai_api_runtime.validate_provider_target",
+        lambda url, mode: "api.example.com",
+    )
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

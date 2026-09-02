@@ -46,7 +46,8 @@ def save_provider(req: ProviderUpsert, db: Session = Depends(get_db), user: User
         payload = req.model_dump(exclude={"request_id"})
         return operation_result(_service(db).save(user.id, **payload), corr)
     except RemoteProviderError as exc:
-        raise problem(400, "REMOTE_PROVIDER_INVALID", "Remote provider configuration is invalid.", correlation=corr) from exc
+        code = getattr(exc, "code", None) or "REMOTE_PROVIDER_INVALID"
+        raise problem(400, code, "Remote provider configuration is invalid.", correlation=corr) from exc
 
 
 @router.delete("/{provider_id}")
@@ -77,9 +78,10 @@ def verify_provider(
     try:
         return operation_result(_service(db).verify(user.id, provider_id), corr)
     except RemoteProviderError as exc:
+        code = getattr(exc, "code", None) or "REMOTE_PROVIDER_VERIFICATION_FAILED"
         raise problem(
             400,
-            "REMOTE_PROVIDER_VERIFICATION_FAILED",
+            code,
             "Remote provider verification did not complete.",
             correlation=corr,
         ) from exc

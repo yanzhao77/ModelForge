@@ -35,10 +35,21 @@ class KBKnowledgeProvider:
 class SessionHistoryProvider:
     """HistoryProvider port backed by the sessions table (spec 5)."""
 
-    async def load(self, session_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    async def load(self, session_id: int, user_id: int | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        """Load session history, scoped to the owning user.
+
+        Requires a valid ``user_id``; the session must belong to that user or
+        no history is returned (isolation: Session.Read always carries the
+        ownership condition). MF-SEC-002.
+        """
+        if user_id is None:
+            return []
         from core.database import SessionLocal
         from services.session_service import SessionService
         with SessionLocal() as db:
+            session = SessionService.get_session_by_id(db, session_id, user_id=user_id)
+            if session is None:
+                return []
             msgs = SessionService.get_session_messages(db, session_id, limit=limit, offset=0)
             return [
                 {"role": m.role, "content": m.content}

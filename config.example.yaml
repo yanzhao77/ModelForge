@@ -31,4 +31,4 @@ cors_allow_origins: "http://localhost:3000,http://localhost:5173"
 policy:
   default_network_access: false
   default_shell_access: false
-  default_filesystem_access: true
+  default_filesystem_access: false

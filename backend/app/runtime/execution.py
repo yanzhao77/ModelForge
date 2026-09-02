@@ -145,6 +145,7 @@ class ExecutionEngine:
                         policy=ctx.policy,
                         cancellation_token=ctx.cancellation,
                         metadata={**(getattr(ctx, "metadata", {}) or {}), "tool": tc.name},
+                        knowledge_binding=getattr(ctx, "knowledge_binding", None),
                     )
                     await self._emit(ctx, "tool.call.started", {
                         "tool": tc.name,

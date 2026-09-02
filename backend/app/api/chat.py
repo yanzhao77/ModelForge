@@ -9,6 +9,7 @@ import httpx
 from core.api_contracts import correlation_id, problem
 from core.config import settings
 from core.database import get_db
+from core.network_security import ProviderNetworkError
 from core.security import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -73,7 +74,11 @@ def _classify_chat_exception(exc: Exception) -> _ChatErrorClassification:
     if isinstance(exc, httpx.RequestError):
         return _ChatErrorClassification("ENDPOINT_UNREACHABLE", "无法连接远程服务。请检查 Base URL 和网络连接。", 502, True)
     if isinstance(exc, RemoteProviderError):
+        if getattr(exc, "code", None) == "TARGET_NOT_ALLOWED":
+            return _ChatErrorClassification("TARGET_NOT_ALLOWED", "远程服务目标不在允许的网络范围内。", 400, False)
         return _ChatErrorClassification("PROVIDER_CONFIG_INVALID", "远程模型服务配置无效。请检查提供商设置。", 400, False)
+    if isinstance(exc, ProviderNetworkError):
+        return _ChatErrorClassification("TARGET_NOT_ALLOWED", "远程服务目标不在允许的网络范围内。", 400, False)
     if isinstance(exc, ValueError):
         return _ChatErrorClassification("REQUEST_INVALID", "请求参数无效。请检查输入后重试。", 400, False)
     if isinstance(exc, PermissionError):

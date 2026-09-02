@@ -18,6 +18,15 @@ from runtime.models.base import ModelResult, ToolCall
 from runtime.models.openai_compatible import OpenAICompatibleProvider
 
 
+@pytest.fixture(autouse=True)
+def fake_provider_network_validation(monkeypatch):
+    """Keep provider adapter tests independent of the host DNS resolver."""
+    monkeypatch.setattr(
+        "runtime.models.openai_compatible.validate_provider_target",
+        lambda url, mode: "api.example.com",
+    )
+
+
 class MockAsyncClient:
     """Mock async context manager for httpx.AsyncClient."""
     def __init__(self, mock_response):

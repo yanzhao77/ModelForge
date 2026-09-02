@@ -104,11 +104,34 @@ def tool_web_search(query: str) -> str:
     return format_search_context(results)
 
 
-def tool_knowledge_search(query: str, top_k: int = 3) -> str:
-    """Query the knowledge base and return matching chunks."""
+def tool_knowledge_search(query: str, top_k: int = 3, context: Any | None = None) -> str:
+    """Query the knowledge base and return matching chunks, scoped to the invoking user.
+
+    Identity is taken exclusively from the ToolExecutionContext (context.user_id).
+    Without a valid user context this tool refuses to run and never falls back to
+    the process-wide in-memory index, so it cannot leak another user's documents.
+    """
+    user_id = _context_user_id(context)
+    if not isinstance(user_id, int) or user_id <= 0:
+        return "KNOWLEDGE_USER_CONTEXT_REQUIRED: knowledge_search requires an authenticated user context."
     from services.knowledge_base import get_global_kb
     kb = get_global_kb()
-    result = kb.query(query, top_k=top_k)
+    from core.database import SessionLocal
+    binding = getattr(context, "knowledge_binding", None) or {}
+    bounded_top_k = max(1, min(int(top_k), 20))
+    try:
+        # Agent tool calls always pass a DB session + user_id so the process-wide
+        # in-memory vector index can never act as a tenant-isolation bypass.
+        with SessionLocal() as db:
+            result = kb.query(
+                query,
+                top_k=bounded_top_k,
+                db=db,
+                user_id=user_id,
+                knowledge_binding=binding,
+            )
+    except Exception:
+        return "KNOWLEDGE_SEARCH_FAILED: knowledge search could not be completed."
     if not result.get("results"):
         return "No knowledge base results."
     lines = []

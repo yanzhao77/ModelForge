@@ -7,6 +7,8 @@ import uuid
 from typing import Any
 
 import httpx
+from core.config import settings
+from core.network_security import provider_validation_mode, validate_provider_target
 
 from .base import ModelProvider, ModelResult, ToolCall
 
@@ -25,6 +27,9 @@ class OpenAICompatibleProvider(ModelProvider):
     def capabilities(self) -> set:
         return {"CHAT", "TOOL_CALLING"}
 
+    def _validate_target(self) -> None:
+        validate_provider_target(self.base_url, mode=provider_validation_mode(settings.environment))
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -32,6 +37,7 @@ class OpenAICompatibleProvider(ModelProvider):
         tools: list[dict[str, Any]] | None = None,
         timeout: float | None = None,
     ) -> ModelResult:
+        self._validate_target()
         if self.protocol == "responses":
             endpoint = f"{self.base_url}/responses"
             payload: dict[str, Any] = {"model": self.model, "input": messages, "stream": False}

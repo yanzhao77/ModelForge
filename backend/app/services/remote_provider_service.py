@@ -11,13 +11,25 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
+from core.config import settings as _app_settings
+from core.network_security import (
+    ProviderNetworkError,
+    provider_validation_mode,
+    validate_provider_target,
+)
 from cryptography.fernet import Fernet, InvalidToken
 from models.records import RemoteProviderConfig
 from sqlalchemy.orm import Session
 
 
+def _provider_validation_mode() -> str:
+    return provider_validation_mode(getattr(_app_settings, "environment", "development"))
+
+
 class RemoteProviderError(ValueError):
-    pass
+    def __init__(self, message: str, *, code: str | None = None):
+        super().__init__(message)
+        self.code = code
 
 
 _PROTOCOLS = frozenset({"responses", "chat_completions"})
@@ -129,11 +141,19 @@ class RemoteProviderService:
         rows = self.db.query(RemoteProviderConfig).filter(RemoteProviderConfig.user_id == user_id).order_by(RemoteProviderConfig.name).all()
         return [row.to_public_dict() for row in rows]
 
+    @staticmethod
+    def _validate_target(base_url: str) -> None:
+        try:
+            validate_provider_target(base_url, mode=_provider_validation_mode())
+        except ProviderNetworkError as exc:
+            raise RemoteProviderError(str(exc), code="TARGET_NOT_ALLOWED") from exc
+
     def save(self, user_id: int, *, name: str, base_url: str, protocol: str, default_model: str, api_key: str | None) -> dict:
         name = normalize_provider_name(name)
         protocol = normalize_protocol(protocol)
         default_model = normalize_model_name(default_model)
         base_url = normalize_base_url(base_url)
+        self._validate_target(base_url)
         row = self.db.query(RemoteProviderConfig).filter(RemoteProviderConfig.user_id == user_id, RemoteProviderConfig.name == name).one_or_none()
         if row is None:
             if not api_key:
@@ -158,8 +178,9 @@ class RemoteProviderService:
         row = self.db.query(RemoteProviderConfig).filter(RemoteProviderConfig.user_id == user_id, RemoteProviderConfig.id == provider_id).one_or_none()
         if row is None:
             raise RemoteProviderError("Provider not found.")
-        api_key = self.cipher.decrypt(row.key_ciphertext)
         try:
+            self._validate_target(row.base_url)
+            api_key = self.cipher.decrypt(row.key_ciphertext)
             with httpx.Client(timeout=15.0, follow_redirects=False) as client:
                 response = client.get(f"{row.base_url}/models", headers={"Authorization": f"Bearer {api_key}"})
             if response.status_code >= 400:
@@ -183,6 +204,11 @@ class RemoteProviderService:
         except httpx.HTTPError as exc:
             self._record_verification(row, "failed", "ENDPOINT_UNREACHABLE", [])
             raise RemoteProviderError(f"Unable to reach provider: {exc}") from exc
+        except RemoteProviderError as exc:
+            if exc.code != "TARGET_NOT_ALLOWED":
+                raise
+            self._record_verification(row, "failed", "TARGET_NOT_ALLOWED", [])
+            raise
 
     def _record_verification(
         self,
@@ -202,6 +228,7 @@ class RemoteProviderService:
         row = self.db.query(RemoteProviderConfig).filter(RemoteProviderConfig.user_id == user_id, RemoteProviderConfig.id == provider_id, RemoteProviderConfig.enabled.is_(True)).one_or_none()
         if row is None:
             raise RemoteProviderError("Provider not found or disabled.")
+        self._validate_target(row.base_url)
         return {"base_url": row.base_url, "protocol": row.protocol, "default_model": row.default_model, "api_key": self.cipher.decrypt(row.key_ciphertext)}
 
     def resolve_verified(self, user_id: int, provider_id: int, model_name: str) -> dict:
@@ -223,6 +250,7 @@ class RemoteProviderService:
         verified = self._models_from_json(row.verified_models_json) if row else []
         if row is None or not row.key_ciphertext or model_name not in verified:
             raise RemoteProviderError("The selected remote model target is no longer verified for this user.")
+        self._validate_target(row.base_url)
         return {
             "base_url": row.base_url,
             "protocol": row.protocol,

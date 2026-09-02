@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Tests](https://img.shields.io/badge/tests-866%20passed-brightgreen)
-![API](https://img.shields.io/badge/API-92%20routes-important)
+![API](https://img.shields.io/badge/API-135%20paths%2F159%20ops-important)
 ![Desktop](https://img.shields.io/badge/Desktop-0.1.3--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
@@ -98,7 +98,7 @@ curl http://localhost:8000/healthz   # {"status":"ok"}
 docker rm -f modelforge
 ```
 
-## API 概览（92 条路由 = 88 显式 + 4 框架内置 /docs /redoc /openapi.json /docs/oauth2-redirect；业务前缀 /api/v1）
+## API 概览（135 paths / 159 operations；业务前缀 /api/v1）
 
 | 模块 | 端点 |
 |------|------|
@@ -117,6 +117,13 @@ docker rm -f modelforge
 | **插件（3.x）** | plugins/discover · plugins/load · plugins/{name}/{start,stop,mount,unmount} · plugins/capabilities |
 | OpenAI 兼容 | /v1/chat/completions（含流式）· /v1/models |
 | 系统 | system/status · system/logs · /healthz |
+
+> 路由统计由 `scripts/api_route_stats.py --check` 从 `app.openapi()` 实时生成并核对，README 不以手工数字为准。
+
+**版本语义**
+- `GET /` → `{"version":"2.1","edition":"3.0",...}`：`version` 保持 `2.1` 以兼容既有客户端，`edition` 反映 3.0 平台。
+- OpenAPI `info.version` 与 `app.version` = `3.0`。
+- 桌面端版本号 `APP_VERSION`（`client/pyside6/version.py`）当前为 `0.1.3-beta.1`。
 
 ## 测试
 

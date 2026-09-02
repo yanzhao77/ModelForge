@@ -13,6 +13,7 @@ from models.records import (
     AgentDefinitionVersion,
     AgentTemplate,
     KnowledgeCollection,
+    Session,
     User,
 )
 from pydantic import BaseModel, ConfigDict, Field
@@ -295,6 +296,16 @@ async def create_run(
     rt = _get_runtime()
     if rt.get_agent(req.agent_id, user_id=user.id) is None:
         raise problem(404, "AGENT_NOT_FOUND", "Agent not found.", correlation=corr)
+    # MF-SEC-002: a Run may only bind to a Session owned by the calling user;
+    # otherwise we would leak/execute against another tenant's conversation.
+    if req.session_id is not None:
+        owned = (
+            db.query(Session)
+            .filter(Session.id == req.session_id, Session.user_id == user.id, Session.is_active.is_(True))
+            .first()
+        )
+        if owned is None:
+            raise problem(404, "SESSION_NOT_FOUND", "Session not found.", correlation=corr)
     try:
         run = rt.create_run(
             agent_id=req.agent_id,

@@ -1,23 +1,19 @@
 """Database engine and session configuration."""
 import os
 import sqlite3
-from pathlib import Path
 
+from core.config import settings as _app_settings
+from core.database_config import is_sqlite_url, resolve_database_url
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# ``DATABASE_URL`` selects the service deployment profile. The historical
-# ``DATABASE_PATH`` remains the SQLite-only local profile for compatibility.
-_default_db = os.path.join(Path(__file__).resolve().parents[3], "data", "modelforge.db")
-_configured_url = os.getenv("DATABASE_URL", "").strip()
-if _configured_url:
-    SQLALCHEMY_DATABASE_URL = _configured_url
-    DATABASE_URL = _configured_url
-else:
-    DATABASE_URL = os.getenv("DATABASE_PATH", _default_db)
-    SQLALCHEMY_DATABASE_URL = f"sqlite:///{DATABASE_URL}"
+# MF-SEC-003: database URL is resolved from one source of truth (DATABASE_URL >
+# DATABASE_PATH > config.yaml database_path > default) so the engine never
+# silently ignores the configured path.
+SQLALCHEMY_DATABASE_URL = resolve_database_url(_app_settings)
+DATABASE_URL = SQLALCHEMY_DATABASE_URL
 
-IS_SQLITE = SQLALCHEMY_DATABASE_URL.startswith("sqlite:")
+IS_SQLITE = is_sqlite_url(SQLALCHEMY_DATABASE_URL)
 if IS_SQLITE:
     sqlite_path = SQLALCHEMY_DATABASE_URL.removeprefix("sqlite:///")
     if sqlite_path and sqlite_path != ":memory:":

@@ -57,7 +57,8 @@ def test_successful_verification_persists_only_non_sensitive_summary():
     client = _client_with_response(200, {"data": [{"id": "verified-model"}, {"id": "other"}]})
 
     with patch("services.remote_provider_service.httpx.Client", return_value=client):
-        result = service.verify(user.id, provider.id)
+        with patch("services.remote_provider_service.validate_provider_target", return_value="api.example.test"):
+            result = service.verify(user.id, provider.id)
 
     db.refresh(provider)
     assert result["models"] == ["verified-model", "other"]
@@ -72,8 +73,9 @@ def test_authentication_failure_is_persisted_as_recoverable_error_code():
     client = _client_with_response(401, {"error": {"message": "invalid key"}})
 
     with patch("services.remote_provider_service.httpx.Client", return_value=client):
-        with pytest.raises(RemoteProviderError, match="HTTP 401"):
-            service.verify(user.id, provider.id)
+        with patch("services.remote_provider_service.validate_provider_target", return_value="api.example.test"):
+            with pytest.raises(RemoteProviderError, match="HTTP 401"):
+                service.verify(user.id, provider.id)
 
     db.refresh(provider)
     assert provider.verification_status == "failed"
@@ -89,10 +91,62 @@ def test_limit_and_service_failures_persist_safe_diagnostics(status_code, expect
     client = _client_with_response(status_code, {"error": {"message": "upstream failure"}})
 
     with patch("services.remote_provider_service.httpx.Client", return_value=client):
-        with pytest.raises(RemoteProviderError):
-            service.verify(user.id, provider.id)
+        with patch("services.remote_provider_service.validate_provider_target", return_value="api.example.test"):
+            with pytest.raises(RemoteProviderError):
+                service.verify(user.id, provider.id)
 
     db.refresh(provider)
     assert provider.verification_status == "failed"
     assert provider.verification_error_code == expected
     assert "test-secret" not in (provider.verified_models_json or "")
+
+
+def test_verify_blocks_ssrf_target_without_network_call():
+    """A loopback/private target is refused before any HTTP request is made."""
+    db, user, provider, service = _service()
+    db.query(RemoteProviderConfig).filter_by(id=provider.id).update({"base_url": "https://169.254.169.254/latest"})
+    db.commit()
+
+    with patch("services.remote_provider_service.httpx.Client") as client:
+        with pytest.raises(RemoteProviderError, match="not a public address"):
+            service.verify(user.id, provider.id)
+
+    client.assert_not_called()
+    db.refresh(provider)
+    assert provider.verification_status == "failed"
+    assert provider.verification_error_code == "TARGET_NOT_ALLOWED"
+
+
+def test_resolve_revalidates_legacy_target_before_decrypting_key():
+    """A malicious provider already present in the database cannot bypass policy."""
+    db, user, provider, service = _service()
+    db.query(RemoteProviderConfig).filter_by(id=provider.id).update(
+        {"base_url": "https://169.254.169.254/latest"}
+    )
+    db.commit()
+
+    with pytest.raises(RemoteProviderError) as exc_info:
+        service.resolve(user.id, provider.id)
+
+    assert exc_info.value.code == "TARGET_NOT_ALLOWED"
+    service.cipher.decrypt.assert_not_called()
+
+
+def test_resolve_verified_revalidates_target_before_returning_runtime_config():
+    """A target cannot remain trusted solely because a previous verification succeeded."""
+    db, user, provider, service = _service()
+    db.query(RemoteProviderConfig).filter_by(id=provider.id).update(
+        {
+            "base_url": "https://169.254.169.254/latest",
+            "enabled": True,
+            "verification_status": "success",
+            "verified_models_json": '["verified-model"]',
+        }
+    )
+    db.commit()
+
+    with pytest.raises(RemoteProviderError) as exc_info:
+        service.resolve_verified(user.id, provider.id, "verified-model")
+
+    assert exc_info.value.code == "TARGET_NOT_ALLOWED"
+    service.cipher.decrypt.assert_not_called()

@@ -28,7 +28,7 @@ class FakeKnowledgeProvider:
 
 
 class FakeHistoryProvider:
-    async def load(self, session_id, limit=20):
+    async def load(self, session_id, user_id=None, limit=20):
         return [
             {"role": "user", "content": "earlier question"},
             {"role": "assistant", "content": "earlier answer"},

@@ -31,6 +31,12 @@ class RunNotFoundError(RuntimeError):
     default_message = "Run not found"
 
 
+class SessionNotFoundError(RuntimeError):
+    code = "SESSION_NOT_FOUND"
+    http_status = 404
+    default_message = "Session not found"
+
+
 class RunCancelledError(RuntimeError):
     code = "RUN_CANCELLED"
     http_status = 409
@@ -105,7 +111,7 @@ class AgentToolCallLimitError(RuntimeError):
 
 #: All defined error codes (spec 47 list + loop limits)
 ERROR_CODES = (
-    "AGENT_NOT_FOUND", "RUN_NOT_FOUND", "RUN_CANCELLED", "RUN_TIMEOUT",
+    "AGENT_NOT_FOUND", "RUN_NOT_FOUND", "SESSION_NOT_FOUND", "RUN_CANCELLED", "RUN_TIMEOUT",
     "TOOL_NOT_FOUND", "TOOL_DENIED", "TOOL_TIMEOUT", "MODEL_NOT_FOUND",
     "MODEL_UNAVAILABLE", "CONTEXT_TOO_LARGE", "POLICY_DENIED",
     "HUMAN_APPROVAL_REQUIRED", "RUNTIME_ERROR", "AGENT_LOOP_LIMIT",

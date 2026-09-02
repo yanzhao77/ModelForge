@@ -17,6 +17,7 @@ from .errors import (
     ModelUnavailableError,
     RunNotFoundError,
     RuntimeError,
+    SessionNotFoundError,
 )
 from .events import EventBus
 from .execution import ExecutionEngine
@@ -201,6 +202,7 @@ class AgentRuntime:
         agent = self.agent_store.get(agent_id)
         if agent is None:
             raise AgentNotFoundError(agent_id)
+        self._validate_run_bindings(agent_id, user_id, session_id)
         run = RunRecord(
             run_id=uuid.uuid4().hex,
             agent_id=agent_id,
@@ -218,6 +220,33 @@ class AgentRuntime:
             self._spawn(self.execute_run(run.run_id), run_id=run.run_id)
         log_run(self.logger, 20, "run created", run_id=run.run_id, agent_id=agent_id)
         return run
+
+    def _validate_run_bindings(
+        self,
+        agent_id: str,
+        user_id: int | None,
+        session_id: int | None,
+    ) -> None:
+        """Enforce tenant isolation on Run bindings (MF-SEC-002).
+
+        A Run may only bind to a Session owned by the calling user. This is
+        invoked from the single creation choke point, so the API, scheduler
+        and delegate paths are all covered.
+        """
+        if session_id is None:
+            return
+        if user_id is None:
+            raise SessionNotFoundError(f"session {session_id} requires an owner")
+        from core.database import SessionLocal
+        from models.records import Session
+        with SessionLocal() as db:
+            owned = (
+                db.query(Session)
+                .filter(Session.id == session_id, Session.user_id == user_id, Session.is_active.is_(True))
+                .first()
+            )
+        if owned is None:
+            raise SessionNotFoundError(f"session {session_id} not found")
 
     async def execute_run(self, run_id: str) -> dict[str, Any]:
         run = self.run_store.get(run_id)

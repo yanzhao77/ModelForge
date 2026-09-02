@@ -5,6 +5,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+from core.config import settings
+from core.network_security import provider_validation_mode, validate_provider_target
 from services.runtime import RuntimeEngine
 
 
@@ -26,6 +28,9 @@ class OpenAIRuntime(RuntimeEngine):
 
     def _endpoint(self) -> str:
         return f"{self.base_url}/responses" if self.protocol == "responses" else f"{self.base_url}/chat/completions"
+
+    def _validate_target(self) -> None:
+        validate_provider_target(self.base_url, mode=provider_validation_mode(settings.environment))
 
     @staticmethod
     def _can_fallback(exc: httpx.HTTPStatusError, protocol: str) -> bool:
@@ -63,6 +68,7 @@ class OpenAIRuntime(RuntimeEngine):
             return await self._chat_protocol("chat_completions", model, messages, **kwargs)
 
     async def _chat_protocol(self, protocol: str, model: str, messages: list[dict], **kwargs) -> dict:
+        self._validate_target()
         if protocol == "responses":
             payload: dict[str, Any] = {"model": model, "input": messages, "stream": False}
             if kwargs.get("temperature") is not None:
@@ -97,6 +103,7 @@ class OpenAIRuntime(RuntimeEngine):
                 yield delta
 
     async def _stream_protocol(self, protocol: str, model: str, messages: list[dict], **kwargs) -> AsyncIterator[str]:
+        self._validate_target()
         payload: dict[str, Any]
         if protocol == "responses":
             payload = {"model": model, "input": messages, "stream": True}
