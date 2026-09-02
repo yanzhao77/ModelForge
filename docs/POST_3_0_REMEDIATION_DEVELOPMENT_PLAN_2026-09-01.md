@@ -611,7 +611,7 @@ P1 修复按独立提交合并，建议每个问题一个提交或一个可回�
 ### 16.5 提交信息
 
 - 审查基线 commit：`535f3f527df14057ca2a571de852a412b4861c2a`（master，与 origin/master 一致）。
-- 候选提交：`feat(security): complete R0-R5 isolation and network hardening`（本地提交，未推送）。
+- 候选提交：`b07121a4114bace8042887c67f67b1101e2468bc`（`feat(security): complete R0-R5 isolation and network hardening`，本地提交，未推送）。
 
 ### 16.6 尚未完成的发布验证项
 
