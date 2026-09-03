@@ -647,3 +647,15 @@ P1 修复按独立提交合并，建议每个问题一个提交或一个可回�
 - **残余风险**：DNS rebinding TOCTOU（16.2 记录）仍未通过 IP 固定完全闭合，活体测试列入部署环境验证项。
 - **正式发布状态**：**Go/No-Go 待 CI 结果及最终授权**；本地提交未推送远程。
 - 16.6 未完成项状态更新：PG 单副本 smoke（16/16）、SQLite 只读核对、发布资产绑定三项已完成；仅余 DNS-rebinding 活体测试（部署环境项）。
+
+### 16.9 最终 Release 决策审查记录（2026-09-03）
+
+- **提交链与地位**：当前 HEAD=`f7b9bbb…`（`docs: record final release asset generation bound to 53e9aa0`）；其上无新增代码提交（本轮新增 `tests/test_dns_rebinding_livefire.py` 为新增测试）。发布候选**代码 SHA 仍明确为 `53e9aa0f0880afdaa01f607d0a3c6258dfef4610`**，版本 `0.1.3-beta.1`。master 相对远程领先提交数本轮复核为 **0**（HEAD 已位于 origin/master；git rev-list origin/master..HEAD 返回 0，说明本地与远程同步，之前“领先 4 个提交”的表述以本次 git 实测为准，不采用记忆中的旧数值）。
+- **发布资产复核**：manifest 绑定 `git_commit=53e9aa0…`、`version=0.1.3-beta.1`；SBOM（92 组件，覆盖 fastapi/sqlalchemy/httpx/pydantic/uvicorn/psycopg 等）与 pip-audit（**0 漏洞**）一致；checksums 自校验全部 OK；新资产无 `0.1.1`/`852`/旧 SHA 残留；旧 v0.1.1 资产仅存于 `legacy-v0.1.1-beta.1/`。
+- **artifact & 签名/公证**：本轮执行了 macOS arm64 桌面构建（PyInstaller 6.22.2 装至 venv）。生成 `dist/ModelForge.app`（CFBundleShortVersionString/CFBundleVersion=0.1.3-beta.1），`codesign --force --deep --sign -` 完成**临时（ad-hoc）签名**并 `codesign --verify --deep` 通过；打包为 `ModelForge-macOS-0.1.3-beta.1.zip`（47,114,852 B，sha256 `4496bec…f84`），manifest 的 `artifact` 由 `null` 更新为含该 zip 的 name/sha256/bytes。**未公证**：环境无 `notarytool`（未安装），故未能向 Apple 提交公证；`signing.status=unsigned`、`provider=null` 保持原样——**制品为临时签名、未公证**，属测试候选包，不可作为正式分发制品。本轮未伪造签名或公证成功。
+- **面面门禁（最终，全绿）**：`pytest tests/ -q` → **920 passed, 3 skipped in 28.59s**（较上轮 917 新增 3 条 DNS-rebinding 测试）；ruff All checks passed；compileall rc=0；pip check No broken requirements；pip-audit No known vulnerabilities；`api_route_stats.py --check` → 135 paths / 159 operations current。
+- **部署验证**：
+  - PostgreSQL 单副本 smoke：postgres:16-alpine 临时容器（端口 55433）先 `alembic upgrade head`（0001→0002）成功建 schema，再跑完整 smoke → **16/16 PASS**（注册/登录/会话、Agent 创建、Run 创建与查询、跨用户驳回 SESSION_NOT_FOUND/AGENT_NOT_FOUND/AGENT_RUN_NOT_FOUND、Provider 元数据 169.254.169.254 拒绝 TARGET_NOT_ALLOWED+公网接受、knowledge query）。容器已移除。
+  - Session/Run 跨用户隔离、knowledge_binding 隔离、Provider 私网/metadata/IPv6/重定向拦截：安全专项测试（含上轮 40 passed 组合）持续通过，链路核对见 16.2。
+  - **DNS rebinding 活体测试**（新增 `tests/test_dns_rebinding_livefire.py`，3 条）：方法——stub `socket.getaddrinfo`，模拟敌意解析器在验证查询返回元数据 IP `169.254.169.254`，断言 `validate_provider_target` 拒绝；并断言 provider 传输层**无 IP 固定**（无 pinned 机制、仅 `follow_redirects=False` 而非 IP 固定）。结果：3 条通过。**剩余风险**：校验时 DNS 解析与 httpx 建连时的二次解析之间存在 TOCTOU 窗口，未通过 IP 固定完全闭合——**不得把“请求前重新校验”描述为已彻底消除竞态**；该项仍为部署环境验证项。
+- **正式发布结论**：**Go/No-Go 建议 = 暂缓（No-Go pending）** —— 需 CI 结果、DNS-rebinding 活体测试（部署环境）及 **macOS 制品签名/公证**（当前仅 ad-hoc 签名、未公证）就绪后，方可正式发布。源码候选资产已就绪；发布类型须标注为“**源码候选资产 + 临时签名未公证测试制品**”，不得宣称完整正式桌面制品已就绪。本地未推送远程。
