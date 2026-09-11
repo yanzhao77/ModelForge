@@ -53,3 +53,34 @@ def test_cookie_transport_does_not_return_jwt_to_browser(client):
     assert response.status_code == 200
     assert "token" not in response.json()
     assert response.json()["csrf_token"]
+
+
+def test_openai_compatible_router_requires_csrf_for_cookie_sessions(client, monkeypatch):
+    """The cookie session authenticates /v1/ too, so CSRF must cover that path."""
+    from api import openai_api
+
+    class _FakeRuntime:
+        async def chat(self, model, messages, **kwargs):
+            return {"model": model, "content": "ok"}
+
+    monkeypatch.setattr(openai_api, "get_runtime", lambda: _FakeRuntime())
+    username = f"openaicsrf-{uuid.uuid4().hex[:10]}"
+    client.post("/api/v1/auth/register", json={"username": username, "password": "safe-pass-123", "email": f"{username}@example.com"})
+    login = client.post(
+        "/api/v1/auth/login",
+        headers={"X-Auth-Transport": "cookie"},
+        json={"username": username, "password": "safe-pass-123"},
+    )
+    assert login.status_code == 200, login.text
+    payload = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+
+    blocked = client.post("/v1/chat/completions", json=payload)
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"] == "CSRF token missing or invalid"
+
+    accepted = client.post(
+        "/v1/chat/completions",
+        headers={"X-CSRF-Token": client.cookies.get("modelforge_csrf")},
+        json=payload,
+    )
+    assert accepted.status_code == 200, accepted.text

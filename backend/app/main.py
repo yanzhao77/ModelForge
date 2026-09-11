@@ -134,7 +134,11 @@ async def csrf_protect_cookie_session(request: Request, call_next):
     exempt = {"/api/v1/auth/login", "/api/v1/auth/register"}
     has_cookie_session = bool(request.cookies.get(settings.session_cookie_name))
     has_bearer = bool(request.headers.get("Authorization"))
-    if unsafe and request.url.path.startswith("/api/v1/") and request.url.path not in exempt and has_cookie_session and not has_bearer:
+    # The cookie session also authenticates the OpenAI-compatible router, so the
+    # double-submit nonce has to cover /v1/ as well; otherwise a cross-site form
+    # could spend the signed-in account's inference.
+    covered = request.url.path.startswith(("/api/v1/", "/v1/"))
+    if unsafe and covered and request.url.path not in exempt and has_cookie_session and not has_bearer:
         provided = request.headers.get("X-CSRF-Token", "")
         expected = request.cookies.get(settings.csrf_cookie_name, "")
         if not expected or not provided or not hmac.compare_digest(provided, expected):
