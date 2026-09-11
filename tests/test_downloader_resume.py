@@ -1,6 +1,7 @@
 """Resume, integrity, retry and cancellation coverage for services.downloader."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import sys
@@ -19,6 +20,7 @@ from services.downloader import (  # noqa: E402
     Downloader,
     DownloadFile,
     DownloadIntegrityError,
+    DownloadPaused,
 )
 
 # ---------------------------------------------------------------------------
@@ -301,6 +303,42 @@ def test_cancelled_task_stops_before_the_next_chunk(tmp_path):
     with patch("services.downloader.httpx.Client", return_value=client):
         with pytest.raises(DownloadCancelled):
             downloader._download_files("task-1", [_spec()], target)
+
+
+def test_paused_task_stops_the_worker_instead_of_waiting(tmp_path):
+    """Pausing must release the global download slot, not block inside it."""
+    target = _target(tmp_path)
+    (target / "model.gguf").write_bytes(b"abc")
+    downloader = _downloader()
+    downloader._control_status = lambda task_id: ("PAUSED", None)
+    client = _FakeClient([_FakeResponse(200, [b"abcdef"])])
+
+    with patch("services.downloader.httpx.Client", return_value=client):
+        with pytest.raises(DownloadPaused):
+            downloader._download_files("task-1", [_spec(size=6)], target)
+
+    # The bytes already on disk stay untouched so resume() can continue.
+    assert (target / "model.gguf").read_bytes() == b"abc"
+
+
+@pytest.mark.asyncio
+async def test_paused_download_releases_its_download_slot(tmp_path):
+    target = _target(tmp_path)
+    downloader = Downloader(max_downloads=1)
+    downloader._set_state = lambda task_id, **kwargs: SimpleNamespace(
+        progress=0, repo_id="owner/repo", filename=None, user_id=7
+    )
+    downloader._control_status = lambda task_id: ("PAUSED", None)
+    downloader._resolve_files = lambda repo_id, filename=None: [_spec(size=6)]
+    downloader._target_path = lambda repo_id: target
+    downloader._register_worker("task-1")
+    client = _FakeClient([_FakeResponse(200, [b"abcdef"])])
+
+    with patch("services.downloader.httpx.Client", return_value=client):
+        await asyncio.wait_for(downloader._run("task-1"), timeout=15)
+
+    assert downloader._semaphore.acquire(blocking=False) is True
+    downloader._semaphore.release()
 
 
 def test_restart_keeps_shared_files_and_reverifies_them(tmp_path, monkeypatch):

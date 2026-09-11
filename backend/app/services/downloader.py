@@ -30,6 +30,10 @@ class DownloadIntegrityError(Exception):
     """Raised when downloaded bytes do not match the upstream size or hash."""
 
 
+class DownloadPaused(Exception):
+    """Raised internally when the user pauses a running download."""
+
+
 class _ResumeMismatch(Exception):
     """Upstream answered a Range request from an offset we did not ask for."""
 
@@ -341,6 +345,14 @@ class Downloader:
                 self._active.discard(task_id)
                 self._cancels.pop(task_id, None)
             self._forget_control_status(task_id)
+            # A pause makes this worker exit so the download slot is released;
+            # if the user resumed in the meantime, start a fresh worker.
+            self._resume_if_still_running(task_id)
+
+    def _resume_if_still_running(self, task_id: str) -> None:
+        record = self._load_record(task_id)
+        if record is not None and record.status == "RUNNING":
+            self._schedule(task_id)
 
     def _run_sync(self, task_id: str) -> None:
         if self._cancel_event(task_id).is_set():
@@ -362,6 +374,17 @@ class Downloader:
             self._set_state(task_id, status="COMPLETED", progress=100, message="Download completed", completed=True)
         except DownloadCancelled:
             self._settle_cancelled(task_id, fallback_progress=int(task.progress or 0))
+        except DownloadPaused:
+            # pause() already persisted PAUSED; keep whatever progress the
+            # worker published and let resume() start a fresh worker.
+            record = self._load_record(task_id)
+            if record is not None and record.status == "PAUSED":
+                self._set_state(
+                    task_id,
+                    status="PAUSED",
+                    progress=int(record.progress or 0),
+                    message="Download paused",
+                )
         except DownloadIntegrityError:
             # Separate code from connectivity failures: the local bytes are
             # wrong, so a plain retry would re-use the same corrupt file.
@@ -704,6 +727,9 @@ class Downloader:
                     return
                 response.raise_for_status()
                 mode = "ab" if existing and response.status_code == 206 else "wb"
+                # Check before opening the file: "wb" truncates, and a pause
+                # right here must not cost the bytes already on disk.
+                self._wait_if_paused_or_cancelled(task_id)
                 with destination.open(mode) as handle:
                     for chunk in response.iter_bytes(chunk_size=1024 * 1024):
                         if not chunk:
@@ -754,16 +780,20 @@ class Downloader:
             self._write_manifest(file_task.target, file_task.manifest)
 
     def _wait_if_paused_or_cancelled(self, task_id: str) -> None:
+        """Stop this worker when the task was cancelled or paused.
+
+        Pausing exits the worker instead of waiting in place: the download slot
+        is global, so a paused task must not keep it (and its thread) occupied.
+        ``resume()`` later starts a fresh worker that continues from disk.
+        """
         event = self._cancel_event(task_id)
-        while True:
-            if event.is_set():
-                raise DownloadCancelled()
-            download_status, task_status = self._control_status(task_id)
-            if download_status in {"CANCELLED", "FAILED"} or task_status == "CANCEL_REQUESTED":
-                raise DownloadCancelled()
-            if download_status != "PAUSED":
-                return
-            event.wait(0.5)
+        if event.is_set():
+            raise DownloadCancelled()
+        download_status, task_status = self._control_status(task_id)
+        if download_status in {"CANCELLED", "FAILED"} or task_status == "CANCEL_REQUESTED":
+            raise DownloadCancelled()
+        if download_status == "PAUSED":
+            raise DownloadPaused()
 
     def _control_status(self, task_id: str) -> tuple[str | None, str | None]:
         """Read download/task-center status with a short cache.
