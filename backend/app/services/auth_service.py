@@ -54,7 +54,7 @@ class AuthService:
             user.password_hash = hash_password(password)
         user.last_login = datetime.now(timezone.utc)
         db.commit()
-        token = create_access_token(user.id, user.username)
+        token = create_access_token(user.id, user.username, user.password_hash)
         return True, "登录成功", user, token
 
     @staticmethod

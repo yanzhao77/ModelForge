@@ -84,3 +84,28 @@ def test_openai_compatible_router_requires_csrf_for_cookie_sessions(client, monk
         json=payload,
     )
     assert accepted.status_code == 200, accepted.text
+
+
+def test_password_change_retires_tokens_issued_before_it(client):
+    """A leaked token must not survive the password reset that responds to it."""
+    username = f"pwdtoken-{uuid.uuid4().hex[:10]}"
+    client.post("/api/v1/auth/register", json={"username": username, "password": "safe-pass-123", "email": f"{username}@example.com"})
+    token = client.post(
+        "/api/v1/auth/login", json={"username": username, "password": "safe-pass-123"}
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+
+    changed = client.post(
+        "/api/v1/auth/change-password",
+        headers=headers,
+        json={"old_password": "safe-pass-123", "new_password": "safe-pass-456"},
+    )
+    assert changed.status_code == 200, changed.text
+
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+    # The replacement credential still works.
+    fresh = client.post(
+        "/api/v1/auth/login", json={"username": username, "password": "safe-pass-456"}
+    ).json()["token"]
+    assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {fresh}"}).status_code == 200

@@ -1,4 +1,6 @@
 """Security utilities: password hashing, JWT tokens, auth dependencies."""
+import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -15,9 +17,18 @@ PBKDF2_SHA256_ITERATIONS = 600_000
 _bearer = HTTPBearer(auto_error=False)
 
 
+def password_fingerprint(password_hash: str) -> str:
+    """Return a non-reversible marker of the stored credential.
+
+    Access tokens carry it so that changing the password (or upgrading the
+    stored hash) immediately retires every token issued before the change,
+    without keeping a server-side token table.
+    """
+    return hashlib.sha256(str(password_hash or "").encode("utf-8")).hexdigest()[:16]
+
+
 def hash_password(password: str) -> str:
     """Create a versioned PBKDF2-SHA256 password hash using a modern work factor."""
-    import hashlib
     import secrets
 
     salt = secrets.token_hex(16)
@@ -42,9 +53,6 @@ def _password_hash_parameters(password_hash: str) -> tuple[int, str, str] | None
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify legacy and versioned hashes without timing-dependent comparison."""
-    import hashlib
-    import hmac
-
     parameters = _password_hash_parameters(password_hash)
     if parameters is None:
         return False
@@ -63,11 +71,12 @@ def password_needs_rehash(password_hash: str) -> bool:
     return parameters is None or parameters[0] < PBKDF2_SHA256_ITERATIONS
 
 
-def create_access_token(user_id: int, username: str) -> str:
+def create_access_token(user_id: int, username: str, password_hash: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
         "username": username,
+        "pwd": password_fingerprint(password_hash),
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_expire_minutes),
     }
@@ -98,7 +107,13 @@ def _current_user(
         user_id = int(payload.get("sub", "0"))
     except (TypeError, ValueError):
         return None
-    return db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not user.is_active:
+        return None
+    # A token minted before the current password is no longer valid.
+    if not hmac.compare_digest(str(payload.get("pwd") or ""), password_fingerprint(user.password_hash)):
+        return None
+    return user
 
 
 def get_current_user(user: User | None = Depends(_current_user)) -> User:
