@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QMessageBox,
+    QMenu,
     QSplitter,
     QStackedWidget,
     QVBoxLayout,
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             self,
         )
         self.task_store.stream_changed.connect(self._show_task_stream_status)
+        self.task_store.changed.connect(self._show_download_footer)
         self._init_ui()
         restored = self.recovery.restore_window_state(self)
         self.task_store.start()
@@ -108,6 +110,12 @@ class MainWindow(QMainWindow, AsyncApiMixin):
     def _init_ui(self) -> None:
         self.shell = AppShell(self.translator)
         self.shell.destination_requested.connect(self._navigate_to)
+        self.shell.footer_bar.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.shell.footer_bar.customContextMenuRequested.connect(self._open_download_footer_menu)
+        self.shell.footer.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.shell.footer.customContextMenuRequested.connect(self._open_download_footer_menu)
+        self.shell.footer_progress.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.shell.footer_progress.customContextMenuRequested.connect(self._open_download_footer_menu)
         self.setCentralWidget(self.shell)
         self.stack = QStackedWidget()
         self.shell.content_layout.addWidget(self.stack, 1)
@@ -283,6 +291,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 self.translator.t("footer.connected", "已连接 ModelForge 服务"),
             )
         )
+        self._show_download_footer()
 
     def _on_session_selected(self, session_id: int) -> None:
         self.chat_page.set_session(session_id)
@@ -314,6 +323,8 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.shell.set_status(f"无法连接服务：{error}")
 
     def _show_task_stream_status(self, online: bool, error: str) -> None:
+        if self._show_download_footer():
+            return
         if online:
             self.shell.set_status(self.translator.t("footer.task_stream_connected", "任务更新已连接"))
         else:
@@ -322,6 +333,77 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 self.translator.t("footer.task_stream_reconnecting", "正在重连任务更新…"),
                 tooltip=detail,
             )
+
+    def _latest_download_task(self) -> dict | None:
+        downloads = [
+            task for task in self.task_store.tasks.values()
+            if task.get("source") == "model_download" or task.get("task_type") == "model_download"
+        ]
+        if not downloads:
+            return None
+        active_statuses = {"QUEUED", "RUNNING", "PAUSED", "CANCEL_REQUESTED"}
+        active = [task for task in downloads if task.get("status") in active_statuses]
+        candidates = active or [task for task in downloads if task.get("status") == "SUCCEEDED"] or downloads
+        return max(candidates, key=lambda task: task.get("updated_at") or task.get("created_at") or "")
+
+    def _download_path(self, task: dict | None) -> str:
+        if not task:
+            return ""
+        result = task.get("result") or {}
+        metadata = task.get("metadata") or {}
+        return str(result.get("local_path") or metadata.get("local_path") or "")
+
+    def _show_download_footer(self) -> bool:
+        task = self._latest_download_task()
+        if not task:
+            return False
+        status = task.get("status") or ""
+        progress = int(task.get("progress_percent") or 0)
+        repo = (task.get("metadata") or {}).get("repo_id") or task.get("title") or "模型"
+        path = self._download_path(task)
+        if status == "SUCCEEDED":
+            self.shell.set_status(f"下载完成：{repo}", tooltip=path, progress=100)
+            return True
+        if status in {"QUEUED", "RUNNING", "PAUSED", "CANCEL_REQUESTED"}:
+            label = {
+                "QUEUED": "下载排队中",
+                "RUNNING": "下载中",
+                "PAUSED": "下载已暂停",
+                "CANCEL_REQUESTED": "正在取消下载",
+            }.get(status, "下载中")
+            self.shell.set_status(f"{label}：{repo} · {progress}%", tooltip=path, progress=progress)
+            return True
+        return False
+
+    def _open_download_footer_menu(self, position) -> None:
+        task = self._latest_download_task()
+        if not task:
+            return
+        menu = QMenu(self)
+        open_panel = menu.addAction("打开下载界面")
+        open_folder = menu.addAction("打开本地文件夹")
+        sender = self.sender()
+        anchor = sender if hasattr(sender, "mapToGlobal") else self.shell.footer_bar
+        selected = menu.exec(anchor.mapToGlobal(position))
+        if selected == open_panel:
+            self._open_download_dialog(task.get("source_task_id"))
+        elif selected == open_folder:
+            self._open_download_folder(self._download_path(task))
+
+    def _open_download_dialog(self, task_id: str | None = None) -> None:
+        DownloadDialog(self.api, self, task_id=task_id).exec_()
+        self.task_store.refresh()
+
+    def _open_download_folder(self, local_path: str) -> None:
+        if not local_path:
+            QMessageBox.information(self, "下载目录", "还没有可打开的本地下载目录。")
+            return
+        path = Path(local_path)
+        open_path = path if path.is_dir() else path.parent
+        if not open_path.exists():
+            QMessageBox.warning(self, "下载目录", f"本地目录不存在：\n{open_path}")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(open_path)))
 
     def _offer_recovery(self, restored: dict) -> None:
         if not self.recovery.previous_crash:

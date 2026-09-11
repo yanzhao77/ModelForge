@@ -459,7 +459,7 @@ class TestRun:
 
     @pytest.mark.asyncio
     async def test_run_successful_download(self, _mock_hf):
-        from services.downloader import Downloader
+        from services.downloader import Downloader, DownloadFile
 
         task = _make_task()
         dl = Downloader()
@@ -471,7 +471,9 @@ class TestRun:
 
         dl._set_state = fake_set_state
         with patch("services.downloader.settings") as mock_settings, \
-             patch("services.downloader.Path") as mock_path_cls:
+             patch("services.downloader.Path") as mock_path_cls, \
+             patch.object(dl, "_resolve_files", return_value=[DownloadFile("model.gguf", 1, "https://example.invalid/model.gguf")]) as resolve, \
+             patch.object(dl, "_download_files") as download_files:
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path = MagicMock()
@@ -480,8 +482,10 @@ class TestRun:
             await dl._run("aa" * 16)
 
             statuses = [c[1]["status"] for c in calls]
-            assert statuses == ["RUNNING", "RUNNING", "COMPLETED"]
+            assert statuses == ["RUNNING", "COMPLETED"]
             assert calls[-1][1].get("completed") is True
+            resolve.assert_called_once_with("owner/repo", None)
+            download_files.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_failed_download(self, _mock_hf):
@@ -497,13 +501,14 @@ class TestRun:
 
         dl._set_state = fake_set_state
         with patch("services.downloader.settings") as mock_settings, \
-             patch("services.downloader.Path") as mock_path_cls:
+             patch("services.downloader.Path") as mock_path_cls, \
+             patch.object(dl, "_resolve_files", return_value=[MagicMock()]), \
+             patch.object(dl, "_download_files", side_effect=Exception("download error")):
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=MagicMock())
 
-            with patch("asyncio.to_thread", side_effect=Exception("download error")):
-                await dl._run("aa" * 16)
+            await dl._run("aa" * 16)
 
         last = calls[-1][1]
         assert last["status"] == "FAILED"
@@ -528,7 +533,6 @@ class TestRun:
             await dl._run("aa" * 16)
 
         assert os.environ.get("HF_ENDPOINT") == "https://my-mirror.com"
-        assert _mock_hf.snapshot_download.call_args.kwargs.get("endpoint") == "https://my-mirror.com"
 
     @pytest.mark.asyncio
     async def test_run_no_hf_endpoint_skips_env_set(self, _mock_hf):
@@ -549,42 +553,44 @@ class TestRun:
                 assert "HF_ENDPOINT" not in mock_env
 
     @pytest.mark.asyncio
-    async def test_run_passes_filename_as_allow_patterns(self, _mock_hf):
-        from services.downloader import Downloader
+    async def test_run_passes_filename_to_file_resolver(self, _mock_hf):
+        from services.downloader import Downloader, DownloadFile
 
         task = _make_task(filename="model.gguf")
         dl = Downloader()
         dl._set_state = lambda task_id, **kwargs: task
 
         with patch("services.downloader.settings") as mock_settings, \
-             patch("services.downloader.Path") as mock_path_cls:
+             patch("services.downloader.Path") as mock_path_cls, \
+             patch.object(dl, "_resolve_files", return_value=[DownloadFile("model.gguf", 1, "https://example.invalid/model.gguf")]) as resolve, \
+             patch.object(dl, "_download_files"):
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=MagicMock())
 
             await dl._run("aa" * 16)
 
-            _mock_hf.snapshot_download.assert_called_once()
-            assert _mock_hf.snapshot_download.call_args.kwargs.get("allow_patterns") == ["model.gguf"]
+            resolve.assert_called_once_with("owner/repo", "model.gguf")
 
     @pytest.mark.asyncio
-    async def test_run_no_filename_no_allow_patterns(self, _mock_hf):
-        from services.downloader import Downloader
+    async def test_run_no_filename_passes_none_to_file_resolver(self, _mock_hf):
+        from services.downloader import Downloader, DownloadFile
 
         task = _make_task(filename=None)
         dl = Downloader()
         dl._set_state = lambda task_id, **kwargs: task
 
         with patch("services.downloader.settings") as mock_settings, \
-             patch("services.downloader.Path") as mock_path_cls:
+             patch("services.downloader.Path") as mock_path_cls, \
+             patch.object(dl, "_resolve_files", return_value=[DownloadFile("model.gguf", 1, "https://example.invalid/model.gguf")]) as resolve, \
+             patch.object(dl, "_download_files"):
             mock_settings.hf_endpoint = None
             mock_settings.model_dir = "./models"
             mock_path_cls.return_value.__truediv__ = MagicMock(return_value=MagicMock())
 
             await dl._run("aa" * 16)
 
-            _mock_hf.snapshot_download.assert_called_once()
-            assert "allow_patterns" not in _mock_hf.snapshot_download.call_args.kwargs
+            resolve.assert_called_once_with("owner/repo", None)
 
     @pytest.mark.asyncio
     async def test_run_repo_id_slash_replaced(self, _mock_hf):
@@ -624,6 +630,36 @@ class TestRun:
             assert mock_target.mkdir.call_args.kwargs.get("parents") is True
             assert mock_target.mkdir.call_args.kwargs.get("exist_ok") is True
 
+    def test_resolve_files_uses_configured_hf_endpoint(self):
+        from services.downloader import Downloader
+
+        sibling = MagicMock()
+        sibling.rfilename = "model.gguf"
+        sibling.size = 123
+        info = MagicMock(siblings=[sibling])
+        mock_hf_api = MagicMock()
+        mock_hf_api.model_info.return_value = info
+        mock_hub = MagicMock()
+        mock_hub.HfApi.return_value = mock_hf_api
+        mock_hub.hf_hub_url.return_value = "https://hf-mirror.com/org/repo/resolve/main/model.gguf"
+        old = sys.modules.get("huggingface_hub")
+        sys.modules["huggingface_hub"] = mock_hub
+        try:
+            with patch("services.downloader.settings") as mock_settings:
+                mock_settings.hf_endpoint = "https://hf-mirror.com/"
+                files = Downloader()._resolve_files("org/repo")
+        finally:
+            if old is None:
+                sys.modules.pop("huggingface_hub", None)
+            else:
+                sys.modules["huggingface_hub"] = old
+
+        mock_hub.HfApi.assert_called_once_with(endpoint="https://hf-mirror.com")
+        mock_hub.hf_hub_url.assert_called_once_with(
+            repo_id="org/repo", filename="model.gguf", endpoint="https://hf-mirror.com"
+        )
+        assert files[0].url.startswith("https://hf-mirror.com/")
+
 
 # ---------------------------------------------------------------------------
 # get_downloader() and module-level singleton
@@ -650,5 +686,6 @@ class TestInit:
         from services.downloader import Downloader
 
         dl = Downloader()
-        assert isinstance(dl._semaphore, asyncio.Semaphore)
-        assert dl._semaphore._value == 2
+        assert hasattr(dl._semaphore, "acquire")
+        assert hasattr(dl._semaphore, "release")
+        assert dl._workers == 4

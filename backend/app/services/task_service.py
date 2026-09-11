@@ -5,20 +5,22 @@ import json
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from models.records import TaskEvent, TaskOutbox, TaskRecord
 from sqlalchemy.orm import Session
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED", "PARTIAL"}
-NON_TERMINAL = {"QUEUED", "SCHEDULED", "RUNNING", "WAITING_INPUT", "CANCEL_REQUESTED", "RETRYING"}
+NON_TERMINAL = {"QUEUED", "SCHEDULED", "RUNNING", "PAUSED", "WAITING_INPUT", "CANCEL_REQUESTED", "RETRYING"}
 TRANSITIONS = {
-    "QUEUED": {"SCHEDULED", "RUNNING", "CANCELLED", "FAILED", "SUCCEEDED", "PARTIAL"},
+    "QUEUED": {"SCHEDULED", "RUNNING", "PAUSED", "CANCELLED", "FAILED", "SUCCEEDED", "PARTIAL"},
     "SCHEDULED": {"QUEUED", "CANCELLED", "FAILED"},
-    "RUNNING": {"WAITING_INPUT", "CANCEL_REQUESTED", "SUCCEEDED", "FAILED", "PARTIAL"},
-    "WAITING_INPUT": {"RUNNING", "CANCEL_REQUESTED", "CANCELLED", "FAILED"},
-    "CANCEL_REQUESTED": {"CANCELLED", "FAILED", "PARTIAL"},
-    "RETRYING": {"QUEUED", "FAILED"},
+    "RUNNING": {"PAUSED", "WAITING_INPUT", "CANCEL_REQUESTED", "SUCCEEDED", "FAILED", "CANCELLED", "PARTIAL"},
+    "PAUSED": {"RUNNING", "CANCEL_REQUESTED", "CANCELLED", "FAILED"},
+    "WAITING_INPUT": {"RUNNING", "PAUSED", "CANCEL_REQUESTED", "CANCELLED", "FAILED"},
+    "CANCEL_REQUESTED": {"RUNNING", "CANCELLED", "FAILED", "PARTIAL"},
+    "RETRYING": {"QUEUED", "RUNNING", "FAILED"},
     "FAILED": {"RETRYING"},
     "PARTIAL": {"RETRYING"},
 }
@@ -42,7 +44,7 @@ def project_legacy_tasks(db: Session, user_id: int) -> list[TaskRecord]:
     intentionally idempotent and can run on every task-list refresh until the
     owning services publish transitions directly in a later migration phase.
     """
-    from models.records import AgentRun, TrainTask
+    from models.records import AgentRun, DownloadTaskRecord, TrainTask
 
     service = TaskService()
     projected: list[TaskRecord] = []
@@ -77,7 +79,38 @@ def project_legacy_tasks(db: Session, user_id: int) -> list[TaskRecord]:
             retryable=status in {"FAILED", "CANCELLED"},
             metadata={"agent_id": row.agent_id, "session_id": row.session_id, "model": row.model},
         ))
+    for row in db.query(DownloadTaskRecord).filter_by(user_id=user_id).all():
+        status = {
+            "PENDING": "QUEUED",
+            "RUNNING": "RUNNING",
+            "PAUSED": "PAUSED",
+            "RESTARTING": "RUNNING",
+            "COMPLETED": "SUCCEEDED",
+            "FAILED": "FAILED",
+            "CANCELLED": "CANCELLED",
+        }.get(row.status or "PENDING", "RUNNING")
+        target_path = _download_target_path(row.repo_id)
+        projected.append(service.project(
+            db,
+            user_id=user_id,
+            task_type="model_download",
+            source="model_download",
+            source_task_id=row.id,
+            title=f"模型下载：{row.repo_id}",
+            status=status,
+            summary=row.message or "模型下载正在执行",
+            progress_percent=int(row.progress or 0),
+            cancelable=status not in TERMINAL,
+            retryable=status in {"FAILED", "CANCELLED"},
+            metadata={"repo_id": row.repo_id, "filename": row.filename, "local_path": str(target_path)},
+        ))
     return projected
+
+
+def _download_target_path(repo_id: str) -> Path:
+    from core.config import settings
+
+    return Path(settings.model_dir) / repo_id.replace("/", "_")
 
 
 def _dump(value: Any) -> str | None:

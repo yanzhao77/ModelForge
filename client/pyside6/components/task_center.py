@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 STATUS_ICON = {
-    "RUNNING": "◐", "QUEUED": "◌", "SCHEDULED": "◌", "WAITING_INPUT": "!",
+    "RUNNING": "◐", "PAUSED": "Ⅱ", "QUEUED": "◌", "SCHEDULED": "◌", "WAITING_INPUT": "!",
     "CANCEL_REQUESTED": "◔", "FAILED": "✕", "PARTIAL": "!", "SUCCEEDED": "✓", "CANCELLED": "–",
 }
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED", "PARTIAL"}
@@ -65,7 +65,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         filters = QHBoxLayout()
         self.status_filter = QComboBox()
         self.status_filter.addItem("全部状态", "")
-        for status in ("RUNNING", "QUEUED", "WAITING_INPUT", "FAILED", "PARTIAL", "SUCCEEDED", "CANCELLED"):
+        for status in ("RUNNING", "PAUSED", "QUEUED", "WAITING_INPUT", "FAILED", "PARTIAL", "SUCCEEDED", "CANCELLED"):
             self.status_filter.addItem(status, status)
         self.status_filter.currentIndexChanged.connect(self.refresh)
         filters.addWidget(self.status_filter)

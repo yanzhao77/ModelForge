@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -136,11 +137,11 @@ class ModelCenterDialog(QDialog, AsyncApiMixin):
 
 
 class DownloadDialog(QDialog, AsyncApiMixin):
-    def __init__(self, api, parent=None):
+    def __init__(self, api, parent=None, task_id: str | None = None):
         QDialog.__init__(self, parent)
         self._init_async_api()
         self.api = api
-        self._task_id = None
+        self._task_id = task_id
         self._busy = False
         self._polling = False
         self.setWindowTitle("GGUF 模型下载器")
@@ -148,6 +149,10 @@ class DownloadDialog(QDialog, AsyncApiMixin):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
         self._init_ui()
+        self._update_task_controls()
+        if self._task_id:
+            self._timer.start(1000)
+            self._poll()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -175,14 +180,41 @@ class DownloadDialog(QDialog, AsyncApiMixin):
         layout.addWidget(self.table)
         self.status = QLabel("就绪")
         layout.addWidget(self.status)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("下载进度：%p%")
+        layout.addWidget(self.progress)
         self.download_btn = QPushButton("下载选中模型")
         self.download_btn.clicked.connect(self.download)
         layout.addWidget(self.download_btn)
+        task_controls = QHBoxLayout()
+        self.pause_btn = QPushButton("暂停")
+        self.pause_btn.clicked.connect(self.pause_download)
+        task_controls.addWidget(self.pause_btn)
+        self.resume_btn = QPushButton("继续")
+        self.resume_btn.clicked.connect(self.resume_download)
+        task_controls.addWidget(self.resume_btn)
+        self.restart_btn = QPushButton("重新开始")
+        self.restart_btn.clicked.connect(self.restart_download)
+        task_controls.addWidget(self.restart_btn)
+        task_controls.addStretch()
+        layout.addLayout(task_controls)
 
     def _set_busy(self, busy):
         self._busy = busy
         self.search_btn.setEnabled(not busy)
         self.download_btn.setEnabled(not busy)
+        self._update_task_controls()
+
+    def _update_task_controls(self, status: str | None = None):
+        has_task = bool(self._task_id)
+        active = status in {"PENDING", "RUNNING"} if status else has_task
+        paused = status == "PAUSED"
+        terminal = status in {"COMPLETED", "FAILED", "CANCELLED"}
+        self.pause_btn.setEnabled(has_task and active and not self._busy)
+        self.resume_btn.setEnabled(has_task and paused and not self._busy)
+        self.restart_btn.setEnabled(has_task and not self._busy and (active or paused or terminal))
 
     def search(self):
         if self._busy:
@@ -219,7 +251,40 @@ class DownloadDialog(QDialog, AsyncApiMixin):
         self._set_busy(False)
         self._task_id = task["task_id"]
         self.status.setText(f"已开始下载：{repo_id}")
-        self._timer.start(1500)
+        self.progress.setValue(int(task.get("progress") or 0))
+        self._update_task_controls(task.get("status"))
+        self._timer.start(1000)
+
+    def pause_download(self):
+        if not self._task_id or self._busy:
+            return
+        self._set_busy(True)
+        self.status.setText("正在暂停下载…")
+        self._run_api(lambda: self.api.pause_download(self._task_id), self._apply_download_status, lambda error: self._failed("暂停下载", error))
+
+    def resume_download(self):
+        if not self._task_id or self._busy:
+            return
+        self._set_busy(True)
+        self.status.setText("正在继续下载…")
+        self._run_api(lambda: self.api.resume_download(self._task_id), self._apply_download_status, lambda error: self._failed("继续下载", error))
+
+    def restart_download(self):
+        if not self._task_id or self._busy:
+            return
+        if QMessageBox.question(self, "确认", "重新开始会丢弃当前未完成的下载文件，继续吗？") != QMessageBox.Yes:
+            return
+        self._set_busy(True)
+        self.status.setText("正在重新开始下载…")
+        self._run_api(lambda: self.api.restart_download(self._task_id), self._restart_started, lambda error: self._failed("重新开始下载", error))
+
+    def _restart_started(self, task):
+        self._set_busy(False)
+        self._task_id = task["task_id"]
+        self.progress.setValue(int(task.get("progress") or 0))
+        self.status.setText(f"已重新开始：{task.get('repo_id', '')}")
+        self._update_task_controls(task.get("status"))
+        self._timer.start(1000)
 
     def _poll(self):
         if not self._task_id:
@@ -232,14 +297,17 @@ class DownloadDialog(QDialog, AsyncApiMixin):
 
     def _apply_download_status(self, task):
         self._polling = False
-        self.status.setText(f"{task['repo_id']} - {task['status']} - {task.get('message', '')}")
-        if task["status"] in ("done", "error"):
+        self._set_busy(False)
+        status = task.get("status", "")
+        self.progress.setValue(int(task.get("progress") or 0))
+        self.status.setText(f"{task['repo_id']} - {status} - {task.get('message', '')}")
+        self._update_task_controls(status)
+        if status in ("COMPLETED", "FAILED", "CANCELLED"):
             self._timer.stop()
-            self._task_id = None
-            if task["status"] == "done":
-                QMessageBox.information(self, "完成", f"下载完成:\n{task.get('target_path')}")
+            if status == "COMPLETED":
+                QMessageBox.information(self, "完成", "下载完成，可在底部栏右键打开本地文件夹。")
             else:
-                QMessageBox.warning(self, "失败", task.get("error", "下载任务失败"))
+                QMessageBox.warning(self, "失败", task.get("error_code", "下载任务未完成"))
 
     def _poll_failed(self, error):
         self._polling = False

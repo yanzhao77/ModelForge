@@ -16,6 +16,8 @@ def test_download_task_is_persisted_user_scoped_and_path_safe():
     init_db()
     downloader = Downloader()
     with SessionLocal() as session, patch.object(downloader, "_schedule"):
+        session.query(DownloadTaskRecord).filter(DownloadTaskRecord.user_id.in_([101, 202])).delete(synchronize_session=False)
+        session.commit()
         task = downloader.start("owner/demo-model", user_id=101, filename="model.gguf", db=session)
         payload = task.to_dict()
         assert payload["task_id"] == task.id

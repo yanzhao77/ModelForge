@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -20,7 +21,7 @@ class NavigationRail(QFrame):
 
     destination_requested = Signal(str)
     GROUPS = (
-        ("nav_group.workspace", ("overview", "chat", "models", "datasets", "training", "knowledge", "agents", "workbench")),
+        ("nav_group.workspace", ("overview", "chat", "models", "videos", "datasets", "training", "knowledge", "agents", "workbench")),
         ("nav_group.operations", ("automation", "tasks", "runtime")),
         ("nav_group.administration", ("developer", "control", "extensions", "settings")),
     )
@@ -162,10 +163,21 @@ class AppShell(QWidget):
         self.content_layout.setContentsMargins(32, 26, 32, 26)
         body.addWidget(self.content, 1)
         layout.addLayout(body, 1)
+        self.footer_bar = QFrame()
+        self.footer_bar.setObjectName("FooterBar")
+        footer_layout = QHBoxLayout(self.footer_bar)
+        footer_layout.setContentsMargins(18, 5, 18, 6)
+        footer_layout.setSpacing(10)
         self.footer = QLabel("正在准备工作区…")
         self.footer.setProperty("role", "muted")
-        self.footer.setContentsMargins(18, 5, 18, 6)
-        layout.addWidget(self.footer)
+        footer_layout.addWidget(self.footer, 1)
+        self.footer_progress = QProgressBar()
+        self.footer_progress.setRange(0, 100)
+        self.footer_progress.setFixedWidth(180)
+        self.footer_progress.setTextVisible(True)
+        self.footer_progress.hide()
+        footer_layout.addWidget(self.footer_progress)
+        layout.addWidget(self.footer_bar)
         self.rail_scroll.setFixedWidth(self.rail.width())
 
     def resizeEvent(self, event) -> None:
@@ -176,6 +188,12 @@ class AppShell(QWidget):
     def retranslate(self) -> None:
         self.rail.retranslate()
 
-    def set_status(self, text: str, tooltip: str | None = None) -> None:
+    def set_status(self, text: str, tooltip: str | None = None, progress: int | None = None) -> None:
         self.footer.setText(text)
         self.footer.setToolTip(tooltip or "")
+        self.footer_bar.setToolTip(tooltip or "")
+        if progress is None:
+            self.footer_progress.hide()
+            return
+        self.footer_progress.setValue(max(0, min(100, int(progress))))
+        self.footer_progress.show()

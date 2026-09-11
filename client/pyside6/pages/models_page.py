@@ -6,6 +6,7 @@ from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFEmptyState, MFPanel, MFSection, MFStatusBadge
 from components.provider_dialog import RemoteProviderDialog
+from pages.model_dialogs import DownloadDialog
 from i18n.ui_localizer import current, text
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -139,9 +140,12 @@ class ModelsPage(QWidget, AsyncApiMixin):
         controls = QHBoxLayout()
         refresh = QPushButton("刷新")
         refresh.clicked.connect(self.refresh)
+        download = QPushButton("下载 GGUF 模型")
+        download.clicked.connect(self._download_model)
         examples = QPushButton("查看示例")
         examples.clicked.connect(lambda: open_examples("models", self))
         controls.addWidget(refresh)
+        controls.addWidget(download)
         controls.addWidget(examples)
         controls.addStretch(1)
         root.addLayout(controls)
@@ -226,6 +230,11 @@ class ModelsPage(QWidget, AsyncApiMixin):
 
     def _manage_providers(self) -> None:
         dialog = RemoteProviderDialog(self.api, self)
+        dialog.exec()
+        self.refresh()
+
+    def _download_model(self) -> None:
+        dialog = DownloadDialog(self.api, self)
         dialog.exec()
         self.refresh()
 

@@ -219,7 +219,14 @@ class TaskExecutionService:
         source = get_downloader().get(task.source_task_id, task.user_id, db=db)
         if source is None:
             return self._transition_if_changed(db, task, "FAILED", summary="下载重试源任务不可用。", error="下载任务记录不存在")
-        status = {"PENDING": "QUEUED", "RUNNING": "RUNNING", "COMPLETED": "SUCCEEDED", "FAILED": "FAILED"}.get(source.status, "RUNNING")
+        status = {
+            "PENDING": "QUEUED",
+            "RUNNING": "RUNNING",
+            "PAUSED": "PAUSED",
+            "COMPLETED": "SUCCEEDED",
+            "FAILED": "FAILED",
+            "CANCELLED": "CANCELLED",
+        }.get(source.status, "RUNNING")
         result = {"download_task_id": source.id, "repo_id": source.repo_id} if status == "SUCCEEDED" else None
         return self._transition_if_changed(
             db,

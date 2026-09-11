@@ -115,6 +115,39 @@ def download_status(
     return task.to_dict()
 
 
+@router.post("/download/{task_id}/pause")
+def pause_download(
+    task_id: str, db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    task = downloader.pause(task_id, user.id, db=db)
+    if task is None:
+        raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
+    return task.to_dict()
+
+
+@router.post("/download/{task_id}/resume")
+def resume_download(
+    task_id: str, db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    task = downloader.resume(task_id, user.id, db=db)
+    if task is None:
+        raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
+    return task.to_dict()
+
+
+@router.post("/download/{task_id}/restart")
+def restart_download(
+    task_id: str, db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    task = downloader.restart(task_id, user.id, db=db)
+    if task is None:
+        raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
+    return task.to_dict()
+
+
 @router.get("/readiness")
 def model_readiness(
     db: DBSession = Depends(get_db), user: User = Depends(get_current_user),

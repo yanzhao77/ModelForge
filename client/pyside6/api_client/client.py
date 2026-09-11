@@ -235,6 +235,15 @@ class ModelForgeClient:
     def download_status(self, task_id: str) -> dict:
         return self._get(f"/api/v1/models/download/{task_id}")
 
+    def pause_download(self, task_id: str) -> dict:
+        return self._post(f"/api/v1/models/download/{task_id}/pause", json={})
+
+    def resume_download(self, task_id: str) -> dict:
+        return self._post(f"/api/v1/models/download/{task_id}/resume", json={})
+
+    def restart_download(self, task_id: str) -> dict:
+        return self._post(f"/api/v1/models/download/{task_id}/restart", json={})
+
     # ---- runtime ----
 
     def runtime_start(self, model: str) -> dict:
