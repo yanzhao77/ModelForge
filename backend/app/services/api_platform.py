@@ -293,6 +293,60 @@ def finalize_invocation(db: Session, invocation: ApiInvocation, run: object) -> 
     return invocation
 
 
+def record_invocation_failure(
+    db: Session,
+    invocation: ApiInvocation,
+    error: Exception,
+    *,
+    code: str | None = None,
+) -> ApiInvocation:
+    """Settle a reservation whose Run never produced a terminal receipt.
+
+    An invocation that stays PENDING/RUNNING keeps reserving tokens against the
+    project's daily and monthly quota *and* holds one of its concurrency slots,
+    so every failure path has to release it.
+    """
+    if invocation.status not in _ACTIVE_INVOCATION_STATUSES:
+        return invocation
+    error_code = code or getattr(error, "code", None) or "API_RUN_UNAVAILABLE"
+    invocation.status = "FAILED"
+    invocation.completed_at = _now()
+    invocation.error_code = error_code
+    invocation.response_json = json.dumps(
+        {"status": "FAILED", "error_code": error_code}, ensure_ascii=False
+    )
+    already_recorded = (
+        db.query(UsageLedger)
+        .filter_by(invocation_id=invocation.id, metric_type="tokens")
+        .first()
+    )
+    if already_recorded is None:
+        db.add(UsageLedger(
+            id=_id(), project_id=invocation.project_id, invocation_id=invocation.id,
+            run_id=invocation.run_id, idempotency_key=invocation.idempotency_key,
+            metric_type="tokens", quantity=0, unit_price_version="trial-v1",
+            metadata_redacted=json.dumps({"source": "invocation_failure", "error_code": error_code}),
+        ))
+    db.commit()
+    return invocation
+
+
+def reconcile_orphaned_invocations(db: Session) -> int:
+    """Fail reservations left running by a previous process.
+
+    The Run behind a reservation only lives in memory, so after a restart the
+    invocation can never reach a terminal state on its own.
+    """
+    rows = (
+        db.query(ApiInvocation)
+        .filter(ApiInvocation.status.in_(_ACTIVE_INVOCATION_STATUSES))
+        .all()
+    )
+    for row in rows:
+        record_invocation_failure(db, row, RuntimeError("process restarted"), code="PROCESS_RESTARTED")
+    return len(rows)
+
+
 def usage_summary(db: Session, project: ApiProject) -> dict:
     quota = get_quota(db, project.id)
     now = _now()
@@ -313,4 +367,5 @@ __all__ = [
     "create_project", "get_owned_organization", "get_owned_project", "issue_project_key",
     "revoke_project_key", "bind_project_agent", "is_project_agent_bound", "update_quota",
     "prepare_invocation", "finalize_invocation", "usage_summary", "_canonical_request_hash",
+    "record_invocation_failure", "reconcile_orphaned_invocations",
 ]

@@ -25,6 +25,7 @@ from services.api_platform import (
     is_project_agent_bound,
     issue_project_key,
     prepare_invocation,
+    record_invocation_failure,
     revoke_project_key,
     update_quota,
     usage_summary,
@@ -272,19 +273,26 @@ async def invoke_agent_run(
         # session; retaining this write transaction would deadlock SQLite.
         invocation.status = "RUNNING"
         db.commit()
-        run = runtime.create_run(
-            agent_id=req.agent_id,
-            input_text=req.input,
-            user_id=principal.user_id,
-            metadata={"api_project_id": principal.project_id, "api_invocation_id": invocation.id},
-            execute=False,
-        )
-        invocation.run_id = run.run_id
-        db.commit()
-        await runtime.execute_run(run.run_id)
-        stored = runtime.get_run(run.run_id, user_id=principal.user_id)
-        finalize_invocation(db, invocation, stored)
-        db.commit()
+        try:
+            run = runtime.create_run(
+                agent_id=req.agent_id,
+                input_text=req.input,
+                user_id=principal.user_id,
+                metadata={"api_project_id": principal.project_id, "api_invocation_id": invocation.id},
+                execute=False,
+            )
+            invocation.run_id = run.run_id
+            db.commit()
+            await runtime.execute_run(run.run_id)
+            stored = runtime.get_run(run.run_id, user_id=principal.user_id)
+            finalize_invocation(db, invocation, stored)
+            db.commit()
+        except Exception as exc:
+            # The reservation is already committed; without settling it here the
+            # project keeps paying for the tokens and loses the concurrency slot.
+            db.rollback()
+            record_invocation_failure(db, invocation, exc)
+            raise
         return {"invocation": invocation.to_dict(), "replayed": False, "correlation_id": correlation}
     except PlatformError as error:
         db.rollback()

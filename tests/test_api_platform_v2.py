@@ -3,16 +3,20 @@ from __future__ import annotations
 
 import os
 import sys
+from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 
+from core.database import SessionLocal
 from main import app
+from models.records import ApiInvocation, ProjectApiKey
 from runtime.models import MockProvider
 from runtime.types import AgentConfig
 from services.agent_runtime_service import get_agent_runtime
+from services.api_platform import reconcile_orphaned_invocations
 
 
 def _user_headers(client: TestClient, label: str) -> tuple[dict, int]:
@@ -115,3 +119,85 @@ def test_per_run_quota_is_enforced_before_agent_execution():
         )
         assert rejected.status_code == 429
         assert rejected.json()["detail"]["code"] == "PER_RUN_QUOTA_EXCEEDED"
+
+
+def test_failed_invocation_releases_quota_and_concurrency_slot():
+    """A failed call must not hold the project's quota or its only slot forever."""
+    with TestClient(app) as client:
+        headers, user_id = _user_headers(client, "failquota")
+        project_id, secret = _project_and_key(client, headers)
+        runtime = get_agent_runtime()
+        agent_name = "fail-agent-" + uuid4().hex[:8]
+        runtime.create_agent(AgentConfig(name=agent_name, model="mock", user_id=user_id, tools=[]))
+        binding = client.post(f"/api/v2/projects/{project_id}/agents", headers=headers, json={"agent_id": agent_name})
+        assert binding.status_code == 200, binding.text
+        quota = client.put(
+            f"/api/v2/projects/{project_id}/quota",
+            headers=headers,
+            json={"max_concurrent_runs": 1, "daily_token_limit": 100, "monthly_token_limit": 200, "per_run_token_limit": 50},
+        )
+        assert quota.status_code == 200, quota.text
+
+        async def exploding_execute(run_id):
+            raise RuntimeError("provider exploded")
+
+        with patch.object(runtime, "execute_run", exploding_execute):
+            failed = client.post(
+                "/api/v2/runs",
+                headers={"X-API-Key": secret, "Idempotency-Key": "fails-once"},
+                json={"agent_id": agent_name, "input": "hello", "max_tokens": 16},
+            )
+        assert failed.status_code == 503
+        assert failed.json()["detail"]["code"] == "API_RUN_UNAVAILABLE"
+
+        db = SessionLocal()
+        try:
+            receipt = db.query(ApiInvocation).filter_by(project_id=project_id).one()
+            assert receipt.status == "FAILED"
+            assert receipt.error_code == "API_RUN_UNAVAILABLE"
+        finally:
+            db.close()
+
+        # The reservation is gone, so the same project can call again at once.
+        runtime.provider_factory = lambda _model: MockProvider(script=[MockProvider.final("recovered")])
+        recovered = client.post(
+            "/api/v2/runs",
+            headers={"X-API-Key": secret, "Idempotency-Key": "after-failure"},
+            json={"agent_id": agent_name, "input": "hello", "max_tokens": 16},
+        )
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json()["invocation"]["status"] == "COMPLETED"
+
+
+def test_restart_settles_orphaned_invocations():
+    """A reservation whose Run died with the process must be released."""
+    with TestClient(app) as client:
+        headers, user_id = _user_headers(client, "orphaninv")
+        project_id, _secret = _project_and_key(client, headers)
+        db = SessionLocal()
+        try:
+            key = db.query(ProjectApiKey).filter_by(project_id=project_id).first()
+            db.add(ApiInvocation(
+                id="orphan-invocation-1",
+                project_id=project_id,
+                api_key_id=key.id,
+                user_id=user_id,
+                idempotency_key="orphan",
+                request_hash="hash",
+                agent_id="orphan-agent",
+                reserved_tokens=7,
+                status="RUNNING",
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        db = SessionLocal()
+        try:
+            assert reconcile_orphaned_invocations(db) >= 1
+            row = db.get(ApiInvocation, "orphan-invocation-1")
+            assert row.status == "FAILED"
+            assert row.error_code == "PROCESS_RESTARTED"
+            assert row.completed_at is not None
+        finally:
+            db.close()
