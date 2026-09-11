@@ -272,7 +272,7 @@ class DownloadDialog(QDialog, AsyncApiMixin):
     def restart_download(self):
         if not self._task_id or self._busy:
             return
-        if QMessageBox.question(self, "确认", "重新开始会丢弃当前未完成的下载文件，继续吗？") != QMessageBox.Yes:
+        if QMessageBox.question(self, "确认", "重新开始会重新校验已下载文件，只重新下载损坏或未完成的部分，继续吗？") != QMessageBox.Yes:
             return
         self._set_busy(True)
         self.status.setText("正在重新开始下载…")

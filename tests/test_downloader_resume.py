@@ -5,6 +5,7 @@ import hashlib
 import os
 import sys
 import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -30,10 +31,11 @@ def _status_error(status: int, url: str = "https://example.invalid/model.gguf") 
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int = 200, chunks=(), error: Exception | None = None):
+    def __init__(self, status_code: int = 200, chunks=(), error: Exception | None = None, headers=None):
         self.status_code = status_code
         self._chunks = list(chunks)
         self._error = error
+        self.headers = dict(headers or {})
 
     def iter_bytes(self, chunk_size: int = 1024 * 1024):
         yield from self._chunks
@@ -145,6 +147,26 @@ def test_download_restarts_when_upstream_ignores_range(tmp_path):
     assert client.requests[0][1] == {"Range": "bytes=3-"}
 
 
+def test_download_restarts_when_upstream_resumes_at_a_wrong_offset(tmp_path):
+    """A 206 that starts somewhere else must never be spliced onto our bytes."""
+    target = _target(tmp_path)
+    (target / "model.gguf").write_bytes(b"abc")
+    downloader = _downloader()
+    downloader._sleep_with_cancel = lambda task_id, seconds: None
+    client = _FakeClient([
+        _FakeResponse(206, [b"XY"], headers={"Content-Range": "bytes 1-2/6"}),
+        _FakeResponse(200, [b"abcdef"]),
+    ])
+
+    with patch("services.downloader.httpx.Client", return_value=client):
+        downloader._download_files("task-1", [_spec(size=6)], target)
+
+    assert (target / "model.gguf").read_bytes() == b"abcdef"
+    assert client.requests[0][1] == {"Range": "bytes=3-"}
+    # The corrupt partial was dropped and the retry asked for the whole file.
+    assert client.requests[1][1] == {}
+
+
 def test_verified_file_is_never_requested_again(tmp_path):
     target = _target(tmp_path)
     (target / "model.gguf").write_bytes(b"abc")
@@ -175,6 +197,21 @@ def test_full_length_file_without_manifest_entry_is_verified_once(tmp_path):
     assert (target / "model.gguf").read_bytes() == b"abc"
     manifest = downloader._load_manifest(target)
     assert manifest["files"]["model.gguf"]["verified"] is True
+
+
+def test_corrupt_full_length_file_is_redownloaded_instead_of_failing(tmp_path):
+    """Bytes that fail the hash check must be replaced within the same run."""
+    target = _target(tmp_path)
+    (target / "model.gguf").write_bytes(b"bad")
+    digest = hashlib.sha256(b"abc").hexdigest()
+    client = _FakeClient([_FakeResponse(200, [b"abc"])])
+
+    with patch("services.downloader.httpx.Client", return_value=client):
+        _downloader()._download_files("task-1", [_spec(size=3, sha256=digest)], target)
+
+    assert (target / "model.gguf").read_bytes() == b"abc"
+    # The corrupt file was discarded, not appended to with a Range request.
+    assert client.requests[0][1] == {}
 
 
 def test_partial_bytes_from_another_revision_are_not_spliced(tmp_path):
@@ -266,10 +303,15 @@ def test_cancelled_task_stops_before_the_next_chunk(tmp_path):
             downloader._download_files("task-1", [_spec()], target)
 
 
-def test_restart_removes_files_only_after_the_worker_exits(tmp_path, monkeypatch):
+def test_restart_keeps_shared_files_and_reverifies_them(tmp_path, monkeypatch):
+    """The model directory is shared, so restart must re-verify, never delete."""
     downloader = Downloader()
     target = _target(tmp_path)
     (target / "model.gguf").write_bytes(b"partial")
+    downloader._write_manifest(
+        target,
+        {"files": {"model.gguf": {"size": 7, "sha256": None, "revision": "rev-1", "verified": True}}},
+    )
     monkeypatch.setattr(downloader, "_target_path", lambda repo_id: target)
     monkeypatch.setattr(
         downloader,
@@ -298,7 +340,8 @@ def test_restart_removes_files_only_after_the_worker_exits(tmp_path, monkeypatch
 
     assert exit_flag.is_set()
     assert observed == [True]
-    assert not target.exists()
+    assert (target / "model.gguf").read_bytes() == b"partial"
+    assert downloader._load_manifest(target)["files"]["model.gguf"]["verified"] is False
     assert result == "new-task"
     assert [kwargs["status"] for _task_id, kwargs in calls] == ["CANCELLED"]
     assert calls[0][1]["progress"] == 42
@@ -320,6 +363,52 @@ def test_restart_keeps_files_when_the_worker_does_not_stop(tmp_path, monkeypatch
 
     assert downloader.restart("task-1", 7) == "new-task"
     assert (target / "model.gguf").read_bytes() == b"partial"
+
+
+# ---------------------------------------------------------------------------
+# Shared model directory
+# ---------------------------------------------------------------------------
+
+def test_same_target_downloads_are_serialized(tmp_path):
+    """Two tasks resolving one repository must never write it concurrently."""
+    target = _target(tmp_path)
+    downloader = _downloader()
+    order: list[str] = []
+    order_lock = threading.Lock()
+
+    def instrumented(task_id, files, target_dir):
+        with order_lock:
+            order.append(f"enter-{task_id}")
+        time.sleep(0.2)
+        with order_lock:
+            order.append(f"exit-{task_id}")
+
+    downloader._download_files_locked = instrumented
+    threads = [
+        threading.Thread(target=lambda task_id=task_id: downloader._download_files(task_id, [], target))
+        for task_id in ("task-1", "task-2")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+
+    assert order in (
+        ["enter-task-1", "exit-task-1", "enter-task-2", "exit-task-2"],
+        ["enter-task-2", "exit-task-2", "enter-task-1", "exit-task-1"],
+    )
+
+
+def test_manifest_write_is_atomic(tmp_path):
+    target = _target(tmp_path)
+    downloader = _downloader()
+    temporary = target / (Downloader.MANIFEST_NAME + ".tmp")
+    temporary.write_text("{ not json", encoding="utf-8")
+
+    downloader._write_manifest(target, {"files": {}})
+
+    assert not temporary.exists()
+    assert downloader._load_manifest(target) == {"files": {}}
 
 
 # ---------------------------------------------------------------------------

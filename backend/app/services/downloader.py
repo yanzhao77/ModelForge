@@ -6,7 +6,6 @@ import fnmatch
 import hashlib
 import json
 import os
-import shutil
 import threading
 import time
 import uuid
@@ -29,6 +28,10 @@ class DownloadCancelled(Exception):
 
 class DownloadIntegrityError(Exception):
     """Raised when downloaded bytes do not match the upstream size or hash."""
+
+
+class _ResumeMismatch(Exception):
+    """Upstream answered a Range request from an offset we did not ask for."""
 
 
 @dataclass(frozen=True)
@@ -57,8 +60,8 @@ class Downloader:
     """Persist download state before dispatching background work.
 
     The process still performs the actual download locally, but the task record
-    is a durable source of truth. A process restart therefore yields an honest
-    PENDING/RUNNING status rather than exposing another user's in-memory task.
+    is a durable source of truth. A process restart therefore reconciles
+    leftover rows to PAUSED rather than exposing another user's in-memory task.
     """
 
     #: Per-repository resume/verification state. It never leaves the model dir.
@@ -74,6 +77,10 @@ class Downloader:
         self._control_cache: dict[str, tuple[float, str | None, str | None]] = {}
         self._control_lock = threading.Lock()
         self._control_ttl = 0.5
+        # Bytes are shared, not duplicated per user, so transfers into the same
+        # physical model directory are serialized instead of isolated.
+        self._repo_locks: dict[str, threading.Lock] = {}
+        self._repo_locks_guard = threading.Lock()
 
     def start(
         self,
@@ -121,6 +128,56 @@ class Downloader:
         else:
             loop.create_task(self._run(task_id))
 
+    def reconcile_orphaned_tasks(self) -> int:
+        """Settle downloads left mid-flight by a previous process.
+
+        Workers only live in memory, so after a restart every non-terminal row
+        is an orphan. Marking them PAUSED keeps the task center honest and lets
+        the user continue from the bytes still on disk, while a cancel that was
+        requested before the restart is settled instead of hanging forever.
+        """
+        with self._active_lock:
+            active = set(self._active)
+        settled: list[str] = []
+        with SessionLocal() as session:
+            rows = (
+                session.query(DownloadTaskRecord)
+                .filter(DownloadTaskRecord.status.in_(("PENDING", "RUNNING", "PAUSED")))
+                .all()
+            )
+            orphans = [row for row in rows if row.id not in active]
+            cancel_requested: set[str] = set()
+            if orphans:
+                cancel_requested = {
+                    task_id
+                    for (task_id,) in session.query(TaskRecord.source_task_id)
+                    .filter(TaskRecord.source.in_(("model_download", "download")))
+                    .filter(TaskRecord.source_task_id.in_([row.id for row in orphans]))
+                    .filter(TaskRecord.status == "CANCEL_REQUESTED")
+                    .all()
+                }
+            for row in orphans:
+                if row.id in cancel_requested:
+                    row.status = "CANCELLED"
+                    row.message = "Download cancelled after restart"
+                    row.completed_at = datetime.utcnow()
+                elif row.status != "PAUSED":
+                    row.status = "PAUSED"
+                    row.message = "Download interrupted by restart; resume to continue"
+                row.error_code = None
+                settled.append(row.id)
+            session.commit()
+        for task_id in settled:
+            record = self._load_record(task_id)
+            if record is None:
+                continue
+            try:
+                self._project_task(record)
+            except Exception:
+                # A projection failure must never block startup.
+                pass
+        return len(settled)
+
     def _register_worker(self, task_id: str) -> threading.Event:
         """Make sure a running worker has a cancel flag and is marked active."""
         with self._active_lock:
@@ -145,7 +202,7 @@ class Downloader:
             event.set()
 
     def _stop_worker(self, task_id: str, timeout: float = 15.0) -> bool:
-        """Wait for a worker to leave the active set so its files can be removed."""
+        """Wait for a worker to leave the active set before shared state is touched."""
         deadline = time.monotonic() + max(0.0, timeout)
         while time.monotonic() < deadline:
             with self._active_lock:
@@ -154,6 +211,38 @@ class Downloader:
             time.sleep(0.05)
         with self._active_lock:
             return task_id not in self._active
+
+    def _repo_has_other_active_task(self, repo_id: str, exclude_task_id: str) -> bool:
+        """True when another live worker is already writing this repository."""
+        with self._active_lock:
+            others = [task_id for task_id in self._active if task_id != exclude_task_id]
+        if not others:
+            return False
+        with SessionLocal() as session:
+            return (
+                session.query(DownloadTaskRecord.id)
+                .filter(DownloadTaskRecord.id.in_(others))
+                .filter(DownloadTaskRecord.repo_id == repo_id)
+                .first()
+                is not None
+            )
+
+    def _repo_lock(self, target: Path) -> threading.Lock:
+        """Return the per-target mutex that guards shared model bytes."""
+        key = str(target.resolve())
+        with self._repo_locks_guard:
+            lock = self._repo_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._repo_locks[key] = lock
+        return lock
+
+    def _current_progress(self, task_id: str) -> int:
+        try:
+            record = self._load_record(task_id)
+        except Exception:
+            return 0
+        return int(record.progress or 0) if record is not None else 0
 
     def _forget_control_status(self, task_id: str) -> None:
         with self._control_lock:
@@ -205,27 +294,40 @@ class Downloader:
         task = self.get(task_id, user_id, db=db)
         if task is None:
             return None
-        if task.status == "PAUSED":
-            resumed = self._set_state(task_id, status="RUNNING", progress=int(task.progress or 0), message="Download resumed")
-            self._schedule(task_id)
-            return resumed
-        return task
+        if task.status in {"COMPLETED", "FAILED", "CANCELLED"}:
+            return task
+        # A live worker unblocks as soon as the row leaves PAUSED; an orphan left
+        # behind by a previous process is rescheduled and Range-resumes from the
+        # bytes still on disk. ``_schedule`` is idempotent, so a live worker is
+        # never started twice.
+        resumed = self._set_state(
+            task_id, status="RUNNING", progress=int(task.progress or 0), message="Download resumed"
+        )
+        self._schedule(task_id)
+        return resumed
 
     def restart(self, task_id: str, user_id: int, db: Session | None = None) -> DownloadTaskRecord | None:
+        """Cancel the current run and re-verify what is already on disk.
+
+        The destination directory is shared by every user and task that
+        resolves the same repository, so a restart must never wipe it. Dropping
+        the verified marks instead forces a fresh hash check of the local bytes;
+        only corrupt or incomplete files are fetched again.
+        """
         task = self.get(task_id, user_id, db=db)
         if task is None:
             return None
         repo_id = task.repo_id
         filename = task.filename
         progress = int(task.progress or 0)
-        # Stop the running worker before touching its files: deleting a directory
-        # that another thread is still writing leaves half-written resume state.
+        # Stop the running worker before touching shared resume state.
         self._request_cancel(task_id)
-        self._set_state(task_id, status="CANCELLED", progress=progress, message="Restarted as a new download", completed=True)
-        if self._stop_worker(task_id):
-            target = self._target_path(repo_id)
-            if target.exists():
-                shutil.rmtree(target, ignore_errors=True)
+        self._set_state(
+            task_id, status="CANCELLED", progress=progress, message="Restarted as a new download", completed=True
+        )
+        stopped = self._stop_worker(task_id)
+        if stopped and not self._repo_has_other_active_task(repo_id, task_id):
+            self._invalidate_verification_state(self._target_path(repo_id))
         return self.start(repo_id, user_id, filename, db=db)
 
     async def _run(self, task_id: str) -> None:
@@ -355,12 +457,30 @@ class Downloader:
     @classmethod
     def _write_manifest(cls, target: Path, manifest: dict[str, Any]) -> None:
         """Persist resume/verification state; never fail a download over it."""
+        path = cls._manifest_path(target)
+        temporary = path.with_name(path.name + ".tmp")
         try:
-            cls._manifest_path(target).write_text(
-                json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            # Write-then-rename so a crash never leaves a half-written manifest
+            # that the next run has to treat as "unknown local state".
+            temporary.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(temporary, path)
         except OSError:
             pass
+
+    @classmethod
+    def _invalidate_verification_state(cls, target: Path) -> None:
+        """Force the next run to re-hash existing bytes instead of deleting them."""
+        manifest = cls._load_manifest(target)
+        files = manifest.get("files")
+        if not isinstance(files, dict):
+            return
+        changed = False
+        for entry in files.values():
+            if isinstance(entry, dict) and entry.get("verified"):
+                entry["verified"] = False
+                changed = True
+        if changed:
+            cls._write_manifest(target, manifest)
 
     @staticmethod
     def _entry_matches(entry: dict[str, Any], item: DownloadFile) -> bool:
@@ -388,6 +508,24 @@ class Downloader:
         return destination
 
     def _download_files(self, task_id: str, files: list[DownloadFile], target: Path) -> None:
+        """Download into a shared model directory, one writer at a time."""
+        lock = self._repo_lock(target)
+        if not lock.acquire(blocking=False):
+            self._set_state(
+                task_id,
+                status="RUNNING",
+                progress=self._current_progress(task_id),
+                message="Waiting for another download of this repository",
+            )
+            # Timeout loop keeps a cancelling task from waiting on the mutex.
+            while not lock.acquire(timeout=0.5):
+                self._wait_if_paused_or_cancelled(task_id)
+        try:
+            self._download_files_locked(task_id, files, target)
+        finally:
+            lock.release()
+
+    def _download_files_locked(self, task_id: str, files: list[DownloadFile], target: Path) -> None:
         # Validate every path before any worker starts writing.
         destinations = {item.path: self._safe_destination(target, item.path) for item in files}
         total = sum(item.size or 0 for item in files)
@@ -468,9 +606,15 @@ class Downloader:
             if verified:
                 return
             # A full-length file from an older run was never hash-checked.
-            self._verify_file(spec, file_task)
-            self._remember_verified(spec, file_task)
-            return
+            try:
+                self._verify_file(spec, file_task)
+            except DownloadIntegrityError:
+                # The local bytes are wrong: ``_verify_file`` already removed
+                # them, so fetch the file again in this same run.
+                existing = 0
+            else:
+                self._remember_verified(spec, file_task)
+                return
         self._transfer_with_retries(spec, file_task, existing)
         self._verify_file(spec, file_task)
         self._remember_verified(spec, file_task)
@@ -487,6 +631,12 @@ class Downloader:
             try:
                 self._transfer(spec, file_task, existing)
                 return
+            except _ResumeMismatch:
+                # Splicing bytes from a different offset would corrupt the file,
+                # so drop the partial and fetch this file from byte zero.
+                self._discard_unverified(spec, file_task)
+                existing = 0
+                continue
             except (DownloadCancelled, DownloadIntegrityError):
                 raise
             except Exception as error:
@@ -505,6 +655,25 @@ class Downloader:
             status = error.response.status_code
             return status == 429 or status >= 500
         return False
+
+    @staticmethod
+    def _range_start(headers) -> int | None:
+        """Parse the start offset of an HTTP ``Content-Range`` header."""
+        try:
+            value = headers.get("Content-Range") if headers is not None else None
+        except AttributeError:
+            return None
+        if not isinstance(value, str):
+            return None
+        text_value = value.strip().lower()
+        if not text_value.startswith("bytes "):
+            return None
+        span = text_value[6:].split("/", 1)[0]
+        start = span.split("-", 1)[0].strip()
+        try:
+            return int(start)
+        except ValueError:
+            return None
 
     def _sleep_with_cancel(self, task_id: str, seconds: float) -> None:
         deadline = time.monotonic() + max(0.0, seconds)
@@ -526,6 +695,11 @@ class Downloader:
                     # The upstream ignored Range: restart this file from byte zero.
                     self._adjust_progress(file_task.progress, file_task.progress_lock, -existing)
                     existing = 0
+                elif existing and response.status_code == 206:
+                    start = self._range_start(getattr(response, "headers", None))
+                    if start is not None and start != existing:
+                        # Never append bytes that belong at another offset.
+                        raise _ResumeMismatch(f"resumed at {start}, expected {existing}")
                 elif response.status_code == 416 and spec.size is not None and destination.exists() and destination.stat().st_size >= spec.size:
                     return
                 response.raise_for_status()

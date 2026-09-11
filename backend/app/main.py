@@ -34,6 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from services.agent_engine import get_engine
 from services.agent_runtime_service import build_agent_runtime, init_agent_runtime
+from services.downloader import get_downloader
 from services.knowledge_base import get_global_kb
 from services.plugin_manager import get_manager
 from services.runtime_registry import get_runtime
@@ -45,6 +46,9 @@ from services.task_realtime import task_outbox_publisher
 async def lifespan(app: FastAPI):
     """Initialize the database and inject service singletons."""
     init_db()
+    # Workers only live in memory, so any non-terminal download row at this
+    # point belongs to a previous process and must not stay fake-RUNNING.
+    get_downloader().reconcile_orphaned_tasks()
     task_outbox_publisher.start()
     task_retry_monitor.start()
     runtime.set_runtime(get_runtime())

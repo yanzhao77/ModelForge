@@ -144,3 +144,129 @@ def test_monitor_does_not_fail_a_queued_retry_before_dispatch(client):
         assert child.error_code is None
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Orphan reconciliation and shared-directory restart safety
+# ---------------------------------------------------------------------------
+
+def _seed_download(user_id: int, repo_id: str, *, status: str = "RUNNING", progress: int = 0) -> str:
+    """Insert a download row the way a worker would leave it behind."""
+    task_id = uuid.uuid4().hex
+    db = SessionLocal()
+    try:
+        db.add(
+            DownloadTaskRecord(
+                id=task_id,
+                user_id=user_id,
+                repo_id=repo_id,
+                filename="model.gguf",
+                status=status,
+                progress=progress,
+                message="Download in progress",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    return task_id
+
+
+def test_reconcile_marks_orphaned_download_resumable(client):
+    """A download interrupted by a restart must not stay fake-RUNNING."""
+    _, user_id = auth_with_user(client, "orphan")
+    repo_id = f"owner/orphan-{uuid.uuid4().hex[:8]}"
+    download_id = _seed_download(user_id, repo_id, status="RUNNING", progress=55)
+
+    assert get_downloader().reconcile_orphaned_tasks() >= 1
+
+    db = SessionLocal()
+    try:
+        row = db.get(DownloadTaskRecord, download_id)
+        assert row.status == "PAUSED"
+        assert "resume" in row.message
+        projected = db.query(TaskRecord).filter_by(source="model_download", source_task_id=download_id).first()
+        assert projected is not None
+        assert projected.status == "PAUSED"
+    finally:
+        db.close()
+
+
+def test_resume_continues_an_orphaned_running_download(client, monkeypatch):
+    """Resume must reschedule a stranded RUNNING row, not silently no-op."""
+    _, user_id = auth_with_user(client, "resumeorphan")
+    repo_id = f"owner/resume-{uuid.uuid4().hex[:8]}"
+    download_id = _seed_download(user_id, repo_id, status="RUNNING", progress=30)
+    downloader = get_downloader()
+    scheduled: list[str] = []
+    monkeypatch.setattr(downloader, "_schedule", lambda task_id: scheduled.append(task_id))
+
+    resumed = downloader.resume(download_id, user_id)
+
+    assert resumed is not None
+    assert resumed.status == "RUNNING"
+    assert scheduled == [download_id]
+
+
+def test_reconcile_settles_a_cancel_requested_download(client):
+    """A cancel requested before a restart must not hang in CANCEL_REQUESTED."""
+    _, user_id = auth_with_user(client, "orphancancel")
+    repo_id = f"owner/cancel-{uuid.uuid4().hex[:8]}"
+    download_id = _seed_download(user_id, repo_id, status="RUNNING", progress=10)
+
+    db = SessionLocal()
+    try:
+        downloader = get_downloader()
+        downloader._project_task(db.get(DownloadTaskRecord, download_id), db=db)
+        projected = db.query(TaskRecord).filter_by(source="model_download", source_task_id=download_id).first()
+        assert projected is not None
+        task_id = projected.task_id
+    finally:
+        db.close()
+
+    # The row is not in the user's task list API path here, so cancel it directly.
+    db = SessionLocal()
+    try:
+        task = db.query(TaskRecord).filter_by(task_id=task_id).first()
+        TaskService().request_cancel(db, task)
+    finally:
+        db.close()
+
+    get_downloader().reconcile_orphaned_tasks()
+
+    db = SessionLocal()
+    try:
+        assert db.get(DownloadTaskRecord, download_id).status == "CANCELLED"
+        assert db.query(TaskRecord).filter_by(task_id=task_id).first().status == "CANCELLED"
+    finally:
+        db.close()
+
+
+def test_restart_keeps_the_manifest_when_another_worker_owns_the_repo(client, monkeypatch, tmp_path):
+    """Restart must not clobber resume state another live download is using."""
+    _, user_id = auth_with_user(client, "restartguard")
+    repo_id = f"owner/shared-{uuid.uuid4().hex[:8]}"
+    active_id = _seed_download(user_id, repo_id, status="RUNNING", progress=10)
+    restart_id = _seed_download(user_id, repo_id, status="RUNNING", progress=20)
+
+    target = tmp_path / "shared"
+    target.mkdir()
+    (target / "model.gguf").write_bytes(b"partial")
+    downloader = get_downloader()
+    downloader._write_manifest(
+        target,
+        {"files": {"model.gguf": {"size": 7, "sha256": None, "revision": "rev-1", "verified": True}}},
+    )
+    monkeypatch.setattr(downloader, "_target_path", lambda repo: target)
+    monkeypatch.setattr(downloader, "_stop_worker", lambda task_id, timeout=15.0: True)
+    monkeypatch.setattr(downloader, "_schedule", lambda task_id: None)
+    with downloader._active_lock:
+        downloader._active.add(active_id)
+    try:
+        assert downloader.restart(restart_id, user_id) is not None
+    finally:
+        with downloader._active_lock:
+            downloader._active.discard(active_id)
+
+    assert (target / "model.gguf").read_bytes() == b"partial"
+    assert downloader._load_manifest(target)["files"]["model.gguf"]["verified"] is True
