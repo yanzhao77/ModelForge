@@ -10,20 +10,24 @@ from .model_provider import ModelProvider
 class HFProvider(ModelProvider):
     """Provider for downloading models from HuggingFace Hub."""
 
-    def __init__(self, cache_dir: str | None = None):
-        self.api = HfApi()
+    def __init__(self, cache_dir: str | None = None, endpoint: str | None = None):
+        self.endpoint = (endpoint or "").strip().rstrip("/") or None
+        self.api = HfApi(endpoint=self.endpoint) if self.endpoint else HfApi()
         self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
 
     def download(self, model_id: str, save_dir: str | None = None) -> str:
         """Download a model snapshot from HuggingFace Hub."""
         target = save_dir or os.path.join(self.cache_dir, "models", model_id.replace("/", "_"))
         os.makedirs(target, exist_ok=True)
-        path = snapshot_download(repo_id=model_id, local_dir=target)
+        kwargs = {"repo_id": model_id, "local_dir": target}
+        if self.endpoint:
+            kwargs["endpoint"] = self.endpoint
+        path = snapshot_download(**kwargs)
         return path
 
     def list_models(self, query: str = "", limit: int = 20) -> list[dict]:
         """Search models on HuggingFace Hub."""
-        models_iter = hf_list_models(search=query, limit=limit)
+        models_iter = self.api.list_models(search=query, limit=limit) if self.endpoint else hf_list_models(search=query, limit=limit)
         results = []
         for model in models_iter:
             results.append({

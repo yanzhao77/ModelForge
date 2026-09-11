@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from unittest.mock import patch
@@ -71,6 +72,46 @@ def test_runtime_status_and_logs_require_administrator(client):
     with patch.object(settings, "runtime_admin_usernames", "securityruntimeuser"):
         assert client.get("/api/v1/runtime/status", headers=user).status_code == 200
         assert client.get("/api/v1/system/logs", headers=user).status_code == 200
+
+
+def test_download_source_can_switch_to_mainland_hf_mirror(client, monkeypatch, tmp_path):
+    user = _auth(client, "securityhfmirror")
+    original = settings.hf_endpoint
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    monkeypatch.setattr(settings, "data_dir", str(tmp_path))
+    try:
+        response = client.put(
+            "/api/v1/system/download-source",
+            json={"source": "hf_mirror"},
+            headers=user,
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["source"] == "hf_mirror"
+        assert payload["endpoint"] == "https://hf-mirror.com"
+        assert os.environ["HF_ENDPOINT"] == "https://hf-mirror.com"
+        saved = json.loads((tmp_path / "runtime_settings.json").read_text(encoding="utf-8"))
+        assert saved["hf_endpoint"] == "https://hf-mirror.com"
+
+        response = client.get("/api/v1/system/download-source", headers=user)
+        assert response.status_code == 200
+        assert response.json()["source"] == "hf_mirror"
+    finally:
+        settings.hf_endpoint = original
+        if original:
+            os.environ["HF_ENDPOINT"] = original
+        else:
+            os.environ.pop("HF_ENDPOINT", None)
+
+
+def test_download_source_rejects_unapproved_endpoint(client):
+    user = _auth(client, "securityhfendpoint")
+    response = client.put(
+        "/api/v1/system/download-source",
+        json={"source": "https://example.com"},
+        headers=user,
+    )
+    assert response.status_code == 422
 
 
 def test_agent_definitions_are_isolated_per_user(client):

@@ -1,18 +1,89 @@
 """System status API routes."""
+import json
 import os
 import subprocess
 import time
 from collections import deque
+from pathlib import Path
+from typing import Literal
 
+from core.config import settings
 from core.database import get_db
 from core.security import get_current_user, get_runtime_admin
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from services.redaction import redact_text
 from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/system", tags=["system"])
 
 _started_at = time.time()
+
+OFFICIAL_HF_ENDPOINT = "https://huggingface.co"
+HF_MIRROR_ENDPOINT = "https://hf-mirror.com"
+DOWNLOAD_SOURCES = {
+    "official": {"label": "Hugging Face", "endpoint": OFFICIAL_HF_ENDPOINT},
+    "hf_mirror": {"label": "HF Mirror 中国大陆镜像", "endpoint": HF_MIRROR_ENDPOINT},
+}
+RUNTIME_SETTINGS_FILE = "runtime_settings.json"
+
+
+class DownloadSourceRequest(BaseModel):
+    source: Literal["official", "hf_mirror"]
+
+
+def _normalized_endpoint(endpoint: str | None) -> str:
+    return (endpoint or OFFICIAL_HF_ENDPOINT).strip().rstrip("/") or OFFICIAL_HF_ENDPOINT
+
+
+def _download_source_payload() -> dict:
+    endpoint = _normalized_endpoint(settings.hf_endpoint)
+    source = next(
+        (key for key, item in DOWNLOAD_SOURCES.items() if item["endpoint"] == endpoint),
+        "custom",
+    )
+    return {
+        "source": source,
+        "endpoint": endpoint,
+        "available_sources": [
+            {"source": key, "label": item["label"], "endpoint": item["endpoint"]}
+            for key, item in DOWNLOAD_SOURCES.items()
+        ],
+    }
+
+
+def _persist_hf_endpoint(endpoint: str) -> None:
+    data_dir = Path(settings.data_dir)
+    if not data_dir.is_absolute():
+        data_dir = Path(__file__).resolve().parents[3] / data_dir
+    data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = data_dir / RUNTIME_SETTINGS_FILE
+    payload = {}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                payload.update(loaded)
+        except Exception:
+            payload = {}
+    payload["hf_endpoint"] = endpoint
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+@router.get("/download-source")
+def get_download_source(user: object = Depends(get_current_user)):
+    """Return the Hugging Face-compatible endpoint used for downloads/search."""
+    return _download_source_payload()
+
+
+@router.put("/download-source")
+def update_download_source(req: DownloadSourceRequest, user: object = Depends(get_current_user)):
+    """Switch between approved Hugging Face download sources for this process."""
+    endpoint = DOWNLOAD_SOURCES[req.source]["endpoint"]
+    settings.hf_endpoint = endpoint
+    os.environ["HF_ENDPOINT"] = endpoint
+    _persist_hf_endpoint(endpoint)
+    return _download_source_payload()
 
 @router.get("/status")
 def system_status(

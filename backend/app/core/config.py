@@ -2,6 +2,7 @@
 
 Loads config from config.yaml, .env, and os.environ (env overrides yaml).
 """
+import json
 import os
 import secrets
 from pathlib import Path
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 
 _INSECURE_JWT_SECRETS = {"", "modelforge-dev-secret-change-me-0123456789abcdef", "dev-secret"}
 _PRODUCTION_ENVIRONMENTS = {"prod", "production"}
+_RUNTIME_SETTINGS_FILE = "runtime_settings.json"
 
 
 class RuntimeSettings(BaseModel):
@@ -118,6 +120,22 @@ def load_config(config_path: str | None = None) -> Settings:
         with open(yaml_path, "r", encoding="utf-8") as f:
             yaml_data = yaml.safe_load(f) or {}
             data.update(yaml_data)
+
+    # Runtime UI preferences are non-secret process settings persisted by the
+    # local desktop backend. Environment variables still override them below.
+    if config_path is None:
+        runtime_data_dir = Path(str(data.get("data_dir") or "./data"))
+        if not runtime_data_dir.is_absolute():
+            runtime_data_dir = base_dir / runtime_data_dir
+        runtime_settings = runtime_data_dir / _RUNTIME_SETTINGS_FILE
+        if runtime_settings.exists():
+            try:
+                with runtime_settings.open("r", encoding="utf-8") as f:
+                    runtime_data = json.load(f) or {}
+                if isinstance(runtime_data, dict):
+                    data.update({k: v for k, v in runtime_data.items() if k in {"hf_endpoint"}})
+            except Exception:
+                pass
 
     # 2. Load .env only when using the default project config
     if config_path is None:

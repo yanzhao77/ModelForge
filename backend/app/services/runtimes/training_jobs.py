@@ -31,6 +31,12 @@ def _log(msg: str, log_path: str):
         f.write(str(msg) + "\n")
 
 
+def _apply_hf_endpoint(config: dict) -> None:
+    endpoint = str(config.get("hf_endpoint") or "").strip().rstrip("/")
+    if endpoint:
+        os.environ["HF_ENDPOINT"] = endpoint
+
+
 def _load_dataset(dataset_path: str, dataset_format: str):
     from datasets import load_dataset
     if dataset_format == "txt":
@@ -71,6 +77,7 @@ def _build_progress_callback(state_path: str, log_path: str, total_epochs: int):
 
 
 def run(config: dict, state_path: str, log_path: str):
+    _apply_hf_endpoint(config)
     _write_state(state_path, status="running", progress=0, epoch=0, loss=None)
     _log(f"加载基础模型: {config['base_model']}", log_path)
 

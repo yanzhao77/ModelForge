@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +15,7 @@ from pages.chat_page import ChatPage
 from pages.developer_api_page import DeveloperApiPage
 from pages.login_dialog import LoginDialog
 from pages.run_timeline import RunTimeline
+from pages.settings_page import SettingsPage
 from PySide6.QtWidgets import QApplication
 from theme.metrics import SIDEBAR_COLLAPSED_WIDTH
 
@@ -25,6 +27,7 @@ def qt_app():
 
 class FakeApi:
     base_url = "http://127.0.0.1:8000"
+    username = "qa-user"
 
     def list_remote_providers(self):
         return []
@@ -57,6 +60,16 @@ class FakeApi:
                 "per_run_token_limit": 8192,
             },
         }
+
+
+class FakeThemeManager:
+    class Mode:
+        value = "light"
+
+    mode = Mode()
+
+    def set_mode(self, _mode):
+        pass
 
 
 class TestUiSecurityAndAccessibility:
@@ -122,4 +135,31 @@ class TestUiSecurityAndAccessibility:
         assert page.project_title.text() == "示例项目"
         assert page.key_list.count() == 1
         assert "今日已计令牌：12" in page.usage.toPlainText()
+        page.close()
+
+    def test_settings_page_configures_hf_mirror_download_source(self, qt_app):
+        class SettingsApi(FakeApi):
+            def __init__(self):
+                self.saved = None
+
+            def get_download_source(self):
+                return {"source": "hf_mirror", "endpoint": "https://hf-mirror.com"}
+
+            def update_download_source(self, source):
+                self.saved = source
+                return {"source": source, "endpoint": "https://hf-mirror.com"}
+
+        def run_api(self, operation, on_success, _on_failure, request_key=None):
+            on_success(operation())
+
+        api = SettingsApi()
+        with patch.object(SettingsPage, "_run_api", run_api), patch(
+            "pages.settings_page.QMessageBox.information"
+        ):
+            page = SettingsPage(api, "test", lambda: None, FakeThemeManager(), I18n())
+            assert page.download_source_select.currentData() == "hf_mirror"
+            assert "https://hf-mirror.com" in page.download_source_status.text()
+            page._save_download_source()
+
+        assert api.saved == "hf_mirror"
         page.close()

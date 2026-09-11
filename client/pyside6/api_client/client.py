@@ -84,6 +84,12 @@ class ModelForgeClient:
     def system_status(self) -> dict:
         return self._get("/api/v1/system/status")
 
+    def get_download_source(self) -> dict:
+        return self._get("/api/v1/system/download-source")
+
+    def update_download_source(self, source: str) -> dict:
+        return self._put("/api/v1/system/download-source", json={"source": source})
+
     # ---- auth ----
 
     def register(self, username: str, password: str, email: str | None = None) -> dict:

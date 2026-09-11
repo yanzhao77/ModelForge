@@ -66,6 +66,7 @@ class TrainingService:
             "dataset_path": dataset_path,
             "dataset_format": dataset_format,
             "output_dir": output_dir,
+            "hf_endpoint": settings.hf_endpoint,
         }
         cfg_path = os.path.join(output_dir, "config.json")
         with open(cfg_path, "w", encoding="utf-8") as f:

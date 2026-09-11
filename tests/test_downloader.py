@@ -528,6 +528,7 @@ class TestRun:
             await dl._run("aa" * 16)
 
         assert os.environ.get("HF_ENDPOINT") == "https://my-mirror.com"
+        assert _mock_hf.snapshot_download.call_args.kwargs.get("endpoint") == "https://my-mirror.com"
 
     @pytest.mark.asyncio
     async def test_run_no_hf_endpoint_skips_env_set(self, _mock_hf):

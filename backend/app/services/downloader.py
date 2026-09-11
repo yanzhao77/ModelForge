@@ -97,13 +97,16 @@ class Downloader:
             try:
                 from huggingface_hub import snapshot_download
 
-                if settings.hf_endpoint:
+                endpoint = (settings.hf_endpoint or "").strip().rstrip("/")
+                if endpoint:
                     import os
 
-                    os.environ.setdefault("HF_ENDPOINT", settings.hf_endpoint)
+                    os.environ["HF_ENDPOINT"] = endpoint
                 target = Path(settings.model_dir) / task.repo_id.replace("/", "_")
                 target.mkdir(mode=0o700, parents=True, exist_ok=True)
                 kwargs = {"repo_id": task.repo_id, "local_dir": str(target), "force_download": False}
+                if endpoint:
+                    kwargs["endpoint"] = endpoint
                 if task.filename:
                     kwargs["allow_patterns"] = [task.filename]
                 self._set_state(task_id, status="RUNNING", progress=1, message="Download in progress")
