@@ -47,7 +47,11 @@ def test_file_tool_rejects_sensitive_and_symlink_resources(workspace_root):
     workspace = workspace_root_for_user(8)
     (workspace / ".env").write_text("API_KEY=secret", encoding="utf-8")
     (workspace / "normal.txt").write_text("normal", encoding="utf-8")
-    (workspace / "linked.txt").symlink_to(workspace / "normal.txt")
+    try:
+        (workspace / "linked.txt").symlink_to(workspace / "normal.txt")
+    except OSError as exc:
+        # Creating symlinks needs Developer Mode or elevation on Windows.
+        pytest.skip(f"symlink creation is not permitted in this environment: {exc}")
 
     with pytest.raises(AgentFileAccessError, match="SENSITIVE_RESOURCE_DENIED"):
         resolve_readable_agent_file(".env", 8)

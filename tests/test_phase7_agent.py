@@ -46,8 +46,12 @@ class TestAgentTools:
 
     def test_code_search_rejects_external_directory(self, tmp_path, monkeypatch):
         _workspace, context = self._workspace(tmp_path, monkeypatch)
+        # Built from tmp_path so the path is absolute on POSIX and Windows;
+        # "/nonexistent/dir" is relative on Windows and hit a different guard.
+        outside = tmp_path / "outside-workspace"
+        outside.mkdir()
         with pytest.raises(AgentFileAccessError, match="RESOURCE_OUTSIDE_ALLOWED_ROOT"):
-            tool_code_search("/nonexistent/dir", "pattern", context)
+            tool_code_search(str(outside), "pattern", context)
 
     def test_command_execute_disabled_by_default(self):
         result = tool_command_execute("echo hello", timeout=10)

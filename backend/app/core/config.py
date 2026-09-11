@@ -5,6 +5,7 @@ Loads config from config.yaml, .env, and os.environ (env overrides yaml).
 import json
 import os
 import secrets
+import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 _INSECURE_JWT_SECRETS = {"", "modelforge-dev-secret-change-me-0123456789abcdef", "dev-secret"}
 _PRODUCTION_ENVIRONMENTS = {"prod", "production"}
 _RUNTIME_SETTINGS_FILE = "runtime_settings.json"
+_DEV_SECRET_FILENAME = ".dev_jwt_secret"
 
 
 class RuntimeSettings(BaseModel):
@@ -109,6 +111,51 @@ def _validate_production_origins(origins: list[str]) -> None:
             raise RuntimeError(
                 "CORS_ALLOW_ORIGINS must contain explicit HTTPS origins without paths when MODELFORGE_ENV=production"
             )
+
+
+def _restrict_secret_to_owner(path: Path) -> bool:
+    """Best-effort owner-only access for the persisted development secret.
+
+    Windows has no POSIX mode bits, so the inherited ACL is replaced with a
+    single grant for the current account instead of leaving the signing key
+    readable by every local user.
+    """
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+        return True
+    account = (os.environ.get("USERNAME") or os.environ.get("USER") or "").strip()
+    if not account:
+        return False
+    try:
+        completed = subprocess.run(
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{account}:F"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0
+
+
+def ensure_dev_jwt_secret(data_dir: str | os.PathLike[str]) -> str:
+    """Return the persisted development JWT secret, generating it once.
+
+    An unusable data directory degrades to an in-memory secret so a read-only
+    install still starts with an unpredictable key.
+    """
+    path = Path(data_dir) / _DEV_SECRET_FILENAME
+    try:
+        if path.exists():
+            persisted = path.read_text(encoding="utf-8").strip()
+            if len(persisted) >= 32:
+                return persisted
+        generated = secrets.token_urlsafe(48)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(generated, encoding="utf-8")
+        _restrict_secret_to_owner(path)
+        return generated
+    except OSError:
+        return secrets.token_urlsafe(48)
 def load_config(config_path: str | None = None) -> Settings:
     """Load settings from config.yaml, then override with .env and os.environ."""
     base_dir = Path(__file__).resolve().parents[3]  # ModelForge root
@@ -208,20 +255,7 @@ def load_config(config_path: str | None = None) -> Settings:
     elif secret in _INSECURE_JWT_SECRETS:
         # Do not silently sign development JWTs with a public, predictable key.
         # Persist the generated secret to survive process restarts during development.
-        secret_path = Path(result.data_dir) / ".dev_jwt_secret"
-        try:
-            if secret_path.exists():
-                persisted = secret_path.read_text(encoding="utf-8").strip()
-                if len(persisted) >= 32:
-                    result.jwt_secret = persisted
-                    return result
-            generated = secrets.token_urlsafe(48)
-            secret_path.parent.mkdir(parents=True, exist_ok=True)
-            secret_path.write_text(generated, encoding="utf-8")
-            os.chmod(str(secret_path), 0o600)
-            result.jwt_secret = generated
-        except OSError:
-            result.jwt_secret = secrets.token_urlsafe(48)
+        result.jwt_secret = ensure_dev_jwt_secret(result.data_dir)
     return result
 
 

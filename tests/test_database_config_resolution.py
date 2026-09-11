@@ -64,7 +64,9 @@ def test_os_environ_default_arg():
         os.environ["DATABASE_PATH"] = os.path.join(td, "env.db")
         try:
             url = resolve_database_url(_Settings("/tmp/settings.db"))
-            assert url == f"sqlite:///{td}/env.db"
+            # Build the expectation with the platform separator, otherwise the
+            # assertion only holds where os.path.join yields forward slashes.
+            assert url == f"sqlite:///{os.path.join(td, 'env.db')}"
         finally:
             del os.environ["DATABASE_PATH"]
 
