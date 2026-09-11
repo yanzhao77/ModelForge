@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import uuid
 from unittest.mock import MagicMock
 
@@ -118,6 +119,9 @@ class _FakeRuntime:
         self.loaded.append(model)
         return {"status": "loaded", "model": model, "content": ""}
 
+    async def chat(self, model: str, messages: list, **kwargs) -> dict:
+        return {"status": "ok", "model": model, "content": "ok"}
+
     async def stop(self, model: str) -> dict:
         return {"status": "stopped", "model": model, "content": ""}
 
@@ -197,6 +201,105 @@ def test_openai_completions_reports_busy_instead_of_running_inference(client):
     )
     assert blocked.status_code == 409
     assert blocked.json()["error"]["code"] == "RUNTIME_BUSY"
+
+
+def test_runtime_chat_respects_the_inference_lease(client, monkeypatch):
+    """The admin runtime chat endpoint must not bypass the exclusive lease."""
+    from core.config import settings
+
+    headers_a, id_a, name_a = _account(client, "rtchata")
+    headers_b, _id_b, name_b = _account(client, "rtchatb")
+    monkeypatch.setattr(settings, "runtime_admin_usernames", f"{name_a},{name_b}")
+    monkeypatch.setattr(runtime_api, "_runtime", _FakeRuntime())
+    payload = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    inference_lease.acquire(user_id=id_a, username=name_a)
+
+    blocked = client.post("/api/v1/runtime/chat", json=payload, headers=headers_b)
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "RUNTIME_BUSY"
+
+    assert client.post("/api/v1/runtime/chat", json=payload, headers=headers_a).status_code == 200
+    inference_lease.release(user_id=id_a)
+    assert client.post("/api/v1/runtime/chat", json=payload, headers=headers_b).status_code == 200
+
+
+def test_knowledge_answer_respects_the_inference_lease(client):
+    """A RAG answer runs the model, so it shares the exclusive lease too."""
+    headers_a, id_a, name_a = _account(client, "kba")
+    headers_b, _id_b, name_b = _account(client, "kbb")
+    payload = {"question": "anything", "top_k": 3, "model": "m"}
+    inference_lease.acquire(user_id=id_a, username=name_a)
+
+    blocked = client.post("/api/v1/knowledge/answer", json=payload, headers=headers_b)
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "RUNTIME_BUSY"
+
+    inference_lease.release(user_id=id_a)
+    # An empty knowledge base answers without touching the runtime.
+    assert client.post("/api/v1/knowledge/answer", json=payload, headers=headers_b).status_code == 200
+
+
+def test_running_agent_run_holds_inference(client, monkeypatch):
+    """Agent Runs are inference jobs: they own the lease while executing."""
+    import asyncio
+    import threading
+
+    from runtime.models import MockProvider
+    from services.agent_runtime_service import get_agent_runtime
+
+    rt = get_agent_runtime()
+    assert rt is not None
+    monkeypatch.setattr(rt, "provider_factory", lambda m: MockProvider(script=[MockProvider.final("ok")]))
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    async def blocking_execute(ctx, provider):
+        entered.set()
+        await asyncio.to_thread(release.wait, 20)
+        return {
+            "status": "COMPLETED",
+            "output": "ok",
+            "error": None,
+            "iteration": 1,
+            "tool_call_count": 0,
+            "token_usage": {},
+            "messages": [],
+        }
+
+    monkeypatch.setattr(rt.engine, "execute", blocking_execute)
+
+    headers_a, id_a, _name_a = _account(client, "runowner")
+    headers_b, _id_b, _name_b = _account(client, "runother")
+    agent_a = f"lease-run-{uuid.uuid4().hex[:6]}"
+    created = client.post("/api/v1/agent/create", json={"name": agent_a, "model": "mock"}, headers=headers_a)
+    assert created.status_code == 200, created.text
+
+    started = client.post(
+        "/api/v1/agent/runs",
+        json={"agent_id": agent_a, "input": "hi", "execute": True, "confirm": True},
+        headers=headers_a,
+    )
+    assert started.status_code == 200, started.text
+    try:
+        assert entered.wait(15), "the Agent Run never started executing"
+        assert inference_lease.holder().user_id == id_a
+
+        blocked = client.post(
+            "/api/v1/chat",
+            json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+            headers=headers_b,
+        )
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"]["code"] == "RUNTIME_BUSY"
+    finally:
+        release.set()
+
+    for _ in range(200):
+        if inference_lease.holder() is None:
+            break
+        time.sleep(0.05)
+    assert inference_lease.holder() is None
 
 
 def test_training_start_is_exclusive_between_accounts(client, monkeypatch, tmp_path):

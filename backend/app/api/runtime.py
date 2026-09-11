@@ -4,7 +4,12 @@ from core.security import get_runtime_admin
 from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
 from pydantic import BaseModel, Field
-from services.resource_lease import ResourceBusy, inference_holder, inference_lease
+from services.resource_lease import (
+    ResourceBusy,
+    inference_holder,
+    inference_lease,
+    transient_hold,
+)
 
 router = APIRouter(prefix="/runtime", tags=["runtime"])
 
@@ -59,7 +64,11 @@ async def runtime_start(req: LoadRequest, _admin: User = Depends(get_runtime_adm
 async def runtime_chat(req: ChatRequest, _admin: User = Depends(get_runtime_admin)):
     """Send a chat request to the loaded model."""
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
-    return await _get_runtime().chat(req.model, messages)
+    try:
+        with transient_hold(inference_lease, user_id=_admin.id, username=_admin.username):
+            return await _get_runtime().chat(req.model, messages)
+    except ResourceBusy as exc:
+        raise exc.to_problem() from exc
 
 
 @router.post("/stop")

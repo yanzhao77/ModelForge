@@ -9,6 +9,7 @@ from core.security import get_current_user
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from models.records import User
 from pydantic import BaseModel
+from services.resource_lease import ResourceBusy, inference_lease, transient_hold
 from services.runtime_registry import get_runtime
 from sqlalchemy.orm import Session as DBSession
 
@@ -123,10 +124,14 @@ async def knowledge_answer(
 ):
     kb = _get_kb()
     try:
-        return await kb.answer(
-            req.question, top_k=req.top_k, db=db, user_id=user.id, runtime=get_runtime(), model=req.model,
-            knowledge_binding=req.knowledge_binding,
-        )
+        # A RAG answer runs inference, so it shares the exclusive runtime lease.
+        with transient_hold(inference_lease, user_id=user.id, username=user.username):
+            return await kb.answer(
+                req.question, top_k=req.top_k, db=db, user_id=user.id, runtime=get_runtime(), model=req.model,
+                knowledge_binding=req.knowledge_binding,
+            )
+    except ResourceBusy as exc:
+        raise exc.to_problem() from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
