@@ -11,6 +11,7 @@ from core.database import SessionLocal
 from models.records import AgentEventRecord, AgentRun, TaskRecord, TrainTask
 from services.agent_runtime_service import get_agent_runtime
 from services.downloader import get_downloader
+from services.redaction import redact_text
 from services.task_service import (
     AGENT_STATUS,
     TERMINAL,
@@ -145,7 +146,7 @@ class TaskExecutionService:
             "FAILED",
             summary="重试任务未能被执行器领取。",
             error_code="RETRY_DISPATCH_FAILED",
-            error_message=str(error),
+            error_message=redact_text(error),
             error_detail={"retry_of": task.parent_task_id, "source": task.source},
         )
 
