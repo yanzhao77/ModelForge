@@ -208,6 +208,32 @@ class TrainingService:
         if holder is not None and holder.user_id == user_id:
             training_lease.release(user_id=user_id)
 
+    def reconcile_orphaned_tasks(self) -> int:
+        """Settle trainings left running by a previous process.
+
+        The poll thread only lives in memory, so a row that is still
+        pending/starting/running after a restart can never reach a terminal
+        state again; the training page would show a phantom run forever and the
+        log stream would never end.
+        """
+        from core.database import SessionLocal
+
+        interrupted = 0
+        with SessionLocal() as session:
+            rows = (
+                session.query(TrainTask)
+                .filter(TrainTask.status.in_(("pending", "starting", "running")))
+                .all()
+            )
+            for row in rows:
+                if row.task_id in self._procs:
+                    continue
+                row.status = "error"
+                row.error = "训练进程随服务重启中断，请重新开始训练"
+                interrupted += 1
+            session.commit()
+        return interrupted
+
     def register_model(self, db: DBSession, task_id: str, user_id: int) -> dict:
         row = self.get(db, task_id, user_id)
         if not row:

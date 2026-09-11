@@ -54,6 +54,23 @@ def _task_or_404(db, task_id, user):
     return row
 
 
+def _current_training_status(task_id: str, user_id: int) -> str | None:
+    """Read the live status.
+
+    The row loaded for the streaming request is a snapshot that never changes,
+    so the log stream has to re-read the status on every tick.
+    """
+    from core.database import SessionLocal
+    from models.records import TrainTask
+
+    with SessionLocal() as session:
+        return (
+            session.query(TrainTask.status)
+            .filter_by(task_id=task_id, user_id=user_id)
+            .scalar()
+        )
+
+
 @router.post("/start")
 def train_start(
     req: TrainStartRequest, db: DBSession = Depends(get_db),
@@ -141,9 +158,9 @@ async def train_stream(
                 last_state = state
                 yield f"data: {json.dumps({'type': 'progress', 'data': state}, ensure_ascii=False)}\n\n"
             # terminal?
-            cur = row.status
-            if cur in ("done", "error", "stopped"):
-                yield f"data: {json.dumps({'type': 'done', 'data': {'status': cur}}, ensure_ascii=False)}\n\n"
+            cur = _current_training_status(task_id, user.id)
+            if cur is None or cur in ("done", "error", "stopped"):
+                yield f"data: {json.dumps({'type': 'done', 'data': {'status': cur or 'unknown'}}, ensure_ascii=False)}\n\n"
                 break
             await asyncio.sleep(1.0)
 

@@ -204,6 +204,107 @@ class TestTrainingFlow:
         r = client.post(f"/api/v1/train/{task_id}/register-model", json={"confirm": True}, headers=headers)
         assert r.status_code == 400
 
+    def test_stream_reports_done_when_training_finishes(self, client, monkeypatch, tmp_path):
+        """Regression: the log stream used to read a stale status snapshot."""
+        import asyncio
+
+        import services.training as tr
+
+        state_box: dict[str, str] = {}
+
+        def fake_launch_running(self, cfg_path, state_path, log_path):
+            state_box["state"] = state_path
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write("started\n")
+            process = MagicMock()
+            process.poll.return_value = None
+            process.returncode = None
+            process.terminate = MagicMock()
+            return process
+
+        monkeypatch.setattr(tr.TrainingService, "_launch", fake_launch_running)
+
+        token = _login(client, "trainstream")
+        headers = _auth(token)
+        content = b'{"text": "x"}\n' * 3
+        ds_id = client.post(
+            "/api/v1/datasets/upload",
+            files={"file": ("s.jsonl", content, "application/json")},
+            headers=headers,
+        ).json()["id"]
+        started = client.post(
+            "/api/v1/train/start",
+            json={"dataset_id": ds_id, "base_model": "m", "method": "lora", "epochs": 1, "confirm": True},
+            headers=headers,
+        )
+        assert started.status_code == 200, started.text
+        task_id = started.json()["task_id"]
+
+        from api.train import train_stream
+        from core.database import SessionLocal
+        from models.records import User as UserRecord
+
+        async def stream_reaches_terminal_status() -> bool:
+            db = SessionLocal()
+            try:
+                owner = db.query(UserRecord).filter_by(username="trainstream").first()
+                response = await train_stream(task_id, db=db, user=owner)
+            finally:
+                db.close()
+            # The run finishes only after the stream captured its first snapshot,
+            # which is exactly the case that used to hang.
+            with open(state_box["state"], "w", encoding="utf-8") as f:
+                json.dump({"status": "done", "progress": 100}, f)
+
+            async def consume() -> bool:
+                async for chunk in response.body_iterator:
+                    if '"type": "done"' in str(chunk):
+                        return True
+                return False
+
+            try:
+                return await asyncio.wait_for(consume(), timeout=10)
+            except asyncio.TimeoutError:
+                return False
+
+        assert asyncio.run(stream_reaches_terminal_status()) is True
+
+    def test_restart_marks_orphaned_training_as_error(self, client, monkeypatch, tmp_path):
+        """A run whose poll thread died with the process must not stay running."""
+        import services.training as tr
+        from core.database import SessionLocal
+        from models.records import TrainTask
+        from models.records import User as UserRecord
+
+        _login(client, "trainorphan")
+        db = SessionLocal()
+        try:
+            owner = db.query(UserRecord).filter_by(username="trainorphan").first()
+            db.add(
+                TrainTask(
+                    task_id="orphan-training-1",
+                    user_id=owner.id,
+                    base_model="m",
+                    method="lora",
+                    status="running",
+                    output_dir=str(tmp_path / "orphan"),
+                    log_path=str(tmp_path / "orphan" / "train.log"),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        assert tr.get_training_service().reconcile_orphaned_tasks() >= 1
+
+        db = SessionLocal()
+        try:
+            row = db.query(TrainTask).filter_by(task_id="orphan-training-1").first()
+            assert row.status == "error"
+            assert "重启" in row.error
+        finally:
+            db.close()
+
 
 class TestKnowledgePersistence:
     def test_upload_documents_chunks_delete(self, client):
