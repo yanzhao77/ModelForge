@@ -6,8 +6,8 @@ from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFEmptyState, MFPanel, MFSection, MFStatusBadge
 from components.provider_dialog import RemoteProviderDialog
-from pages.model_dialogs import DownloadDialog
 from i18n.ui_localizer import current, text
+from pages.model_dialogs import DownloadDialog
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,

@@ -40,8 +40,8 @@ from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
-    QMessageBox,
     QMenu,
+    QMessageBox,
     QSplitter,
     QStackedWidget,
     QVBoxLayout,
