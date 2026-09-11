@@ -18,7 +18,7 @@ from services.task_service import (
     TaskConflict,
     TaskService,
 )
-from services.training import TrainingService
+from services.training import get_training_service
 from sqlalchemy.orm import Session
 
 
@@ -72,7 +72,7 @@ class TaskExecutionService:
         if not isinstance(config, dict):
             raise RetryExecutionError("原始训练配置格式无效")
 
-        retry_source = TrainingService().start(db, task.user_id, config)
+        retry_source = get_training_service().start(db, task.user_id, config)
         metadata = self._metadata(task)
         metadata.update({
             "executor": "training",

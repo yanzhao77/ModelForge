@@ -17,6 +17,7 @@ from models.records import User
 from pydantic import BaseModel, Field
 from services.chat_service import run_chat, stream_chat
 from services.remote_provider_service import RemoteProviderError, RemoteProviderService
+from services.resource_lease import ResourceBusy, inference_lease, transient_hold
 from services.runtime_registry import get_runtime
 from sqlalchemy.orm import Session
 
@@ -90,8 +91,12 @@ def _classify_chat_exception(exc: Exception) -> _ChatErrorClassification:
 async def chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     corr = correlation_id()[:64]
     try:
-        result = await run_chat(db, get_runtime(), req.model, [item.model_dump() for item in req.messages], user, req.session_id, _provider(db, user, req.provider_id))
-        return result
+        # Inference is exclusive: only one account may run it at a time.
+        with transient_hold(inference_lease, user_id=user.id, username=user.username):
+            result = await run_chat(db, get_runtime(), req.model, [item.model_dump() for item in req.messages], user, req.session_id, _provider(db, user, req.provider_id))
+            return result
+    except ResourceBusy as exc:
+        raise exc.to_problem(corr) from exc
     except Exception as exc:
         classification = _classify_chat_exception(exc)
         raise classification.to_problem(corr) from exc
@@ -105,6 +110,10 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user: Use
     except RemoteProviderError as exc:
         classification = _classify_chat_exception(exc)
         raise classification.to_problem(corr) from exc
+    try:
+        handle = inference_lease.acquire(user_id=user.id, username=user.username)
+    except ResourceBusy as exc:
+        raise exc.to_problem(corr) from exc
 
     async def event_generator():
         """Relay model events while emitting heartbeats for client cancellation."""
@@ -146,6 +155,8 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user: Use
             producer.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await producer
+            if handle.created:
+                handle.release()
 
     return StreamingResponse(
         event_generator(),

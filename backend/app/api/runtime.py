@@ -4,6 +4,7 @@ from core.security import get_runtime_admin
 from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
 from pydantic import BaseModel, Field
+from services.resource_lease import ResourceBusy, inference_holder, inference_lease
 
 router = APIRouter(prefix="/runtime", tags=["runtime"])
 
@@ -46,6 +47,11 @@ def _get_runtime():
 @router.post("/start")
 async def runtime_start(req: LoadRequest, _admin: User = Depends(get_runtime_admin)):
     """Load a model into the runtime."""
+    # Only one account may hold the inference runtime at a time.
+    try:
+        inference_lease.acquire(user_id=_admin.id, username=_admin.username)
+    except ResourceBusy as exc:
+        raise exc.to_problem() from exc
     return await _get_runtime().load(req.model)
 
 
@@ -59,6 +65,10 @@ async def runtime_chat(req: ChatRequest, _admin: User = Depends(get_runtime_admi
 @router.post("/stop")
 async def runtime_stop(req: LoadRequest, _admin: User = Depends(get_runtime_admin)):
     """Stop/unload a model."""
+    try:
+        inference_lease.release(user_id=_admin.id)
+    except ResourceBusy as exc:
+        raise exc.to_problem() from exc
     return await _get_runtime().stop(req.model)
 
 
@@ -66,6 +76,9 @@ async def runtime_stop(req: LoadRequest, _admin: User = Depends(get_runtime_admi
 async def runtime_status(_admin: User = Depends(get_runtime_admin)):
     """Runtime registry status."""
     runtime = _get_runtime()
+    holder = inference_holder()
     if hasattr(runtime, "status"):
-        return runtime.status()
-    return {"default": "unknown", "runtimes": {}}
+        payload = runtime.status()
+    else:
+        payload = {"default": "unknown", "runtimes": {}}
+    return {**payload, "inference_holder": holder}

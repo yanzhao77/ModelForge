@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from models.records import User
 from pydantic import BaseModel, Field
+from services.resource_lease import ResourceBusy, inference_lease
 from services.runtime_registry import get_runtime
 
 log = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ async def _stream_with_lease(
     messages: list[dict],
     correlation: str,
     total_timeout: float,
+    inference_handle=None,
 ) -> AsyncIterator[str]:
     """Streaming generator that owns its lease for the full stream lifetime.
 
@@ -167,6 +169,8 @@ async def _stream_with_lease(
         yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
         yield "data: [DONE]\n\n"
     finally:
+        if inference_handle is not None and inference_handle.created:
+            inference_handle.release()
         lease.release()
         maybe_cleanup_idle()
 
@@ -200,9 +204,22 @@ async def chat_completions(
     messages = [{"role": message.role, "content": message.content} for message in req.messages]
     total_timeout = float(inference_timeout_seconds())
 
+    # --- Exclusive inference gate: one account at a time ---
+    try:
+        inference_handle = inference_lease.acquire(user_id=user.id, username=user.username)
+    except ResourceBusy as exc:
+        busy = exc.to_problem(correlation)
+        return JSONResponse(
+            _openai_error(exc.lease.code, busy.detail["message"], correlation),
+            status_code=409,
+            headers={"X-Request-ID": correlation, "X-Correlation-ID": correlation},
+        )
+
     # --- Per-user concurrency gate ---
     lease_or_err = await acquire_lease(user.id)
     if isinstance(lease_or_err, JSONResponse):
+        if inference_handle.created:
+            inference_handle.release()
         lease_or_err.headers["X-Request-ID"] = correlation
         lease_or_err.headers["X-Correlation-ID"] = correlation
         return lease_or_err
@@ -212,7 +229,7 @@ async def chat_completions(
         # Streaming: the generator owns the lease for the full stream lifetime.
         # The outer try/finally must NOT release the lease.
         return StreamingResponse(
-            _stream_with_lease(lease, req.model, messages, correlation, total_timeout),
+            _stream_with_lease(lease, req.model, messages, correlation, total_timeout, inference_handle),
             media_type="text/event-stream",
             headers={"X-Request-ID": correlation, "X-Correlation-ID": correlation},
         )
@@ -248,6 +265,8 @@ async def chat_completions(
         )
         return resp
     finally:
+        if inference_handle.created:
+            inference_handle.release()
         lease.release()
         maybe_cleanup_idle()
 

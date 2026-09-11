@@ -10,8 +10,9 @@ import uuid
 from pathlib import Path
 
 from core.config import settings
-from models.records import Dataset, TrainTask
+from models.records import Dataset, TrainTask, User
 from services.model_manager import ModelManager
+from services.resource_lease import training_lease
 from sqlalchemy.orm import Session as DBSession
 
 
@@ -53,7 +54,15 @@ class TrainingService:
         if not config.get("base_model"):
             raise ValueError("必须指定基础模型")
 
+        # Training is exclusive: claim the machine before any process is started
+        # so a second account gets a clear "busy" answer instead of a race.
+        owner = db.query(User).filter_by(id=user_id).first()
+        handle = training_lease.acquire(
+            user_id=user_id, username=owner.username if owner else str(user_id)
+        )
         if len(self._procs) >= settings.train_max_workers:
+            if handle.created:
+                handle.release()
             raise RuntimeError(f"已有训练任务在运行（上限 {settings.train_max_workers}），请稍后再试")
 
         task_id = uuid.uuid4().hex[:12]
@@ -94,6 +103,8 @@ class TrainingService:
             row.status = "error"
             row.error = f"启动训练进程失败: {e}"
             db.commit()
+            if handle.created:
+                handle.release()
             raise RuntimeError(row.error)
         self._procs[task_id] = proc
         row.status = "running"
@@ -115,6 +126,7 @@ class TrainingService:
 
     def _poll(self, row_id: int, task_id: str, state_path: str, proc: subprocess.Popen):
         from core.database import SessionLocal
+        owner_id: int | None = None
         while True:
             time.sleep(self.POLL_INTERVAL)
             state = {}
@@ -128,6 +140,7 @@ class TrainingService:
             try:
                 row = db.query(TrainTask).filter_by(id=row_id).first()
                 if row:
+                    owner_id = row.user_id
                     if row.status == "stopped":
                         break
                     if state.get("status") == "done":
@@ -153,6 +166,7 @@ class TrainingService:
             if proc.poll() is not None and os.path.exists(state_path):
                 break
         self._procs.pop(task_id, None)
+        self._release_lease(owner_id)
 
     # ---- query / stop / register ----
 
@@ -172,6 +186,7 @@ class TrainingService:
         if not row:
             return False
         proc = self._procs.get(task_id)
+        self._procs.pop(task_id, None)
         if proc is not None and proc.poll() is None:
             try:
                 proc.terminate()
@@ -181,7 +196,17 @@ class TrainingService:
             row.status = "stopped"
             row.error = "stopped by user"
             db.commit()
+        self._release_lease(user_id)
         return True
+
+    @staticmethod
+    def _release_lease(user_id: int | None) -> None:
+        """Free the training resource only when this account still owns it."""
+        if user_id is None:
+            return
+        holder = training_lease.holder()
+        if holder is not None and holder.user_id == user_id:
+            training_lease.release(user_id=user_id)
 
     def register_model(self, db: DBSession, task_id: str, user_id: int) -> dict:
         row = self.get(db, task_id, user_id)
@@ -229,3 +254,13 @@ def get_log_tail(log_path: str, max_lines: int = 200) -> list[str]:
     with open(log_path, "r", encoding="utf-8", errors="replace") as f:
         lines = f.readlines()
     return [line_value.rstrip("\n") for line_value in lines[-max_lines:]]
+
+
+# Running processes must outlive the request that started them, so the service
+# (and its ``_procs`` registry, which enforces the single-training rule and makes
+# ``stop`` actually terminate the child) is a process-wide singleton.
+training_service = TrainingService()
+
+
+def get_training_service() -> TrainingService:
+    return training_service

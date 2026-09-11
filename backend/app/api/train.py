@@ -16,8 +16,9 @@ from services.audit_log import (
     record_control_plane_operation,
     validate_control_plane_audit_metadata,
 )
+from services.resource_lease import ResourceBusy
 from services.task_service import project_legacy_tasks
-from services.training import TrainingService, get_log_tail
+from services.training import get_log_tail, get_training_service
 from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(prefix="/train", tags=["train"])
@@ -47,7 +48,7 @@ class TrainActionRequest(BaseModel):
 
 
 def _task_or_404(db, task_id, user):
-    row = TrainingService().get(db, task_id, user.id)
+    row = get_training_service().get(db, task_id, user.id)
     if row is None:
         raise problem(404, "TRAINING_TASK_NOT_FOUND", "Training task was not found.")
     return row
@@ -67,13 +68,15 @@ def train_start(
     except AuditMetadataRejected as exc:
         raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     try:
-        row = TrainingService().start(db, user.id, req.model_dump(exclude={"confirm", "request_id"}))
+        row = get_training_service().start(db, user.id, req.model_dump(exclude={"confirm", "request_id"}))
         project_legacy_tasks(db, user.id)
         record_control_plane_operation(db, user_id=user.id, action="training.start", object_type="training_task", object_id=row.task_id, correlation_id=corr, metadata=audit_metadata)
         commit_control_plane_audit(db)
         return operation_result(row.to_dict(), corr)
     except (AuditMetadataRejected, AuditPersistenceError) as exc:
         raise problem(503, "TRAINING_START_AUDIT_DURABILITY_UNKNOWN", "Training start was accepted, but audit durability is unknown.", correlation=corr) from exc
+    except ResourceBusy as exc:
+        raise exc.to_problem(corr) from exc
     except (RuntimeError, ValueError) as error:
         raise problem(400, "TRAINING_START_REJECTED", "Training start was not accepted.", correlation=corr) from error
 
@@ -83,7 +86,7 @@ def train_tasks(
     db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     project_legacy_tasks(db, user.id)
-    return [t.to_dict() for t in TrainingService().list(db, user.id)]
+    return [t.to_dict() for t in get_training_service().list(db, user.id)]
 
 
 @router.get("/status/{task_id}")
@@ -164,7 +167,7 @@ def train_stop(
     except AuditMetadataRejected as exc:
         raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     _task_or_404(db, task_id, user)
-    ok = TrainingService().stop(db, task_id, user.id)
+    ok = get_training_service().stop(db, task_id, user.id)
     try:
         record_control_plane_operation(db, user_id=user.id, action="training.stop", object_type="training_task", object_id=task_id, correlation_id=corr, metadata=audit_metadata)
         commit_control_plane_audit(db)
@@ -187,7 +190,7 @@ def train_register_model(
     except AuditMetadataRejected as exc:
         raise problem(500, "CONTROL_AUDIT_METADATA_REJECTED", "Control-plane audit policy rejected this action.", correlation=corr) from exc
     try:
-        model = TrainingService().register_model(db, task_id, user.id)
+        model = get_training_service().register_model(db, task_id, user.id)
         record_control_plane_operation(db, user_id=user.id, action="training.register_model", object_type="training_task", object_id=task_id, correlation_id=corr, metadata=audit_metadata)
         commit_control_plane_audit(db)
         return operation_result(model, corr)
@@ -201,4 +204,4 @@ def train_register_model(
 def train_templates(
     db: DBSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    return TrainingService.templates()
+    return get_training_service().templates()

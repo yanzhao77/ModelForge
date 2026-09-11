@@ -59,6 +59,9 @@ _TEXT = {
     "服务状态：正在检查本地服务": ("服务状态：正在检查本地服务", "Service status: checking local service", "サービス状態：ローカルサービスを確認中"),
     "停止": ("停止", "Stop", "停止"), "正在加载对话…": ("正在加载对话…", "Loading conversation…", "会話を読み込み中…"),
     "正在准备本地模型…": ("正在准备本地模型…", "Preparing local model…", "ローカルモデルを準備中…"), "模型已就绪": ("模型已就绪", "Model ready", "モデルの準備が完了しました"),
+    "另一个账号正在使用推理服务，请等对方停止后再试。": ("另一个账号正在使用推理服务，请等对方停止后再试。", "Another account is using the inference runtime. Wait until it stops.", "別のアカウントが推論サービスを使用中です。停止するまでお待ちください。"),
+    "另一个账号正在训练，请等对方结束后再试。": ("另一个账号正在训练，请等对方结束后再试。", "Another account is training. Wait until it finishes.", "別のアカウントがトレーニング中です。終了までお待ちください。"),
+    "{message}（{code}）": ("{message}（{code}）", "{message} ({code})", "{message}（{code}）"),
     "无法响应": ("无法响应", "Unable to respond", "応答できません"), "正在生成回复": ("正在生成回复", "Generating response", "応答を生成中"),
     "运行结束": ("运行结束", "Run finished", "実行終了"), "批准": ("批准", "Approve", "承認"), "拒绝": ("拒绝", "Reject", "拒否"),
     "显示语言": ("显示语言", "Display Language", "表示言語"), "工作区": ("工作区", "Workspace", "ワークスペース"),
@@ -203,6 +206,12 @@ def format_text(source: str, **values) -> str:
     return text(source, locale).format(**values)
 
 
+_EXCLUSIVE_RESOURCE_HINTS = {
+    "RUNTIME_BUSY": "另一个账号正在使用推理服务，请等对方停止后再试。",
+    "TRAINING_BUSY": "另一个账号正在训练，请等对方结束后再试。",
+}
+
+
 def format_api_error(error) -> str:
     """Render only stable worker/API error codes at user-interface boundaries."""
     code = getattr(error, "code", None)
@@ -212,6 +221,9 @@ def format_api_error(error) -> str:
         if candidate and all(char.isalnum() or char in {"_", "-"} for char in candidate):
             code = candidate
     code = code or "OPERATION_FAILED"
+    hint = _EXCLUSIVE_RESOURCE_HINTS.get(code)
+    if hint:
+        return format_text("{message}（{code}）", message=format_text(hint), code=code)
     if correlation:
         return format_text("请求未完成（{code}）。关联标识：{correlation}", code=code, correlation=correlation)
     return format_text("请求未完成（{code}）。", code=code)
