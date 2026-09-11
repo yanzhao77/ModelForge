@@ -40,3 +40,24 @@ def test_login_rate_limiter_applies_to_account_and_resets_after_success():
     assert not limiter.allowed("alice", "127.0.0.1")
     limiter.record_success("alice", "127.0.0.1")
     assert limiter.allowed("alice", "127.0.0.1")
+
+
+def test_login_rate_limiter_does_not_track_checks_without_failures():
+    """Simply probing usernames must not allocate permanent state."""
+    limiter = LoginRateLimiter(attempts=2, window_seconds=60)
+
+    for index in range(500):
+        assert limiter.allowed(f"probe-{index}", "203.0.113.9")
+
+    assert limiter._failures == {}
+
+
+def test_login_rate_limiter_keeps_memory_bounded_under_username_spraying():
+    limiter = LoginRateLimiter(attempts=2, window_seconds=60, max_tracked_keys=50)
+
+    for index in range(500):
+        limiter.record_failure(f"probe-{index}", f"203.0.113.{index % 250}")
+
+    # The cap is enforced per recorded failure, and one failure can add the
+    # account bucket plus the source bucket.
+    assert len(limiter._failures) <= 52
