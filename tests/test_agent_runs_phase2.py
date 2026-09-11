@@ -189,6 +189,37 @@ class TestAgentRuntime:
         assert row.iteration_count >= 1
 
     @pytest.mark.asyncio
+    async def test_reconcile_fails_runs_left_by_a_previous_process(self, _runtime):
+        """A run whose executor died with the process must not stay live."""
+        rt = _runtime
+        pending = rt.create_run(agent_id="bot", input_text="hi", user_id=7, execute=False)
+        running = rt.create_run(agent_id="bot", input_text="hi", user_id=7, execute=False)
+        rt.run_store.update(running.run_id, status="RUNNING")
+        waiting = rt.create_run(agent_id="bot", input_text="hi", user_id=7, execute=False)
+        rt.run_store.update(waiting.run_id, status="WAITING_HUMAN")
+
+        assert rt.reconcile_orphaned_runs() >= 3
+
+        for run_id in (pending.run_id, running.run_id, waiting.run_id):
+            stored = rt.get_run(run_id, user_id=7)
+            assert stored.status == "FAILED"
+            assert "PROCESS_RESTARTED" in (stored.error or "")
+        # Idempotent: a second startup sweep finds nothing left to settle.
+        assert rt.reconcile_orphaned_runs() == 0
+
+    @pytest.mark.asyncio
+    async def test_reconcile_skips_a_run_this_process_is_executing(self, _runtime):
+        rt = _runtime
+        run = rt.create_run(agent_id="bot", input_text="hi", user_id=8, execute=False)
+        rt._running.add(run.run_id)
+        try:
+            rt.reconcile_orphaned_runs()
+        finally:
+            rt._running.discard(run.run_id)
+
+        assert rt.get_run(run.run_id, user_id=8).status == "PENDING"
+
+    @pytest.mark.asyncio
     async def test_cancel_pending_run(self, _runtime):
         rt = _runtime
         run = rt.create_run(agent_id="bot", input_text="hi", user_id=1, execute=False)

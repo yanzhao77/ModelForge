@@ -10,6 +10,7 @@ from typing import Any
 
 from core.config import RuntimeSettings, Settings
 from core.config import settings as global_settings
+from services.resource_lease import ResourceBusy, inference_lease
 
 from .cancellation import CancellationToken
 from .errors import (
@@ -28,6 +29,10 @@ from .run_context import RunContext
 from .types import AgentConfig, RunRecord, RunStatus
 
 ProviderFactory = Callable[..., ModelProvider]
+
+_RECONCILE_BATCH = 200
+_RECONCILE_MAX_PASSES = 50
+_RUN_RESTARTED_ERROR = "PROCESS_RESTARTED: run interrupted by a service restart"
 
 
 def default_provider_factory(model_name: str) -> ModelProvider:
@@ -221,6 +226,56 @@ class AgentRuntime:
         log_run(self.logger, 20, "run created", run_id=run.run_id, agent_id=agent_id)
         return run
 
+    @staticmethod
+    def _username_for(user_id: int) -> str:
+        from core.database import SessionLocal
+        from models.records import User
+
+        with SessionLocal() as db:
+            username = db.query(User.username).filter_by(id=user_id).scalar()
+        return username or str(user_id)
+
+    def reconcile_orphaned_runs(self) -> int:
+        """Fail runs left non-terminal by a previous process.
+
+        Executors only live in memory, so a run that is still pending, running
+        or waiting at startup can never be resumed. Leaving it behind shows
+        every client a live run that has no executor, and the task projections
+        keep reporting work that will never finish.
+        """
+        non_terminal = [status.value for status in RunStatus if status not in RunStatus.terminal()]
+        interrupted = 0
+        for _ in range(_RECONCILE_MAX_PASSES):
+            stale: list[RunRecord] = []
+            for status in non_terminal:
+                stale.extend(self.run_store.list(status=status, limit=_RECONCILE_BATCH))
+            # A run this process is executing is not an orphan, even if the
+            # startup hook runs again for another application instance.
+            stale = [run for run in stale if run.run_id not in self._running]
+            if not stale:
+                break
+            finalize = getattr(self.run_store, "compare_and_set", None)
+            for run in stale:
+                if callable(finalize):
+                    finalized = finalize(
+                        run.run_id,
+                        expected_version=run.state_version,
+                        to_status=RunStatus.FAILED.value,
+                        lease_id=run.executor_lease_id,
+                        terminal=True,
+                        error=_RUN_RESTARTED_ERROR,
+                    )
+                    interrupted += 1 if finalized is not None else 0
+                else:
+                    self.run_store.update(
+                        run.run_id,
+                        status=RunStatus.FAILED.value,
+                        error=_RUN_RESTARTED_ERROR,
+                        finished_at=datetime.datetime.utcnow(),
+                    )
+                    interrupted += 1
+        return interrupted
+
     def _validate_run_bindings(
         self,
         agent_id: str,
@@ -272,6 +327,19 @@ class AgentRuntime:
             await self._fail(run_id, "AGENT_NOT_FOUND", f"Agent {run.agent_id} not found", "FAILED")
             return {"status": "FAILED", "error": "agent not found"}
 
+        # Inference is exclusive per machine: a Run owns the lease while it
+        # executes (including waiting for human approval) and releases it in the
+        # finally below, so a finished Run can never keep everyone else locked.
+        lease_handle = None
+        if run.user_id is not None:
+            try:
+                lease_handle = inference_lease.acquire(
+                    user_id=run.user_id, username=self._username_for(run.user_id)
+                )
+            except ResourceBusy as exc:
+                await self._fail(run_id, "RUNTIME_BUSY", exc.to_problem().detail["message"], "FAILED")
+                return {"status": "FAILED", "error": "inference runtime is busy"}
+
         token = CancellationToken()
         self._cancellations[run_id] = token
         self._running.add(run_id)
@@ -284,6 +352,8 @@ class AgentRuntime:
         try:
             provider = self._make_provider(run, agent)
         except ModelUnavailableError as e:
+            if lease_handle is not None and lease_handle.created:
+                lease_handle.release()
             await self._fail(run_id, e.code, e.message, "FAILED")
             return {"status": "FAILED", "error": e.message}
 
@@ -350,12 +420,20 @@ class AgentRuntime:
                 )
             except Exception:
                 pass
+        except Exception as exc:
+            # An unexpected engine/provider failure must not leave the Run
+            # RUNNING forever: clients would keep seeing a live run that has no
+            # executor behind it.
+            await self._fail(run_id, "RUNTIME_ERROR", f"engine raised {type(exc).__name__}", "FAILED")
+            return {"status": "FAILED", "error": "engine raised"}
         finally:
             # audit P0-5: run bookkeeping is always released even if finalize throws
             self._cancellations.pop(run_id, None)
             self._running.discard(run_id)
             self._created_events.discard(run_id)
             self._delegation_counts.pop(run_id, None)
+            if lease_handle is not None and lease_handle.created:
+                lease_handle.release()
 
         if outcome is None:
             await self._fail(run_id, "RUNTIME_ERROR", "engine returned no outcome", "FAILED")
