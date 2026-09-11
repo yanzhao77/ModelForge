@@ -126,8 +126,8 @@ class TaskExecutionService:
         if not repo_id:
             raise RetryExecutionError("下载重试缺少 repo_id，无法恢复下载请求")
         download = get_downloader().start(repo_id, task.user_id, filename, db=db)
-        metadata.update({"executor": "downloader", "execution_task_id": download.task_id})
-        task.source_task_id = download.task_id
+        metadata.update({"executor": "downloader", "execution_task_id": download.id})
+        task.source_task_id = download.id
         self._set_metadata(task, metadata)
         return self.tasks.transition(
             db,
@@ -152,6 +152,11 @@ class TaskExecutionService:
     def synchronize(self, db: Session, task: TaskRecord) -> bool:
         """Project executor state to a retry child only when a material field changed."""
         if task.parent_task_id is None or task.status in TERMINAL:
+            return False
+        if task.status == "QUEUED":
+            # The dispatcher has not claimed this child yet, so there is no
+            # executor state to project. Mirroring the pre-dispatch source here
+            # would fail a retry that launch_retry() is still wiring up.
             return False
         if task.source == "training":
             return self._sync_training(db, task)

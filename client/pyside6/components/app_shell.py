@@ -21,7 +21,7 @@ class NavigationRail(QFrame):
 
     destination_requested = Signal(str)
     GROUPS = (
-        ("nav_group.workspace", ("overview", "chat", "models", "videos", "datasets", "training", "knowledge", "agents", "workbench")),
+        ("nav_group.workspace", ("overview", "chat", "models", "datasets", "training", "knowledge", "agents", "workbench")),
         ("nav_group.operations", ("automation", "tasks", "runtime")),
         ("nav_group.administration", ("developer", "control", "extensions", "settings")),
     )

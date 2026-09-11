@@ -39,6 +39,9 @@
 | GET | /api/v1/models/search | HF 搜索 |
 | POST | /api/v1/models/download | 下载 GGUF |
 | GET | /api/v1/models/download/{task_id} | 下载进度 |
+| POST | /api/v1/models/download/{task_id}/pause | 暂停下载 |
+| POST | /api/v1/models/download/{task_id}/resume | 继续下载 |
+| POST | /api/v1/models/download/{task_id}/restart | 重新开始下载（清理本地残留） |
 | POST | /api/v1/runtime/start / chat / stop | 推理运行时 |
 | GET | /api/v1/runtime/status | 运行时状态 |
 

@@ -323,9 +323,11 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.shell.set_status(f"无法连接服务：{error}")
 
     def _show_task_stream_status(self, online: bool, error: str) -> None:
-        if self._show_download_footer():
-            return
         if online:
+            # An active download owns the footer, but a broken task stream is a
+            # failure signal and must not be hidden by the download progress bar.
+            if self._show_download_footer():
+                return
             self.shell.set_status(self.translator.t("footer.task_stream_connected", "任务更新已连接"))
         else:
             detail = str(error or "waiting")

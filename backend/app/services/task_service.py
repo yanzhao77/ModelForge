@@ -171,7 +171,9 @@ class TaskService:
             title=title,
             summary=summary,
             status="QUEUED",
-            metadata=_dump(metadata or {}),
+            # ``meta`` is the mapped column; ``metadata`` is SQLAlchemy's own
+            # MetaData attribute and silently swallowed the payload.
+            meta=_dump(metadata or {}),
             cancelable=cancelable,
             retryable=retryable,
             priority=priority if priority in {"low", "normal", "high"} else "normal",
@@ -210,7 +212,9 @@ class TaskService:
             priority=task.priority,
             attempt=int(task.attempt or 1) + 1,
             max_attempts=max_attempts,
-            metadata=_dump(metadata),
+            # Keep the retry child's metadata so executors can rebuild the
+            # original request (for example a model download's repo_id).
+            meta=_dump(metadata),
         )
         db.add(retry_task)
         db.flush()

@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Tests](https://img.shields.io/badge/tests-866%20passed-brightgreen)
-![API](https://img.shields.io/badge/API-135%20paths%2F159%20ops-important)
+![API](https://img.shields.io/badge/API-139%20paths%2F164%20ops-important)
 ![Desktop](https://img.shields.io/badge/Desktop-0.1.3--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
@@ -98,14 +98,14 @@ curl http://localhost:8000/healthz   # {"status":"ok"}
 docker rm -f modelforge
 ```
 
-## API 概览（135 paths / 159 operations；业务前缀 /api/v1）
+## API 概览（139 paths / 164 operations；业务前缀 /api/v1）
 
 | 模块 | 端点 |
 |------|------|
 | 认证 | auth/register · login · me · change-password |
 | 会话 | sessions（CRUD）· sessions/{id}/messages · title |
 | 记忆 | memories · memories/search |
-| 模型 | models（list/scan/install）· models/readiness · models/default · models/search · models/download |
+| 模型 | models（list/scan/install）· models/readiness · models/default · models/search · models/download（状态/暂停/继续/重新开始） |
 | 运行时 | runtime/start · chat · stop · status |
 | 聊天 | chat · **chat/stream（SSE 流式）** |
 | 数据集 | datasets/upload · datasets · datasets/{id}/validate |
