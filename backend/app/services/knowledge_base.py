@@ -215,6 +215,13 @@ class KnowledgeBase:
             return {"status": "empty", "file": filepath, "chunks": 0}
 
         chunks = self.chunker.split(text)
+        document_name = metadata.get("filename", filename or Path(filepath).name)
+        # One filename is one document: re-uploading replaces the previous copy.
+        # Keeping both made chunks()/query() read the stale copy and made
+        # delete_document() remove only one of them.
+        if db is not None and user_id is not None:
+            self._delete_documents_by_name(db, user_id, document_name)
+        self.vector_store.remove_by_metadata("filename", document_name)
         self._ensure_loaded(db)
         all_texts = [d["text"] for d in self.vector_store.documents] + chunks
         self.embedder.fit(all_texts)
@@ -224,7 +231,7 @@ class KnowledgeBase:
         new_vecs = new_vectors[old_count:]
 
         file_id = hashlib.md5(filepath.encode()).hexdigest()[:12]
-        chunk_meta_base = {"filename": metadata.get("filename", Path(filepath).name), "type": metadata.get("type", "text")}
+        chunk_meta_base = {"filename": document_name, "type": metadata.get("type", "text")}
         for i, (chunk, vector) in enumerate(zip(chunks, new_vecs, strict=False)):
             doc_id = f"{file_id}_{i}"
             chunk_meta = {**chunk_meta_base, "chunk_index": i, "total_chunks": len(chunks)}
@@ -234,7 +241,7 @@ class KnowledgeBase:
         if db is not None and user_id is not None:
             doc = KnowledgeDocument(
                 user_id=user_id,
-                filename=metadata.get("filename", filename or Path(filepath).name),
+                filename=document_name,
                 filetype=metadata.get("type", "text"),
                 chunk_count=len(chunks),
                 doc_meta=json.dumps(metadata, ensure_ascii=False),
@@ -258,6 +265,21 @@ class KnowledgeBase:
             "chunks": len(chunks),
             "type": metadata.get("type", "unknown"),
         }
+
+    @staticmethod
+    def _delete_documents_by_name(db, user_id: int, filename: str) -> int:
+        """Remove every stored copy of ``filename`` owned by ``user_id``."""
+        docs = (
+            db.query(KnowledgeDocument)
+            .filter(KnowledgeDocument.user_id == user_id, KnowledgeDocument.filename == filename)
+            .all()
+        )
+        for doc in docs:
+            db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id == doc.id).delete()
+            db.delete(doc)
+        if docs:
+            db.flush()
+        return len(docs)
 
     @staticmethod
     def normalize_binding(binding: dict | None = None) -> dict:
@@ -372,28 +394,30 @@ class KnowledgeBase:
         return list(seen.values())
 
     def delete_document(self, filename: str, db=None, user_id: int | None = None) -> bool:
+        removed = 0
         if db is not None:
-            query = db.query(KnowledgeDocument).filter(KnowledgeDocument.filename == filename)
             if user_id is not None:
-                query = query.filter(KnowledgeDocument.user_id == user_id)
-            doc = query.first()
-            if doc is None:
-                return False
-            db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id == doc.id).delete()
-            db.delete(doc)
+                removed = self._delete_documents_by_name(db, user_id, filename)
+            else:
+                doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.filename == filename).first()
+                if doc is not None:
+                    db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id == doc.id).delete()
+                    db.delete(doc)
+                    removed = 1
             db.commit()
         before = len(self.vector_store.documents)
         self.vector_store.remove_by_metadata("filename", filename)
         if before > len(self.vector_store.documents):
             self._docs_count = max(0, self._docs_count - 1)
-        return len(self.vector_store.documents) < before or doc is not None
+        return removed > 0 or len(self.vector_store.documents) < before
 
     def chunks(self, filename: str, db=None, user_id: int | None = None) -> list[dict]:
         if db is not None:
             query = db.query(KnowledgeDocument).filter(KnowledgeDocument.filename == filename)
             if user_id is not None:
                 query = query.filter(KnowledgeDocument.user_id == user_id)
-            doc = query.first()
+            # Legacy rows could hold several copies of one name; the newest one wins.
+            doc = query.order_by(KnowledgeDocument.created_at.desc(), KnowledgeDocument.id.desc()).first()
             if doc is None:
                 return []
             rows = (
