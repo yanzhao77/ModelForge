@@ -71,7 +71,9 @@ def test_task_lifecycle_events_and_summary(client):
 
     cancelled = client.post(f"/api/v1/tasks/{task['task_id']}/cancel", json={"confirm": True}, headers=headers)
     assert cancelled.status_code == 200, cancelled.text
-    assert cancelled.json()["status"] == "CANCEL_REQUESTED"
+    # A manual task has no executor to confirm the request, so the cancel is
+    # final immediately (only worker-owned sources stay CANCEL_REQUESTED).
+    assert cancelled.json()["status"] == "CANCELLED"
 
 
 def test_tasks_are_isolated_by_user_and_support_idempotency(client):

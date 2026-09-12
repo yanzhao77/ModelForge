@@ -138,3 +138,51 @@ def test_task_center_cancel_stops_a_running_training(monkeypatch, tmp_path):
         assert client.get(f"/api/v1/train/status/{train_task_id}", headers=headers).json()["status"] == "stopped"
         settled = _task_row(client, headers, train_task_id)
         assert settled["status"] == "CANCELLED"
+
+
+def test_queued_task_can_be_cancelled():
+    """A task that has not started yet must still be cancellable."""
+    with TestClient(app) as client:
+        headers, _user_id = _account(client, "taskcancelqueued")
+        created = client.post(
+            "/api/v1/tasks",
+            json={"task_type": "manual", "source": "manual", "title": "queued", "cancelable": True},
+            headers=headers,
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["status"] == "QUEUED"
+
+        cancelled = client.post(
+            f"/api/v1/tasks/{created.json()['task_id']}/cancel",
+            json={"confirm": True},
+            headers=headers,
+        )
+
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "CANCELLED"
+
+
+def test_queued_download_waits_for_its_worker_to_confirm_cancel():
+    """Download workers poll the task row, so their request stays pending."""
+    with TestClient(app) as client:
+        headers, _user_id = _account(client, "taskcancelqueue")
+        created = client.post(
+            "/api/v1/tasks",
+            json={
+                "task_type": "model_download",
+                "source": "model_download",
+                "title": "queued download",
+                "cancelable": True,
+            },
+            headers=headers,
+        )
+        assert created.status_code == 200, created.text
+
+        cancelled = client.post(
+            f"/api/v1/tasks/{created.json()['task_id']}/cancel",
+            json={"confirm": True},
+            headers=headers,
+        )
+
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "CANCEL_REQUESTED"

@@ -309,6 +309,12 @@ async def cancel_task(task_id: str, req: TaskActionRequest | None = None, db: DB
     # running until their own executor is told to stop.
     await executor.cancel_source(db, task)
     project_legacy_tasks(db, task.user_id)
+    db.refresh(task)
+    if task.status == "CANCEL_REQUESTED" and task.source not in {"model_download", "download"}:
+        # Nothing owns this work any more (queued child, manual task, stopped
+        # source), so the request is final instead of waiting for a confirmation
+        # that will never arrive. Download workers still confirm themselves.
+        task = service.transition(db, task, "CANCELLED", summary="已取消")
     task_outbox_publisher.nudge()
     try:
         record_control_plane_operation(db, user_id=user.id, action="task.cancel", object_type="task", object_id=task.task_id, correlation_id=corr, metadata=audit_metadata)
