@@ -55,8 +55,8 @@ def set_plugin_manager(pm):
 
 
 @router.get("")
-async def list_plugins(type: str | None = None):
-    """List all plugins, optionally filtered by type."""
+async def list_plugins(type: str | None = None, user: User = Depends(get_runtime_admin)):
+    """List all plugins, optionally filtered by type (admin-only, like the rest)."""
     if _plugin_manager is None:
         raise HTTPException(status_code=503, detail="Plugin manager not initialized")
     if type:

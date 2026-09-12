@@ -200,3 +200,29 @@ class TestPluginManager:
                 assert r.status_code == 200
                 r = c.post("/api/v1/plugins/ghost/start", json={"confirm": True}, headers=headers)
                 assert r.status_code == 404
+
+
+def test_plugin_listing_requires_authentication():
+    """An anonymous caller must not be able to enumerate installed plugins."""
+    from core.config import settings
+    from fastapi.testclient import TestClient
+    from main import app
+
+    with TestClient(app) as client:
+        assert client.get("/api/v1/plugins").status_code == 401
+
+    from unittest.mock import patch
+
+    with patch.object(settings, "runtime_admin_usernames", "pluglistadmin"):
+        with TestClient(app) as client:
+            client.post(
+                "/api/v1/auth/register",
+                json={"username": "pluglistadmin", "password": "secret123", "email": "pluglistadmin@example.com"},
+            )
+            login = client.post(
+                "/api/v1/auth/login", json={"username": "pluglistadmin", "password": "secret123"}
+            )
+            headers = {"Authorization": "Bearer " + login.json()["token"]}
+            listed = client.get("/api/v1/plugins", headers=headers)
+            assert listed.status_code == 200, listed.text
+            assert isinstance(listed.json(), list)
