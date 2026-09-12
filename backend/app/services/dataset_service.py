@@ -14,6 +14,8 @@ ALLOWED_EXTENSIONS = {".jsonl", ".csv", ".json", ".txt"}
 class DatasetParser:
     """Parse dataset files into (row_count, columns, sample)."""
 
+    SAMPLE_ROWS = 5
+
     @staticmethod
     def parse(path: str, fmt: str) -> tuple[int, list[str], list[dict]]:
         if fmt == "jsonl":
@@ -28,7 +30,8 @@ class DatasetParser:
 
     @staticmethod
     def _parse_jsonl(path: str) -> tuple[int, list[str], list[dict]]:
-        rows = []
+        count = 0
+        sample: list[dict] = []
         columns: list[str] = []
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -37,53 +40,72 @@ class DatasetParser:
                     continue
                 row = json.loads(line)
                 if isinstance(row, dict):
+                    count += 1
                     if not columns:
                         columns = list(row.keys())
-                    rows.append(row)
+                    if len(sample) < DatasetParser.SAMPLE_ROWS:
+                        sample.append(row)
                 elif isinstance(row, (str, int, float)):
+                    count += 1
                     if not columns:
                         columns = ["text"]
-                    rows.append({"text": str(row)})
-        return len(rows), columns, rows[:5]
+                    if len(sample) < DatasetParser.SAMPLE_ROWS:
+                        sample.append({"text": str(row)})
+        return count, columns, sample
 
     @staticmethod
     def _parse_csv(path: str) -> tuple[int, list[str], list[dict]]:
-        rows = []
+        count = 0
+        sample: list[dict] = []
         columns: list[str] = []
         with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
             reader = csv.DictReader(f)
             columns = reader.fieldnames or ["text"]
             for row in reader:
-                rows.append({k: v for k, v in row.items()})
-        return len(rows), columns, rows[:5]
+                count += 1
+                if len(sample) < DatasetParser.SAMPLE_ROWS:
+                    sample.append({k: v for k, v in row.items()})
+        return count, columns, sample
 
     @staticmethod
     def _parse_json(path: str) -> tuple[int, list[str], list[dict]]:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             data = json.load(f)
         if isinstance(data, list):
-            rows = [d for d in data if isinstance(d, dict)]
-            columns = list(rows[0].keys()) if rows else []
-            return len(rows), columns, rows[:5]
+            return DatasetParser._count_and_sample(data)
         if isinstance(data, dict):
             # 兼容 {"train": [...]} / {"text": ...} / {"messages": [...]}
             for key in ("train", "data", "examples"):
                 if isinstance(data.get(key), list):
-                    rows = [d for d in data[key] if isinstance(d, dict)]
-                    columns = list(rows[0].keys()) if rows else []
-                    return len(rows), columns, rows[:5]
+                    return DatasetParser._count_and_sample(data[key])
             return 1, list(data.keys()), [data]
         raise ValueError("JSON 数据集必须是对象数组或包含 train 字段的对象")
 
     @staticmethod
+    def _count_and_sample(items: list) -> tuple[int, list[str], list[dict]]:
+        """Count object rows without materialising a second copy of the list."""
+        count = 0
+        sample: list[dict] = []
+        for item in items:
+            if isinstance(item, dict):
+                count += 1
+                if len(sample) < DatasetParser.SAMPLE_ROWS:
+                    sample.append(item)
+        columns = list(sample[0].keys()) if sample else []
+        return count, columns, sample
+
+    @staticmethod
     def _parse_txt(path: str) -> tuple[int, list[str], list[dict]]:
-        lines = []
+        count = 0
+        sample: list[dict] = []
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if line:
-                    lines.append(line)
-        return len(lines), ["text"], [{"text": line_value} for line_value in lines[:5]]
+                    count += 1
+                    if len(sample) < DatasetParser.SAMPLE_ROWS:
+                        sample.append({"text": line})
+        return count, ["text"], sample
 
 
 class DatasetService:
