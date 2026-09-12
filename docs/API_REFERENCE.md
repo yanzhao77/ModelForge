@@ -41,7 +41,7 @@
 | GET | /api/v1/models/download/{task_id} | 下载进度 |
 | POST | /api/v1/models/download/{task_id}/pause | 暂停下载 |
 | POST | /api/v1/models/download/{task_id}/resume | 继续下载 |
-| POST | /api/v1/models/download/{task_id}/restart | 重新开始下载（清理本地残留） |
+| POST | /api/v1/models/download/{task_id}/restart | 重新开始下载（重新校验本地字节，仅重下损坏/缺失部分；不删除共享目录） |
 | POST | /api/v1/runtime/start / chat / stop | 推理运行时 |
 | GET | /api/v1/runtime/status | 运行时状态 |
 
@@ -132,6 +132,29 @@
 ```
 
 错误码：AGENT_NOT_FOUND / RUN_NOT_FOUND / RUN_CANCELLED / RUN_TIMEOUT / TOOL_NOT_FOUND / TOOL_DENIED / TOOL_TIMEOUT / MODEL_NOT_FOUND / MODEL_UNAVAILABLE / CONTEXT_TOO_LARGE / POLICY_DENIED / HUMAN_APPROVAL_REQUIRED / AGENT_LOOP_LIMIT / AGENT_TOOL_CALL_LIMIT / RUNTIME_ERROR。
+
+## 行为与错误契约（2026-09-12 更新）
+
+完整行为变更见 [行为变更说明](BEHAVIOR_CHANGES_2026-09-12.md)。接口层需注意：
+
+- **单账户占用**：推理与训练同一时刻只允许一个账户占用。其他账户的推理入口
+  （`/chat`、`/chat/stream`、`/v1/chat/completions`、`/runtime/start`、`/runtime/chat`、
+  `/knowledge/answer`）返回 `409 RUNTIME_BUSY`，训练入口返回 `409 TRAINING_BUSY`，
+  响应消息中带占用者用户名；同一账户可重入。
+- **Agent Run**：执行期间持有推理占用；拿不到时该 Run 以 `RUNTIME_BUSY` 结束，
+  `error` 字段为占用者提示，事件流中有对应的 `run.failed`。
+- **任务中心**：`POST /api/v1/tasks/{id}/cancel` 现在会把取消传递到执行器
+  （训练停止子进程、Agent Run 取消运行），任务行随后收敛为 `CANCELLED`；
+  `QUEUED` 状态的任务同样可取消。`POST /api/v1/tasks/{id}/retry` 会对 Agent Run
+  真正重新执行。
+- **认证**：`POST /api/v1/auth/change-password` 成功后会立即使此前签发的 token 失效
+  （需重新登录）。使用 Cookie 会话的写请求（含 `/v1/*`）必须携带 `X-CSRF-Token`，
+  值取自登录返回的 `csrf_token`。
+- **重启结算**：服务重启后，上一进程遗留的活跃记录会被结算为终态并写入稳定原因
+  （下载 → PAUSED/CANCELLED，训练 → error，项目调用 → `PROCESS_RESTARTED`，
+  Agent Run → `PROCESS_RESTARTED`）。
+- **新增稳定错误码**：`KNOWLEDGE_QUERY_REJECTED`、`KNOWLEDGE_ANSWER_REJECTED`、
+  `DATASET_NOT_FOUND`、`RUNTIME_BUSY`、`TRAINING_BUSY`、`PROCESS_RESTARTED`。
 
 ## Run 状态机（spec 4）
 

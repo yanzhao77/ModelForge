@@ -45,6 +45,8 @@
 | 微调训练 | 全参/LoRA，子进程隔离执行，进度/loss 上报，SSE 日志流，产物注册到模型列表 |
 | OpenAI 兼容 | `/v1/chat/completions`（含流式）+ `/v1/models` |
 | 系统监控 | CPU/GPU/内存/磁盘/日志/健康检查 |
+| 资源互斥 | 推理与训练同一时刻仅一个账户可占用，冲突返回 409（`RUNTIME_BUSY` / `TRAINING_BUSY`）并提示占用者；模型文件仍为全机共享 |
+| 任务治理 | 任务中心取消/重试直达执行器；服务重启后自动结算遗留的活跃下载/训练/Agent Run/项目调用 |
 
 ## 快速开始
 
@@ -128,8 +130,10 @@ docker rm -f modelforge
 ## 测试
 
 ```bash
-pytest tests/ -q    # 866 个用例通过、3 个按环境跳过（单元 + API 集成 + 桌面离屏 + 数据集/训练/知识库 + Agent Runtime + Plugin）
+pytest tests/ -q    # 1000 个非 GUI 用例通过、4 个按环境跳过（单元 + API 集成 + 数据集/训练/知识库 + Agent Runtime + Plugin）
 ```
+
+> 另有 7 个桌面 GUI 测试文件需要可用的 PySide6 运行环境（本机 Anaconda 环境存在 DLL 冲突，由 CI 覆盖）。
 
 ## 目录结构
 
@@ -180,6 +184,7 @@ ModelForge
 - [Agent Runtime 架构](docs/AGENT_RUNTIME.md) —— 3.0 Runtime 分层/执行链/事件/工具/策略/MCP/调度/多 Agent
 - [Composable Plugin 架构](docs/PLUGIN_ARCHITECTURE.md) —— 3.x 插件化（Scope/Manager/AgentProfile/ContextContributor/Multi-Agent 护栏/能力发现）
 - [API 参考](docs/API_REFERENCE.md) —— 全量端点与错误模型
+- [行为变更说明（2026-09-12）](docs/BEHAVIOR_CHANGES_2026-09-12.md) —— 本轮修复带来的使用者可见语义变化与验证方式
 - [Runtime 架构审计](docs/MODELFORGE_3_RUNTIME_ARCHITECTURE_AUDIT.md) —— 3.x 前的架构审计（结论 B：READY WITH REQUIRED HARDENING，已落地）
 - [微调/数据集/知识库开发计划](docs/DEVELOPMENT_PLAN.md) —— 历史设计依据（已标注执行完毕）
 - [桌面端测试版发布指南](docs/DESKTOP_TEST_RELEASE.md) —— macOS 打包、校验清单与 GitHub Pre-release 流程
