@@ -76,3 +76,27 @@ def test_delete_removes_every_copy_of_the_document():
         assert client.get("/api/v1/knowledge/documents/guide.txt/chunks", headers=headers).json() == []
         missing = client.delete("/api/v1/knowledge/documents/guide.txt", headers=headers)
         assert missing.status_code == 404
+
+
+def test_knowledge_rejection_uses_the_stable_problem_contract():
+    """Internal validation text must not leak through HTTP error details."""
+    with TestClient(app) as client:
+        headers = _headers(client)
+        _upload(client, headers, "内容。" * 20)
+
+        response = client.post(
+            "/api/v1/knowledge/query",
+            json={
+                "question": "内容",
+                "top_k": 3,
+                "knowledge_binding": {"mode": "collections", "collection_ids": []},
+            },
+            headers=headers,
+        )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "KNOWLEDGE_QUERY_REJECTED"
+    assert detail["correlation_id"]
+    assert "X-Correlation-ID" in response.headers
+    assert "collection_ids" not in response.text

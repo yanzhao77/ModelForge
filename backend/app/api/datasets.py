@@ -3,7 +3,7 @@
 from core.api_contracts import correlation_id, problem
 from core.database import get_db
 from core.security import get_current_user
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from models.records import User
 from services.dataset_service import DatasetService
 from sqlalchemy.orm import Session as DBSession
@@ -44,7 +44,7 @@ def get_dataset(
 ):
     rec = DatasetService().get(db, dataset_id, user.id)
     if rec is None:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+        raise problem(404, "DATASET_NOT_FOUND", "Dataset was not found.", correlation=correlation_id())
     return rec.to_dict()
 
 
@@ -55,8 +55,8 @@ def validate_dataset(
 ):
     try:
         return DatasetService().validate(db, dataset_id, user.id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as exc:
+        raise problem(404, "DATASET_NOT_FOUND", "Dataset was not found.", correlation=correlation_id()) from exc
 
 
 @router.delete("/{dataset_id}")
@@ -66,5 +66,5 @@ def delete_dataset(
 ):
     ok = DatasetService().delete(db, dataset_id, user.id)
     if not ok:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+        raise problem(404, "DATASET_NOT_FOUND", "Dataset was not found.", correlation=correlation_id())
     return {"ok": True}

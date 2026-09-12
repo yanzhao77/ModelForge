@@ -6,7 +6,7 @@ from core.api_contracts import correlation_id, operation_result, problem
 from core.config import settings
 from core.database import get_db
 from core.security import get_current_user
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 from models.records import User
 from pydantic import BaseModel
 from services.resource_lease import ResourceBusy, inference_lease, transient_hold
@@ -114,7 +114,7 @@ def knowledge_query(
     try:
         return _get_kb().query(req.question, top_k=req.top_k, db=db, user_id=user.id, knowledge_binding=req.knowledge_binding)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise problem(422, "KNOWLEDGE_QUERY_REJECTED", "Knowledge query was rejected.", correlation=correlation_id()) from exc
 
 
 @router.post("/answer")
@@ -133,7 +133,7 @@ async def knowledge_answer(
     except ResourceBusy as exc:
         raise exc.to_problem() from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise problem(422, "KNOWLEDGE_ANSWER_REJECTED", "Knowledge answer was rejected.", correlation=correlation_id()) from exc
 
 
 @router.get("/stats")

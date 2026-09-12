@@ -85,6 +85,14 @@ class TestDatasetsApi:
     def test_datasets_require_auth(self, client):
         assert client.get("/api/v1/datasets").status_code == 401
 
+    def test_missing_dataset_uses_the_stable_problem_contract(self, client):
+        token = _login(client, "dsmissing")
+        headers = _auth(token)
+        response = client.post("/api/v1/datasets/999999/validate", headers=headers)
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "DATASET_NOT_FOUND"
+        assert "X-Correlation-ID" in response.headers
+
 
 class TestTrainingFlow:
     @pytest.fixture(autouse=True)
