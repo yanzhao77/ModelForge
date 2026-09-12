@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
+from core.config import restrict_file_to_owner
 from core.config import settings as _app_settings
 from core.network_security import (
     ProviderNetworkError,
@@ -117,9 +118,16 @@ class ProviderCipher:
         if self.path.exists():
             return self.path.read_bytes().strip()
         key = Fernet.generate_key()
-        fd = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            fd = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            # Another writer created the key first; its value wins.
+            return self.path.read_bytes().strip()
         with os.fdopen(fd, "wb") as handle:
             handle.write(key)
+        # 0o600 is a no-op on Windows, and this key decrypts every provider
+        # credential, so the inherited ACL has to be replaced explicitly.
+        restrict_file_to_owner(self.path)
         return key
 
     def encrypt(self, value: str) -> str:

@@ -15,9 +15,14 @@ APP = os.path.join(ROOT, "backend", "app")
 if APP not in sys.path:
     sys.path.insert(0, APP)
 
+from core.config import restrict_file_to_owner
 from core.database import Base
 from models.records import RemoteProviderConfig, User
-from services.remote_provider_service import RemoteProviderError, RemoteProviderService
+from services.remote_provider_service import (
+    ProviderCipher,
+    RemoteProviderError,
+    RemoteProviderService,
+)
 
 
 def _service():
@@ -50,6 +55,22 @@ def _client_with_response(status_code: int, payload: dict):
     client.__enter__.return_value = client
     client.get.return_value = response
     return client
+
+
+def test_provider_encryption_key_file_is_owner_only(tmp_path):
+    """This key decrypts every stored provider credential."""
+    cipher = ProviderCipher(str(tmp_path))
+    token = cipher.encrypt("sk-proj-example-value")
+
+    key_path = tmp_path / ".remote_provider_fernet.key"
+    assert key_path.exists()
+    if os.name == "nt":
+        # No POSIX mode bits: the ACL is the only lever, so a successful
+        # re-application proves it is owner-scoped rather than inherited.
+        assert restrict_file_to_owner(key_path) is True
+    else:
+        assert key_path.stat().st_mode & 0o777 == 0o600
+    assert ProviderCipher(str(tmp_path)).decrypt(token) == "sk-proj-example-value"
 
 
 def test_successful_verification_persists_only_non_sensitive_summary():

@@ -113,12 +113,12 @@ def _validate_production_origins(origins: list[str]) -> None:
             )
 
 
-def _restrict_secret_to_owner(path: Path) -> bool:
-    """Best-effort owner-only access for the persisted development secret.
+def restrict_file_to_owner(path: Path) -> bool:
+    """Best-effort owner-only access for a local secret file.
 
     Windows has no POSIX mode bits, so the inherited ACL is replaced with a
     single grant for the current account instead of leaving the signing key
-    readable by every local user.
+    (or encryption key) readable by every local user.
     """
     if os.name != "nt":
         os.chmod(path, 0o600)
@@ -152,7 +152,7 @@ def ensure_dev_jwt_secret(data_dir: str | os.PathLike[str]) -> str:
         generated = secrets.token_urlsafe(48)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(generated, encoding="utf-8")
-        _restrict_secret_to_owner(path)
+        restrict_file_to_owner(path)
         return generated
     except OSError:
         return secrets.token_urlsafe(48)

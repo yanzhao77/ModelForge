@@ -18,9 +18,9 @@ if str(APP) not in sys.path:
 
 from core.config import (  # noqa: E402
     _INSECURE_JWT_SECRETS,
-    _restrict_secret_to_owner,
     ensure_dev_jwt_secret,
     load_config,
+    restrict_file_to_owner,
 )
 
 DEV_SECRET_NAME = ".dev_jwt_secret"
@@ -31,7 +31,7 @@ def _assert_owner_only(path: Path) -> None:
     if os.name == "nt":
         # ``icacls`` is the only supported lever on Windows, so a successful
         # re-application proves the ACL is owner-scoped rather than inherited.
-        assert _restrict_secret_to_owner(path) is True
+        assert restrict_file_to_owner(path) is True
         return
     assert path.stat().st_mode & 0o777 == 0o600
 
@@ -121,7 +121,7 @@ class TestJWTSecretConfigIntegration:
         data_dir.mkdir()
         secret_path = data_dir / DEV_SECRET_NAME
         secret_path.write_text("a" * 48, encoding="utf-8")
-        _restrict_secret_to_owner(secret_path)
+        restrict_file_to_owner(secret_path)
 
         monkeypatch.setenv("MODELFORGE_ENV", "development")
         monkeypatch.delenv("JWT_SECRET", raising=False)
