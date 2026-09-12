@@ -150,6 +150,27 @@ class TaskExecutionService:
             error_detail={"retry_of": task.parent_task_id, "source": task.source},
         )
 
+    async def cancel_source(self, db: Session, task: TaskRecord) -> bool:
+        """Propagate a task-center cancel to whatever owns the actual work.
+
+        Marking the projection CANCEL_REQUESTED alone does nothing for training
+        subprocesses or Agent Runs, which kept running (and kept costing tokens)
+        while the task center showed a cancel in progress.
+        """
+        if task.source == "training":
+            return get_training_service().stop(db, task.source_task_id, task.user_id)
+        if task.source == "agent_runtime":
+            runtime = get_agent_runtime()
+            if runtime is None:
+                return False
+            try:
+                run = await runtime.cancel_run(task.source_task_id, user_id=task.user_id)
+            except Exception:
+                return False
+            return str(getattr(run, "status", "")) == "CANCELLED"
+        # Download workers poll the task-center status themselves.
+        return False
+
     def synchronize(self, db: Session, task: TaskRecord) -> bool:
         """Project executor state to a retry child only when a material field changed."""
         if task.parent_task_id is None or task.status in TERMINAL:

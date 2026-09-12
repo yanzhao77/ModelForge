@@ -289,7 +289,7 @@ def task_logs(task_id: str, limit: int = Query(default=200, ge=1, le=500), db: D
     return executor.logs(db, task, limit=limit)
 
 @router.post("/{task_id}/cancel")
-def cancel_task(task_id: str, req: TaskActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def cancel_task(task_id: str, req: TaskActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
     corr = (req.request_id if req else None) or correlation_id()
     if req is None or not req.confirm:
         raise problem(409, "TASK_CANCEL_CONFIRMATION_REQUIRED", "Confirm before cancelling a task.", correlation=corr)
@@ -305,6 +305,10 @@ def cancel_task(task_id: str, req: TaskActionRequest | None = None, db: DBSessio
         task = service.request_cancel(db, task)
     except TaskConflict as error:
         _conflict(error, correlation=corr)
+    # Marking the projection is not enough: training and Agent Runs keep
+    # running until their own executor is told to stop.
+    await executor.cancel_source(db, task)
+    project_legacy_tasks(db, task.user_id)
     task_outbox_publisher.nudge()
     try:
         record_control_plane_operation(db, user_id=user.id, action="task.cancel", object_type="task", object_id=task.task_id, correlation_id=corr, metadata=audit_metadata)

@@ -57,7 +57,8 @@ def test_task_list_projects_training_and_agent_runs(client):
     assert agent["retryable"] is False
 
 
-def test_projection_preserves_cancellation_request_against_stale_running_source(client):
+def test_task_center_cancel_stops_the_owning_training_and_settles_the_row(client):
+    """Cancelling now reaches the training subprocess instead of only asking."""
     headers, user_id = auth_with_user(client, "cancelprojection")
     train_id = uuid.uuid4().hex[:12]
     db = SessionLocal()
@@ -75,11 +76,69 @@ def test_projection_preserves_cancellation_request_against_stale_running_source(
     task = next(item for item in first if item["source_task_id"] == train_id)
     cancelled = client.post(f"/api/v1/tasks/{task['task_id']}/cancel", json={"confirm": True}, headers=headers)
     assert cancelled.status_code == 200
-    assert cancelled.json()["status"] == "CANCEL_REQUESTED"
+    assert cancelled.json()["status"] == "CANCELLED"
 
     refreshed = client.get("/api/v1/tasks", headers=headers).json()["tasks"]
     task = next(item for item in refreshed if item["source_task_id"] == train_id)
-    assert task["status"] == "CANCEL_REQUESTED"
+    assert task["status"] == "CANCELLED"
+
+    db = SessionLocal()
+    try:
+        source = db.query(TrainTask).filter_by(task_id=train_id, user_id=user_id).one()
+        assert source.status == "stopped"
+    finally:
+        db.close()
+
+
+def test_projection_does_not_revive_a_cancellation_request(client):
+    """A stale RUNNING source must not resurrect a row that is awaiting cancel."""
+    from services.task_service import TaskService
+
+    _headers, user_id = auth_with_user(client, "cancelguard")
+    source_task_id = f"cancelled-download-{uuid.uuid4().hex[:8]}"
+    db = SessionLocal()
+    try:
+        service = TaskService()
+        task = service.create(
+            db,
+            user_id=user_id,
+            task_type="model_download",
+            source="model_download",
+            source_task_id=source_task_id,
+            title="guard",
+            cancelable=True,
+            retryable=True,
+        )
+        # The row has to be live before a cancel can be requested for it.
+        service.project(
+            db,
+            user_id=user_id,
+            task_type="model_download",
+            source="model_download",
+            source_task_id=source_task_id,
+            title="guard",
+            status="RUNNING",
+            cancelable=True,
+            retryable=True,
+        )
+        task = service.request_cancel(db, db.query(TaskRecord).filter_by(task_id=task.task_id).one())
+
+        # A worker that has not observed the request yet keeps reporting RUNNING.
+        service.project(
+            db,
+            user_id=user_id,
+            task_type="model_download",
+            source="model_download",
+            source_task_id=source_task_id,
+            title="guard",
+            status="RUNNING",
+            cancelable=True,
+            retryable=True,
+        )
+
+        assert db.query(TaskRecord).filter_by(task_id=task.task_id).one().status == "CANCEL_REQUESTED"
+    finally:
+        db.close()
 
 
 def test_unchanged_legacy_projection_does_not_amplify_events_or_outbox(client):
