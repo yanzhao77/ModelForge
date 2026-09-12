@@ -39,7 +39,10 @@ def _context(db: DBSession, user: User | None, session_id: int | None, messages:
     user_message = messages[-1]["content"] if messages else ""
     if session is None:
         return session, messages, user_message
-    history = SessionService.get_session_history(db, session_id, limit=50)
+    history = [
+        message.to_dict()
+        for message in SessionService.get_recent_session_messages(db, session_id, limit=50)
+    ]
     mem_ctx = _memory_context(db, user.id, user_message)
     full_messages = ([{"role": "system", "content": mem_ctx}] if mem_ctx else []) + history + [{"role": "user", "content": user_message}]
     MemoryStore.extract_memories_from_message(db, user.id, user_message, session_id)

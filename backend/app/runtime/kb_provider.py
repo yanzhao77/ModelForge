@@ -50,7 +50,7 @@ class SessionHistoryProvider:
             session = SessionService.get_session_by_id(db, session_id, user_id=user_id)
             if session is None:
                 return []
-            msgs = SessionService.get_session_messages(db, session_id, limit=limit, offset=0)
+            msgs = SessionService.get_recent_session_messages(db, session_id, limit=limit)
             return [
                 {"role": m.role, "content": m.content}
                 for m in msgs if m.role in ("user", "assistant")

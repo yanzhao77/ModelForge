@@ -118,6 +118,25 @@ class SessionService:
         return [m.to_dict() for m in messages]
 
     @staticmethod
+    def get_recent_session_messages(
+        db: DBSession, session_id: int, limit: int = 50
+    ) -> list[Message]:
+        """Return the newest ``limit`` messages, oldest first.
+
+        A context window must carry the *latest* turns; ``get_session_messages``
+        pages from the beginning of the conversation, which silently dropped
+        everything said after the window filled up.
+        """
+        rows = (
+            db.query(Message)
+            .filter(Message.session_id == session_id)
+            .order_by(Message.timestamp.desc(), Message.id.desc())
+            .limit(max(1, limit))
+            .all()
+        )
+        return list(reversed(rows))
+
+    @staticmethod
     def clear_session_messages(
         db: DBSession, session_id: int, user_id: int | None = None
     ) -> bool:
