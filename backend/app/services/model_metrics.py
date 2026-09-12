@@ -89,7 +89,25 @@ class ModelMetricRecorder:
                 .one_or_none()
             )
             if row is None:
-                row = ModelMetricBucket(id=uuid.uuid4().hex, user_id=user_id, model_ref=ref, bucket_start=start)
+                # Column defaults only apply at INSERT, so the counters have to be
+                # initialised here: incrementing a fresh row's ``None`` counter
+                # raised TypeError and the bucket was silently rolled back.
+                row = ModelMetricBucket(
+                    id=uuid.uuid4().hex,
+                    user_id=user_id,
+                    model_ref=ref,
+                    bucket_start=start,
+                    request_count=0,
+                    success_count=0,
+                    error_4xx_count=0,
+                    error_429_count=0,
+                    error_5xx_count=0,
+                    timeout_count=0,
+                    latency_sum_ms=0.0,
+                    input_tokens_estimate=0,
+                    output_tokens_estimate=0,
+                    cost_estimate=0.0,
+                )
                 db.add(row)
             input_tokens, output_tokens = _tokens(token_usage)
             row.request_count += 1
