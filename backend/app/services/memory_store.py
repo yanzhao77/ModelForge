@@ -41,7 +41,7 @@ class MemoryStore:
             existing.value = value
             existing.importance = max(existing.importance, importance)
             existing.last_accessed = datetime.now(timezone.utc)
-            existing.access_count += 1
+            existing.access_count = (existing.access_count or 0) + 1
             db.commit()
             db.refresh(existing)
             return existing
@@ -86,7 +86,7 @@ class MemoryStore:
         )
         for memory in memories:
             memory.last_accessed = datetime.now(timezone.utc)
-            memory.access_count += 1
+            memory.access_count = (memory.access_count or 0) + 1
         db.commit()
         return memories
 
@@ -122,12 +122,50 @@ class MemoryStore:
     def get_relevant_memories_for_query(
         db: DBSession, user_id: int, query: str, limit: int = 3
     ) -> list[Memory]:
-        keywords = re.findall(r"[\u4e00-\u9fa5a-zA-Z]+", query or "")
-        all_memories: list[Memory] = []
-        for keyword in keywords[:5]:
-            all_memories.extend(MemoryStore.search_memories(db, user_id, keyword, limit=2))
-        unique = {m.id: m for m in all_memories}.values()
-        return sorted(unique, key=lambda x: x.importance, reverse=True)[:limit]
+        terms = MemoryStore._query_terms(query)
+        if not terms:
+            return []
+        conditions = []
+        for term in terms:
+            conditions.append(Memory.key.contains(term))
+            conditions.append(Memory.value.contains(term))
+        memories = (
+            db.query(Memory)
+            .filter(Memory.user_id == user_id, or_(*conditions))
+            .order_by(Memory.importance.desc(), Memory.last_accessed.desc())
+            .limit(limit)
+            .all()
+        )
+        for memory in memories:
+            memory.last_accessed = datetime.now(timezone.utc)
+            memory.access_count = (memory.access_count or 0) + 1
+        db.commit()
+        return memories
+
+    @staticmethod
+    def _query_terms(query: str, max_terms: int = 8) -> list[str]:
+        """Split a query into terms that can match stored memories.
+
+        Chinese runs are not word-segmented, so using the whole run as the
+        search term made recall fail even when the query contained the stored
+        keyword verbatim (e.g. "我还喜欢茶吗" never matched "我喜欢喝茶").
+        Overlapping bigrams restore that match without a tokenizer.
+        """
+        terms: list[str] = []
+        for run in re.findall(r"[\u4e00-\u9fa5]+|[A-Za-z]+", query or ""):
+            if run.isascii():
+                if len(run) >= 2:
+                    terms.append(run)
+                continue
+            if len(run) == 1:
+                terms.append(run)
+            else:
+                terms.extend(run[index:index + 2] for index in range(len(run) - 1))
+        unique: list[str] = []
+        for term in terms:
+            if term not in unique:
+                unique.append(term)
+        return unique[:max_terms]
 
     @staticmethod
     def format_memories_for_context(memories: list[Memory]) -> str:
