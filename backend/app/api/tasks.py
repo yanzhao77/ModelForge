@@ -107,11 +107,11 @@ def _task_stream_cursor(after_id: int, last_event_id: str | None, correlation: s
     return max(after_id, header_cursor)
 
 
-def _retry_with_execution(db: DBSession, task: TaskRecord) -> TaskRecord:
+async def _retry_with_execution(db: DBSession, task: TaskRecord) -> TaskRecord:
     retry = service.retry(db, task)
     try:
         if retry.source in {"training", "agent_runtime", "model_download", "download"}:
-            return executor.launch_retry(db, retry)
+            return await executor.launch_retry(db, retry)
     except RetryExecutionError as error:
         return executor.fail_dispatch(db, retry, error)
     return retry
@@ -222,7 +222,7 @@ def transition_task(task_id: str, req: TaskTransitionRequest, db: DBSession = De
 
 
 @router.post("/retry-batch")
-def retry_tasks_batch(req: TaskBatchRetryRequest, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def retry_tasks_batch(req: TaskBatchRetryRequest, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
     corr = req.request_id or correlation_id()
     if not req.confirm:
         raise problem(409, "TASK_RETRY_CONFIRMATION_REQUIRED", "Confirm before retrying tasks.", correlation=corr)
@@ -244,7 +244,7 @@ def retry_tasks_batch(req: TaskBatchRetryRequest, db: DBSession = Depends(get_db
             failures.append({"task_id": task_id, "code": "TASK_VERSION_CONFLICT", "message": "Task action was not accepted."})
             continue
         try:
-            retry = _retry_with_execution(db, task)
+            retry = await _retry_with_execution(db, task)
             succeeded.append(retry.to_dict())
         except TaskConflict as error:
             failures.append({"task_id": task_id, "code": str(error), "message": "Task retry was not accepted."})
@@ -258,7 +258,7 @@ def retry_tasks_batch(req: TaskBatchRetryRequest, db: DBSession = Depends(get_db
     return operation_result({"tasks": succeeded, "failures": failures}, corr)
 
 @router.post("/{task_id}/retry")
-def retry_task(task_id: str, req: TaskActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def retry_task(task_id: str, req: TaskActionRequest | None = None, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
     corr = (req.request_id if req else None) or correlation_id()
     if req is None or not req.confirm:
         raise problem(409, "TASK_RETRY_CONFIRMATION_REQUIRED", "Confirm before retrying a task.", correlation=corr)
@@ -271,7 +271,7 @@ def retry_task(task_id: str, req: TaskActionRequest | None = None, db: DBSession
     if req.expected_version is not None and task.version != req.expected_version:
         raise problem(409, "TASK_VERSION_CONFLICT", "Task action was not accepted.", correlation=corr)
     try:
-        retry = _retry_with_execution(db, task)
+        retry = await _retry_with_execution(db, task)
     except TaskConflict as error:
         _conflict(error, correlation=corr)
     task_outbox_publisher.nudge()

@@ -41,8 +41,13 @@ class TaskExecutionService:
     def _set_metadata(task: TaskRecord, metadata: dict[str, Any]) -> None:
         task.meta = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
 
-    def launch_retry(self, db: Session, task: TaskRecord) -> TaskRecord:
-        """Claim a queued retry child and start the matching executor exactly once."""
+    async def launch_retry(self, db: Session, task: TaskRecord) -> TaskRecord:
+        """Claim a queued retry child and start the matching executor exactly once.
+
+        Async on purpose: the Agent Run executor schedules its run on the
+        running event loop, and a sync caller used to lose that loop entirely
+        (``no running event loop``) so the retry never executed.
+        """
         if task.parent_task_id is None or task.status != "QUEUED":
             raise RetryExecutionError("仅已排队的重试子任务可以被执行器领取")
         try:

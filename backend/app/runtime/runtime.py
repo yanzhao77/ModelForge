@@ -1040,7 +1040,10 @@ class AgentRuntime:
                 self._run_tasks[run_id] = task
             task.add_done_callback(lambda finished: self._on_task_done(finished, run_id=run_id))
             return task
-        except RuntimeError:
+        except Exception:
+            # This module imports the runtime's own ``RuntimeError``, which
+            # shadows the builtin raised by ``get_running_loop``: catching only
+            # the imported class let sync callers crash instead of degrading.
             self._background_spawn_rejection_count += 1
             close = getattr(coro, "close", None)
             if callable(close):
