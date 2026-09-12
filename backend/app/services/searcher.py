@@ -9,21 +9,31 @@ def needs_web_search(question: str) -> bool:
     return any(kw in (question or "") for kw in _SEARCH_KEYWORDS)
 
 
-@lru_cache(maxsize=100)
 def cached_search(query: str, max_results: int = 5) -> list[dict]:
-    """Cached DuckDuckGo search. Returns [{"title","content"}, ...]."""
+    """Cached DuckDuckGo search. Returns [{"title","content"}, ...].
+
+    Only successful lookups are memoised: caching the failure path made one
+    transient error pin an empty result on that query for the whole process.
+    """
     try:
-        from duckduckgo_search import DDGS
-        results = []
-        with DDGS() as ddgs:
-            for result in ddgs.text(query, max_results=max_results):
-                results.append({
-                    "title": result.get("title", ""),
-                    "content": (result.get("body") or "")[:2048],
-                })
-        return results
+        return _search(query, max_results)
     except Exception:
         return []
+
+
+@lru_cache(maxsize=100)
+def _search(query: str, max_results: int = 5) -> list[dict]:
+    """Perform the lookup; exceptions propagate so they are never cached."""
+    from duckduckgo_search import DDGS
+
+    results = []
+    with DDGS() as ddgs:
+        for result in ddgs.text(query, max_results=max_results):
+            results.append({
+                "title": result.get("title", ""),
+                "content": (result.get("body") or "")[:2048],
+            })
+    return results
 
 
 def format_search_context(results: list[dict]) -> str:
