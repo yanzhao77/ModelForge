@@ -47,6 +47,7 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         self.preset = QComboBox()
         self.preset.addItem("智谱 AI（GLM-4.5-Flash）", "zhipu")
         self.preset.addItem("OpenAI", "openai")
+        self.preset.addItem("OrcaRouter", "orcarouter")
         self.preset.addItem("自定义 OpenAI 兼容服务", "custom")
         self.preset.currentIndexChanged.connect(self._preset_changed)
         self.name = QLineEdit()
@@ -120,6 +121,11 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
             self.name.setText("OpenAI")
             self.base_url.setText("https://api.openai.com/v1")
             self.model.setText("gpt-4.1-mini")
+            self.protocol.setCurrentIndex(0)
+        elif preset == "orcarouter":
+            self.name.setText("OrcaRouter")
+            self.base_url.setText("https://api.orcarouter.ai/v1")
+            self.model.setText("orcarouter/auto")
             self.protocol.setCurrentIndex(0)
 
     def refresh(self) -> None:
