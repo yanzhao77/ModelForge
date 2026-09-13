@@ -117,32 +117,118 @@ class Memory(Base):
 
 
 class ModelRecord(Base):
-    """A model tracked locally or from a remote provider."""
+    """A model asset tracked locally or from a remote provider.
+
+    This row is the single source of truth for the model lifecycle: download,
+    model center, chat, training and the OpenAI-compatible API all resolve a
+    ``model_id`` (this primary key) through it instead of passing file paths or
+    display names around. ``capabilities`` and ``model_metadata`` are stored as
+    JSON text so the schema stays portable between SQLite and PostgreSQL.
+    """
     __tablename__ = "models"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=True, index=True)  # None = 全局模型
     name = Column(String(255), nullable=False, index=True)
+    display_name = Column(String(255), nullable=True)
     provider = Column(String(100), nullable=False, default="local")
     path = Column(String(1024), nullable=True)
     size = Column(String(50), nullable=True)
+    size_bytes = Column(Integer, nullable=True)
     status = Column(String(50), nullable=False, default="available")
     format = Column(String(50), nullable=True)  # gguf / safetensors / ...
     quant = Column(String(50), nullable=True)  # Q4_K_M 等量化类型
+    capabilities = Column(Text, nullable=True)  # JSON array, e.g. ["CHAT","INFERENCE"]
+    model_metadata = Column(Text, nullable=True)  # JSON object (architecture, params, …)
+    base_model_id = Column(Integer, nullable=True)  # training artifact -> base model
+    parent_model_id = Column(Integer, nullable=True)  # LoRA adapter -> full model
     created_time = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_time = Column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )
+
+    # -- capability helpers -------------------------------------------------
+
+    def capability_list(self) -> list[str]:
+        """Return the parsed capability list, never ``None``."""
+        return _parse_json_list(self.capabilities)
+
+    def set_capabilities(self, values: list[str]) -> None:
+        import json as _json
+
+        cleaned: list[str] = []
+        for value in values or []:
+            text = str(value).strip().upper()
+            if text and text not in cleaned:
+                cleaned.append(text)
+        self.capabilities = _json.dumps(cleaned, ensure_ascii=False)
+
+    def has_capability(self, capability: str) -> bool:
+        return str(capability).strip().upper() in self.capability_list()
+
+    # -- metadata helpers ---------------------------------------------------
+
+    def metadata_dict(self) -> dict:
+        """Return the parsed metadata object, never ``None``."""
+        return _parse_json_object(self.model_metadata)
+
+    def set_metadata(self, values: dict | None) -> None:
+        import json as _json
+
+        payload = {str(key): value for key, value in (values or {}).items()}
+        self.model_metadata = _json.dumps(payload, ensure_ascii=False)
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            # ``model_id`` is the cross-module identifier required by the model
+            # runtime contract; ``id`` is kept for existing desktop clients.
+            "model_id": self.id,
             "name": self.name,
+            "display_name": self.display_name,
             "provider": self.provider,
+            "source": self.provider,
             "path": self.path,
             "size": self.size,
+            "size_bytes": self.size_bytes,
             "status": self.status,
             "format": self.format,
             "quant": self.quant,
+            "capabilities": self.capability_list(),
+            "metadata": self.metadata_dict(),
+            "base_model_id": self.base_model_id,
+            "parent_model_id": self.parent_model_id,
             "created_time": self.created_time.isoformat() if self.created_time else None,
+            "updated_time": self.updated_time.isoformat() if self.updated_time else None,
         }
+
+
+def _parse_json_list(value: str | None) -> list[str]:
+    """Decode a JSON array column without ever raising on corrupt data."""
+    import json as _json
+
+    if not value:
+        return []
+    try:
+        parsed = _json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item).strip().upper() for item in parsed if str(item).strip()]
+
+
+def _parse_json_object(value: str | None) -> dict:
+    """Decode a JSON object column without ever raising on corrupt data."""
+    import json as _json
+
+    if not value:
+        return {}
+    try:
+        parsed = _json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class DownloadTaskRecord(Base):

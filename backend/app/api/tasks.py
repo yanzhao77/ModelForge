@@ -326,7 +326,11 @@ async def cancel_task(task_id: str, req: TaskActionRequest | None = None, db: DB
 
 @router.get("/onboarding/state")
 def onboarding_state(db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
-    ready_models = db.query(ModelRecord).filter(ModelRecord.status == "available").filter((ModelRecord.user_id == user.id) | (ModelRecord.user_id.is_(None))).count()
+    # A usable model is one the registry reports as ready; "available" is the
+    # legacy spelling of "ready" and both must count here.
+    from services.model_capabilities import READY_STATUSES
+
+    ready_models = db.query(ModelRecord).filter(ModelRecord.status.in_(sorted(READY_STATUSES))).filter((ModelRecord.user_id == user.id) | (ModelRecord.user_id.is_(None))).count()
     has_session = db.query(ChatSession).filter_by(user_id=user.id).count() > 0
     has_run = db.query(AgentRun).filter_by(user_id=user.id).filter(AgentRun.status.in_(["COMPLETED", "SUCCEEDED"])).count() > 0
     next_step = "select_model" if not ready_models else ("send_message" if not has_session else ("run_agent" if not has_run else "complete"))

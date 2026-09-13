@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFEmptyState, MFPanel, MFSection, MFStatusBadge
@@ -20,46 +22,100 @@ from PySide6.QtWidgets import (
 
 
 class ModelCard(MFPanel):
-    """A compact card for one locally available model."""
+    """A compact card for one locally available model asset."""
 
-    def __init__(self, model: dict, on_chat, on_runtime, parent=None):
+    #: Lifecycle status -> Chinese label + badge tone. The registry owns the
+    #: vocabulary; the card only renders it.
+    STATUS_LABELS = {
+        "ready": ("就绪", "online"),
+        "available": ("就绪", "online"),
+        "installed": ("待就绪", "warning"),
+        "downloading": ("下载中", "warning"),
+        "installing": ("安装中", "warning"),
+        "loading": ("加载中", "warning"),
+        "loaded": ("已加载", "online"),
+        "unloading": ("卸载中", "warning"),
+        "load_failed": ("加载失败", "error"),
+        "invalid": ("文件缺失", "error"),
+        "discovered": ("已发现", "warning"),
+    }
+
+    def __init__(self, model: dict, on_chat, on_runtime, on_load=None, on_unload=None, on_default=None, parent=None):
         super().__init__(parent)
-        name = model.get("name") or model.get("model_id") or "未命名模型"
-        status = str(model.get("status") or "就绪")
-        values = (
-            model.get("parameters") or model.get("params"),
-            model.get("quantization"),
-            model.get("vram") or model.get("size"),
-        )
-        meta = " · ".join(str(value) for value in values if value) or "本地模型"
+        name = model.get("display_name") or model.get("name") or model.get("model_id") or "未命名模型"
+        runtime_status = str(model.get("runtime_status") or "idle")
+        # A loaded runtime always wins over the persisted asset status.
+        status_key = "loaded" if runtime_status == "loaded" else str(model.get("status") or "ready").lower()
+        label, tone = self.STATUS_LABELS.get(status_key, (str(model.get("status") or "就绪"), "warning"))
 
         row = QHBoxLayout()
-        title = QLabel(name)
+        title = QLabel(str(name))
         title.setStyleSheet("font-size: 15px; font-weight: 600;")
         row.addWidget(title)
         row.addStretch(1)
-
-        badge = QLabel(status)
-        ready_states = {"ready", "running", "loaded", "available", "就绪", "运行中"}
-        badge.setProperty(
-            "status", "online" if status.lower() in ready_states else "warning"
-        )
+        badge = QLabel(label)
+        badge.setProperty("status", tone)
         row.addWidget(badge)
         self.layout.addLayout(row)
 
+        values = (
+            model.get("format"),
+            model.get("quant"),
+            model.get("size") or _human_size(model.get("size_bytes")),
+        )
+        meta = " · ".join(str(value) for value in values if value) or "本地模型"
         detail = QLabel(meta)
         detail.setProperty("role", "muted")
         self.layout.addWidget(detail)
 
+        capabilities = model.get("capabilities") or []
+        caps = QLabel("能力：" + ("、".join(str(item) for item in capabilities) if capabilities else "未知"))
+        caps.setProperty("role", "muted")
+        self.layout.addWidget(caps)
+
         actions = QHBoxLayout()
         chat = QPushButton("开始对话")
-        chat.clicked.connect(on_chat)
-        runtime = QPushButton("查看运行时")
-        runtime.clicked.connect(on_runtime)
+        chat.clicked.connect(lambda: on_chat())
+        chat.setEnabled(bool(model.get("ready")))
         actions.addWidget(chat)
+        runtime = QPushButton("查看运行时")
+        runtime.clicked.connect(lambda: on_runtime())
         actions.addWidget(runtime)
+        if runtime_status == "loaded":
+            unload = QPushButton("卸载")
+            unload.clicked.connect(lambda: on_unload and on_unload())
+            actions.addWidget(unload)
+        else:
+            load = QPushButton("加载")
+            load.clicked.connect(lambda: on_load and on_load())
+            actions.addWidget(load)
+        if on_default is not None:
+            default = QPushButton("设为默认")
+            default.clicked.connect(lambda: on_default())
+            actions.addWidget(default)
         actions.addStretch(1)
         self.layout.addLayout(actions)
+
+
+def _human_size(size_bytes) -> str:
+    """Render a byte count without depending on the backend's formatting."""
+    try:
+        amount = float(max(0, int(size_bytes)))
+    except (TypeError, ValueError):
+        return ""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if amount < 1024 or unit == "TB":
+            return f"{int(amount)} B" if unit == "B" else f"{amount:.1f} {unit}"
+        amount /= 1024
+    return f"{amount:.1f} TB"
+
+
+def _list_models(api) -> list[dict]:
+    """Read the model inventory through the richest signature available."""
+    try:
+        return api.list_models()
+    except TypeError:
+        return api.list_models(capability=None)
 
 
 class RemoteProviderCard(MFPanel):
@@ -98,7 +154,9 @@ class RemoteProviderCard(MFPanel):
 
         actions = QHBoxLayout()
         chat = QPushButton("开始对话")
-        chat.clicked.connect(on_chat)
+        # clicked(bool) must not leak its checked flag into the callback: the
+        # caller passes a zero-argument callable that closes over the service.
+        chat.clicked.connect(lambda: on_chat())
         manage = QPushButton("管理服务")
         manage.clicked.connect(on_manage)
         actions.addWidget(chat)
@@ -111,6 +169,7 @@ class ModelsPage(QWidget, AsyncApiMixin):
     """The single management surface for local models and remote providers."""
 
     navigate_requested = Signal(str)
+    provider_chat_requested = Signal(object)
 
     def __init__(self, api, readiness_store=None, parent=None):
         QWidget.__init__(self, parent)
@@ -171,7 +230,7 @@ class ModelsPage(QWidget, AsyncApiMixin):
     def refresh(self) -> None:
         self.status.set_state("正在检查模型", "warning")
         self._run_api(
-            lambda: (self.api.list_models(), self.api.list_remote_providers()),
+            lambda: (_list_models(self.api), self.api.list_remote_providers()),
             self._render_models,
             self._failed,
             request_key="models.refresh",
@@ -194,17 +253,21 @@ class ModelsPage(QWidget, AsyncApiMixin):
         self._clear_cards()
 
         for model in models:
+            model_ref = model
             card = ModelCard(
                 model,
                 lambda: self.navigate_requested.emit("chat"),
                 lambda: self.navigate_requested.emit("runtime"),
+                on_load=lambda ref=model_ref: self._load_model(ref),
+                on_unload=lambda ref=model_ref: self._unload_model(ref),
+                on_default=lambda ref=model_ref: self._set_default(ref),
             )
             self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
 
         for provider in providers:
             card = RemoteProviderCard(
                 provider,
-                lambda: self.navigate_requested.emit("chat"),
+                partial(self.provider_chat_requested.emit, provider.get("id")),
                 self._manage_providers,
             )
             self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
@@ -215,6 +278,52 @@ class ModelsPage(QWidget, AsyncApiMixin):
         self.status.set_state(
             f"{len(models)} 个本地 · {len(providers)} 个远程", "online"
         )
+
+    def _load_model(self, model: dict) -> None:
+        model_id = model.get("model_id") or model.get("id")
+        if model_id is None:
+            return
+        self.status.set_state("正在加载模型…", "warning")
+        self._run_api(
+            lambda: self.api.load_model(model_id),
+            lambda _result: self._operation_done("模型已加载"),
+            self._operation_failed,
+            request_key="models.load",
+        )
+
+    def _unload_model(self, model: dict) -> None:
+        model_id = model.get("model_id") or model.get("id")
+        if model_id is None:
+            return
+        self.status.set_state("正在卸载模型…", "warning")
+        self._run_api(
+            lambda: self.api.unload_model(model_id),
+            lambda _result: self._operation_done("模型已卸载"),
+            self._operation_failed,
+            request_key="models.unload",
+        )
+
+    def _set_default(self, model: dict) -> None:
+        model_id = model.get("model_id") or model.get("id")
+        if model_id is None:
+            return
+        self._run_api(
+            lambda: self.api.set_model_default(model_id),
+            lambda _result: self._operation_done("已设为默认模型"),
+            self._operation_failed,
+            request_key="models.default",
+        )
+
+    def _operation_done(self, message: str) -> None:
+        if self.readiness_store:
+            self.readiness_store.invalidate()
+        self.refresh()
+        self.status.set_state(message, "online")
+
+    def _operation_failed(self, error: str) -> None:
+        from i18n.ui_localizer import format_api_error
+
+        self.status.set_state(f"操作失败：{format_api_error(error)}", "error")
 
     def _render_readiness(self, snapshot: dict) -> None:
         level = snapshot.get("level")

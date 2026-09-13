@@ -6,6 +6,8 @@ import datetime
 import json
 
 from models.records import ModelRecord, RemoteProviderConfig, UserModelPreference
+from services.model_capabilities import READY_STATUSES, is_ready_status
+from services.model_registry import asset_path_available
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -97,7 +99,7 @@ class ModelReadinessService:
     def _targets(self, user_id: int) -> list[dict]:
         local_models = (
             self.db.query(ModelRecord)
-            .filter(ModelRecord.status == "available")
+            .filter(ModelRecord.status.in_(sorted(READY_STATUSES)))
             .filter(or_(ModelRecord.user_id == user_id, ModelRecord.user_id.is_(None)))
             .order_by(ModelRecord.name)
             .all()
@@ -107,11 +109,15 @@ class ModelReadinessService:
                 "kind": "local",
                 "model_ref": str(model.id),
                 "model_name": model.name,
+                "capabilities": model.capability_list(),
                 "provider_id": None,
                 "provider_name": None,
                 "protocol": None,
             }
             for model in local_models
+            # A record whose declared file has disappeared is not a usable
+            # target even though its stored status still says "ready".
+            if asset_path_available(model.path)
         ]
         providers = (
             self.db.query(RemoteProviderConfig)
@@ -135,12 +141,14 @@ class ModelReadinessService:
         return targets
 
     def _has_unavailable_local_model(self, user_id: int) -> bool:
-        return (
+        records = (
             self.db.query(ModelRecord)
             .filter(or_(ModelRecord.user_id == user_id, ModelRecord.user_id.is_(None)))
-            .filter(ModelRecord.status != "available")
-            .count()
-            > 0
+            .all()
+        )
+        return any(
+            not is_ready_status(record.status) or not asset_path_available(record.path)
+            for record in records
         )
 
     def _degraded_reason(self, providers: list[RemoteProviderConfig], user_id: int) -> tuple[str, list[dict]]:

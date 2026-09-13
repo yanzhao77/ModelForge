@@ -134,15 +134,40 @@ class TrainingPage(QWidget, AsyncApiMixin):
         self._load_tasks()
 
     def _load_models(self):
-        self._run_api(self.api.list_models, self._render_models, lambda _: self._render_models([]))
+        """Only models with the TRAINING capability may be fine-tuned.
+
+        The backend re-checks this, but filtering here stops an inference-only
+        GGUF file from ever appearing as a selectable base model.
+        """
+        self._run_api(self._training_base_models, self._render_models, lambda _: self._render_models([]))
+
+    def _training_base_models(self):
+        try:
+            return self.api.list_models(capability="TRAINING")
+        except TypeError:
+            try:
+                return self.api.list_models()
+            except Exception:
+                return []
+        except Exception:
+            return []
 
     def _render_models(self, models):
-        current = self.base_model.currentText()
+        current_id = self.base_model.currentData()
+        current_text = self.base_model.currentText()
         self.base_model.clear()
         for model in models:
-            self.base_model.addItem(model.get("name", ""))
-        if current:
-            self.base_model.setCurrentText(current)
+            label = model.get("display_name") or model.get("name") or ""
+            if not label:
+                continue
+            self.base_model.addItem(label, model.get("model_id") or model.get("id"))
+        if current_id is not None:
+            index = self.base_model.findData(current_id)
+            if index >= 0:
+                self.base_model.setCurrentIndex(index)
+                return
+        if current_text:
+            self.base_model.setCurrentText(current_text)
 
     def _load_datasets(self):
         self._run_api(self.api.list_datasets, self._render_datasets, lambda _: self._render_datasets([]))
@@ -187,8 +212,10 @@ class TrainingPage(QWidget, AsyncApiMixin):
             QMessageBox.warning(self, format_text("提示"), format_text("请先在数据集页上传并选择一个数据集"))
             return
         try:
+            base_model_id = self.base_model.currentData()
             config = {
                 "dataset_id": dataset_id, "base_model": self.base_model.currentText().strip(),
+                "base_model_id": base_model_id if isinstance(base_model_id, int) else None,
                 "method": self.method.currentData(), "epochs": int(self.epochs.text()),
                 "learning_rate": float(self.lr.text()), "batch_size": int(self.batch.text()),
                 "lora_r": int(self.lora_r.text()), "lora_alpha": int(self.lora_alpha.text()),

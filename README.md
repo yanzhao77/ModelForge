@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Tests](https://img.shields.io/badge/tests-866%20passed-brightgreen)
-![API](https://img.shields.io/badge/API-139%20paths%2F164%20ops-important)
+![API](https://img.shields.io/badge/API-145%20paths%2F172%20ops-important)
 ![Desktop](https://img.shields.io/badge/Desktop-0.1.3--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
@@ -100,15 +100,15 @@ curl http://localhost:8000/healthz   # {"status":"ok"}
 docker rm -f modelforge
 ```
 
-## API 概览（139 paths / 164 operations；业务前缀 /api/v1）
+## API 概览（145 paths / 172 operations；业务前缀 /api/v1）
 
 | 模块 | 端点 |
 |------|------|
 | 认证 | auth/register · login · me · change-password |
 | 会话 | sessions（CRUD）· sessions/{id}/messages · title |
 | 记忆 | memories · memories/search |
-| 模型 | models（list/scan/install）· models/readiness · models/default · models/search · models/download（状态/暂停/继续/重新开始） |
-| 运行时 | runtime/start · chat · stop · status |
+| 模型 | models（list/scan/install，支持 capability 过滤）· models/{id}/load · unload · runtime · models/default · models/{id}/default · models/readiness · models/search · models/download（状态/暂停/继续/重新开始） |
+| 运行时 | runtime · runtime/start · chat · stop · status |
 | 聊天 | chat · **chat/stream（SSE 流式）** |
 | 数据集 | datasets/upload · datasets · datasets/{id}/validate |
 | 训练 | train/start · status · **stream（SSE 日志）** · stop · templates · tasks · {id}/register-model |
@@ -118,7 +118,7 @@ docker rm -f modelforge
 | **Agent 工具/服务（3.0）** | agent/tools · agent/metrics · agent/mcp/servers（CRUD）· agent/schedules（CRUD） |
 | **插件（3.x）** | plugins/discover · plugins/load · plugins/{name}/{start,stop,mount,unmount} · plugins/capabilities |
 | OpenAI 兼容 | /v1/chat/completions（含流式）· /v1/models |
-| 系统 | system/status · system/logs · /healthz |
+| 系统 | system/status · system/logs · system/download-source · system/model-storage · /healthz |
 
 > 路由统计由 `scripts/api_route_stats.py --check` 从 `app.openapi()` 实时生成并核对，README 不以手工数字为准。
 

@@ -35,6 +35,10 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     model: str = Field(min_length=1, max_length=255)
+    # Registry-backed local models are addressed by their stable model_id; the
+    # ``model`` field stays required so metrics, sessions and legacy clients
+    # keep working (the chat UI sends both).
+    model_id: int | None = None
     messages: list[ChatMessage] = Field(min_length=1, max_length=100)
     session_id: int | None = None
     provider_id: int | None = None
@@ -58,7 +62,16 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Dep
     try:
         # Inference is exclusive: only one account may run it at a time.
         with transient_hold(inference_lease, user_id=user.id, username=user.username):
-            result = await run_chat(db, get_runtime(), req.model, [item.model_dump() for item in req.messages], user, req.session_id, _provider(db, user, req.provider_id))
+            result = await run_chat(
+                db,
+                get_runtime(),
+                req.model,
+                [item.model_dump() for item in req.messages],
+                user,
+                req.session_id,
+                _provider(db, user, req.provider_id),
+                model_id=req.model_id,
+            )
             return result
     except ResourceBusy as exc:
         raise exc.to_problem(corr) from exc
@@ -94,6 +107,7 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user: Use
                     user,
                     req.session_id,
                     provider,
+                    model_id=req.model_id,
                 ):
                     await queue.put(("event", event))
             except Exception as exc:

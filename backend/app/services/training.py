@@ -11,7 +11,9 @@ from pathlib import Path
 
 from core.config import settings
 from models.records import Dataset, TrainTask, User
+from services.model_capabilities import ModelCapability
 from services.model_manager import ModelManager
+from services.model_registry import ModelRegistry, ModelRegistryError
 from services.resource_lease import training_lease
 from sqlalchemy.orm import Session as DBSession
 
@@ -25,10 +27,43 @@ def _torch_available() -> bool:
         return False
 
 
+def _coerce_optional_int(value) -> int | None:
+    """Parse an optional numeric identifier, tolerating strings from JSON."""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_model_name(value: str | None) -> str:
+    """Derive a filesystem- and display-safe name from a base model label.
+
+    Legacy tasks stored a repo id or an absolute path in ``base_model``; using it
+    verbatim produced record names containing ``/`` or ``\\``.
+    """
+    text = str(value or "model").strip().replace("\\", "/")
+    leaf = text.rstrip("/").split("/")[-1] or "model"
+    cleaned = "".join(char if (char.isalnum() or char in {"-", "_", "."}) else "-" for char in leaf)
+    return cleaned.strip("-") or "model"
+
+
+def _load_task_config(row: TrainTask) -> dict:
+    """Read the persisted training config without failing on legacy rows."""
+    try:
+        payload = json.loads(row.config or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 class TrainingService:
     """Manages fine-tuning tasks: launch, poll, stop, stream logs, register output."""
 
     POLL_INTERVAL = 2.0
+    #: Capability a base model must expose before it can be fine-tuned.
+    REQUIRED_BASE_CAPABILITY = ModelCapability.TRAINING.value
 
     def __init__(self):
         self._procs: dict[str, subprocess.Popen] = {}
@@ -51,7 +86,31 @@ class TrainingService:
             dataset_format = ds.format
         if not dataset_path or not os.path.exists(dataset_path):
             raise ValueError("数据集路径无效")
-        if not config.get("base_model"):
+
+        # The base model is resolved through the unified registry so the same
+        # asset is used by inference and training. A capability check runs here
+        # (not only in the UI): an inference-only GGUF file must never be handed
+        # to the fine-tuning job even if a client asks for it directly.
+        base_model_id = _coerce_optional_int(config.get("base_model_id"))
+        base_model_ref = str(config.get("base_model") or "").strip()
+        base_model_path: str | None = None
+        base_model_name: str | None = None
+        base_capabilities: list[str] = []
+        if base_model_id is not None:
+            registry = ModelRegistry(db)
+            try:
+                record = registry.require(base_model_id, user_id)
+                registry.require_ready(record)
+                registry.require_capability(record, self.REQUIRED_BASE_CAPABILITY)
+                base_model_path = registry.resolve_path(record)
+                base_model_name = record.display_name or record.name
+                base_capabilities = registry.capabilities(record)
+            except ModelRegistryError as exc:
+                raise ValueError(exc.message) from exc
+        elif base_model_ref:
+            base_model_path = base_model_ref
+            base_model_name = base_model_ref
+        if not base_model_path:
             raise ValueError("必须指定基础模型")
 
         # Training is exclusive: claim the machine before any process is started
@@ -76,6 +135,12 @@ class TrainingService:
             "dataset_format": dataset_format,
             "output_dir": output_dir,
             "hf_endpoint": settings.hf_endpoint,
+            # The subprocess consumes a resolvable model path / repo id; the row
+            # keeps the human-readable base model label.
+            "base_model": base_model_path,
+            "base_model_id": base_model_id,
+            "base_model_name": base_model_name,
+            "base_model_capabilities": base_capabilities,
         }
         cfg_path = os.path.join(output_dir, "config.json")
         with open(cfg_path, "w", encoding="utf-8") as f:
@@ -85,7 +150,7 @@ class TrainingService:
             task_id=task_id,
             user_id=user_id,
             dataset_id=dataset_id,
-            base_model=config["base_model"],
+            base_model=base_model_name or base_model_ref,
             method=config.get("method", "lora"),
             config=json.dumps(cfg, ensure_ascii=False),
             status="starting",
@@ -240,7 +305,9 @@ class TrainingService:
             raise ValueError("任务不存在")
         if row.status != "done":
             raise ValueError(f"任务未完成（当前状态: {row.status}）")
-        name = f"{row.base_model}-{row.method}-ft"
+        task_config = _load_task_config(row)
+        base_model_id = _coerce_optional_int(task_config.get("base_model_id"))
+        name = f"{_safe_model_name(row.base_model)}-{row.method}-ft"
         model_format = "safetensors" if row.method == "full" else "peft-adapter"
         mm = ModelManager(db)
         source = Path(row.output_dir).resolve()
@@ -254,9 +321,38 @@ class TrainingService:
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(source, target, symlinks=False)
-        model = mm.install(
-            name, "training", str(target), "", user_id, model_format=model_format
+        # A LoRA adapter is only usable next to its base model, so it is
+        # registered as LORA (and flagged as requiring a base) rather than
+        # pretending it is a standalone chat model.
+        if model_format == "peft-adapter":
+            capabilities = [ModelCapability.LORA.value]
+        else:
+            capabilities = [ModelCapability.CHAT.value, ModelCapability.INFERENCE.value]
+        metadata = {
+            "training_task_id": row.task_id,
+            "method": row.method,
+            "dataset_id": row.dataset_id,
+            "base_model_id": base_model_id,
+            "output_path": str(target),
+            "format": model_format,
+            "requires_base_model": model_format == "peft-adapter",
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        registry = ModelRegistry(db)
+        model = registry.register(
+            name=name,
+            provider="training",
+            path=str(target),
+            size="",
+            user_id=user_id,
+            model_format=model_format,
+            capabilities=capabilities,
+            metadata=metadata,
+            base_model_id=base_model_id,
+            parent_model_id=base_model_id,
+            commit=False,
         )
+        db.commit()
         return model.to_dict()
 
     @staticmethod

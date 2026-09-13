@@ -115,6 +115,12 @@ class ModelForgeClient:
     def update_download_source(self, source: str) -> dict:
         return self._put("/api/v1/system/download-source", json={"source": source})
 
+    def get_model_storage(self) -> dict:
+        return self._get("/api/v1/system/model-storage")
+
+    def update_model_storage(self, model_dir: str) -> dict:
+        return self._put("/api/v1/system/model-storage", json={"model_dir": model_dir})
+
     # ---- auth ----
 
     def register(self, username: str, password: str, email: str | None = None) -> dict:
@@ -137,8 +143,51 @@ class ModelForgeClient:
 
     # ---- models ----
 
-    def list_models(self) -> list[dict]:
-        return self._get_list("/api/v1/models", "models")
+    def list_models(
+        self, capability: str | None = None, status: str | None = None
+    ) -> list[dict]:
+        """List registry models, optionally filtered by capability/status."""
+        params = {
+            key: value
+            for key, value in (("capability", capability), ("status", status))
+            if value
+        }
+        return self._get_list("/api/v1/models", "models", params=params or None)
+
+    def load_model(
+        self,
+        model_id: int,
+        context_length: int | None = None,
+        gpu_layers: int | None = None,
+        threads: int | None = None,
+    ) -> dict:
+        """Load one registry model into the shared local runtime."""
+        payload = {
+            key: value
+            for key, value in (
+                ("context_length", context_length),
+                ("gpu_layers", gpu_layers),
+                ("threads", threads),
+            )
+            if value is not None
+        }
+        return self._post(f"/api/v1/models/{model_id}/load", json=payload)
+
+    def unload_model(self, model_id: int) -> dict:
+        return self._post(f"/api/v1/models/{model_id}/unload", json={})
+
+    def model_runtime(self, model_id: int) -> dict:
+        return self._get(f"/api/v1/models/{model_id}/runtime")
+
+    def runtime_instance(self) -> dict:
+        """The single active local runtime instance (requires runtime admin)."""
+        return self._get("/api/v1/runtime")
+
+    def set_model_default(self, model_id: int) -> dict:
+        return self._post(f"/api/v1/models/{model_id}/default", json={})
+
+    def get_default_model(self) -> dict:
+        return self._get("/api/v1/models/default")
 
     def model_readiness(self) -> dict:
         return self._get("/api/v1/models/readiness")
@@ -287,10 +336,10 @@ class ModelForgeClient:
 
     # ---- chat (JSON + SSE) ----
 
-    def chat(self, model: str, messages: list, session_id: int | None = None, provider_id: int | None = None) -> dict:
+    def chat(self, model: str, messages: list, session_id: int | None = None, provider_id: int | None = None, model_id: int | None = None) -> dict:
         return self._post(
             "/api/v1/chat",
-            json={"model": model, "messages": messages, "session_id": session_id, "provider_id": provider_id},
+            json={"model": model, "messages": messages, "session_id": session_id, "provider_id": provider_id, "model_id": model_id},
         )
 
     def stream_chat(
@@ -299,6 +348,7 @@ class ModelForgeClient:
         messages: list,
         session_id: int | None = None,
         provider_id: int | None = None,
+        model_id: int | None = None,
         *,
         cancel_event: Callable[[], bool] | None = None,
     ) -> Iterator[dict]:
@@ -306,7 +356,7 @@ class ModelForgeClient:
         with httpx.Client(timeout=_CHAT_STREAM_TIMEOUT) as client, client.stream(
             "POST",
             f"{self.base_url}/api/v1/chat/stream",
-            json={"model": model, "messages": messages, "session_id": session_id, "provider_id": provider_id},
+            json={"model": model, "messages": messages, "session_id": session_id, "provider_id": provider_id, "model_id": model_id},
             headers=self._headers(),
         ) as resp:
             self._raise_for_status(resp)

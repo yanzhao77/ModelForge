@@ -302,35 +302,43 @@ class TestAgentRunApi:
         from pathlib import Path
 
         h = self._login(client, "apibot-target")
-        model = client.post(
-            "/api/v1/models/install",
-            json={"name": "target-local", "provider": "local", "path": str(Path("models").resolve() / "target-local.gguf")},
-            headers=h,
-        ).json()
-        target = {
-            "kind": "local",
-            "model_ref": str(model["id"]),
-            "model_name": "target-local",
-            "provider_id": None,
-        }
-        created = client.post(
-            "/api/v1/agent/create",
-            json={"name": "target-agent", "model": "ignored-by-target", "model_target": target},
-            headers=h,
-        )
-        assert created.status_code == 200, created.text
-        agent = next(item for item in client.get("/api/v1/agent/list", headers=h).json() if item["name"] == "target-agent")
-        assert agent["model"] == "target-local"
-        assert {key: agent["model_target"][key] for key in target} == target
-        assert agent["model_target"]["protocol"] is None
-        assert agent["model_target"]["provider_name"] is None
+        # The registry only treats a model as a ready target when its asset
+        # exists on disk, so register a real (placeholder) GGUF file.
+        model_path = Path("models").resolve() / "target-local.gguf"
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model_path.write_bytes(b"GGUF-placeholder")
+        try:
+            model = client.post(
+                "/api/v1/models/install",
+                json={"name": "target-local", "provider": "local", "path": str(model_path)},
+                headers=h,
+            ).json()
+            target = {
+                "kind": "local",
+                "model_ref": str(model["id"]),
+                "model_name": "target-local",
+                "provider_id": None,
+            }
+            created = client.post(
+                "/api/v1/agent/create",
+                json={"name": "target-agent", "model": "ignored-by-target", "model_target": target},
+                headers=h,
+            )
+            assert created.status_code == 200, created.text
+            agent = next(item for item in client.get("/api/v1/agent/list", headers=h).json() if item["name"] == "target-agent")
+            assert agent["model"] == "target-local"
+            assert {key: agent["model_target"][key] for key in target} == target
+            assert agent["model_target"]["protocol"] is None
+            assert agent["model_target"]["provider_name"] is None
 
-        denied = client.post(
-            "/api/v1/agent/create",
-            json={"name": "unready-target-agent", "model": "target-local", "model_target": {**target, "model_ref": "999999"}},
-            headers=h,
-        )
-        assert denied.status_code == 422
+            denied = client.post(
+                "/api/v1/agent/create",
+                json={"name": "unready-target-agent", "model": "target-local", "model_target": {**target, "model_ref": "999999"}},
+                headers=h,
+            )
+            assert denied.status_code == 422
+        finally:
+            model_path.unlink(missing_ok=True)
 
     def test_run_success(self, client):
         h = self._login(client, "apibotb")

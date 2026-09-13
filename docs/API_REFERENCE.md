@@ -34,23 +34,30 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/POST/DELETE | /api/v1/models | 模型列表 / 登记 / 删除 |
+| GET/POST/DELETE | /api/v1/models | 模型列表（支持 `capability`/`status`/`format`/`source` 过滤）/ 登记 / 删除 |
 | POST | /api/v1/models/scan | 扫描目录 |
+| GET | /api/v1/models/{model_id} | 模型详情（返回 capabilities / metadata / ready / runtime_status） |
+| GET | /api/v1/models/default | 当前默认模型（与"已加载模型"无关） |
+| POST | /api/v1/models/{model_id}/default | 设为默认模型 |
+| POST | /api/v1/models/{model_id}/load | 加载到共享本地运行时（单实例） |
+| POST | /api/v1/models/{model_id}/unload | 卸载并释放内存 |
+| GET | /api/v1/models/{model_id}/runtime | 该模型的运行时状态 |
 | GET | /api/v1/models/search | HF 搜索 |
 | POST | /api/v1/models/download | 下载 GGUF |
 | GET | /api/v1/models/download/{task_id} | 下载进度 |
 | POST | /api/v1/models/download/{task_id}/pause | 暂停下载 |
 | POST | /api/v1/models/download/{task_id}/resume | 继续下载 |
 | POST | /api/v1/models/download/{task_id}/restart | 重新开始下载（重新校验本地字节，仅重下损坏/缺失部分；不删除共享目录） |
-| POST | /api/v1/runtime/start / chat / stop | 推理运行时 |
+| GET | /api/v1/runtime | 当前活跃运行时实例 + 加载配置（运行时管理员） |
+| POST | /api/v1/runtime/start / chat / stop | 推理运行时（模型名解析为注册模型时走统一运行时管理器） |
 | GET | /api/v1/runtime/status | 运行时状态 |
 
 ## 聊天（2.1 保持兼容）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | /api/v1/chat | JSON 聊天 |
-| POST | /api/v1/chat/stream | SSE 流式 |
+| POST | /api/v1/chat | JSON 聊天（可选 `model_id`：经注册表解析并自动加载本地模型） |
+| POST | /api/v1/chat/stream | SSE 流式（同样支持 `model_id`） |
 
 ## Agent（2.1 + 3.0）
 
@@ -104,6 +111,8 @@
 | POST | /api/v1/knowledge/query / answer | 检索 / RAG 问答 |
 | GET | /api/v1/plugins | 插件列表 |
 | GET | /api/v1/system/status / logs | 系统状态 / 日志 |
+| GET/PUT | /api/v1/system/download-source | Hugging Face 下载源（官方 / HF Mirror） |
+| GET/PUT | /api/v1/system/model-storage | 模型默认存放地址（下载目录 = 扫描根目录，写入后持久化） |
 
 ## 插件（3.x，additive）
 
@@ -122,8 +131,8 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | /v1/chat/completions | 聊天补全（含流式） |
-| GET | /v1/models | 模型列表 |
+| POST | /v1/chat/completions | 聊天补全（含流式）；模型来自统一注册中心，未命中回落后端 |
+| GET | /v1/models | 模型列表（来自统一注册中心，附 `model_id`/`capabilities`/`ready`） |
 
 ## 错误模型（spec 47）
 

@@ -372,6 +372,10 @@ class Downloader:
                 raise RuntimeError("No downloadable files matched the request")
             self._download_files(task_id, files, target)
             self._set_state(task_id, status="COMPLETED", progress=100, message="Download completed", completed=True)
+            # Registration is best-effort and runs after the task is durable: a
+            # model that does not register must never turn a finished download
+            # into a failed one.
+            self._register_completed_download(task_id)
         except DownloadCancelled:
             self._settle_cancelled(task_id, fallback_progress=int(task.progress or 0))
         except DownloadPaused:
@@ -422,6 +426,31 @@ class Downloader:
             message="Download cancelled",
             completed=True,
         )
+
+    def _register_completed_download(self, task_id: str) -> None:
+        """Auto-register a completed download into the unified model registry.
+
+        The download service is not a second registry: it hands the finished
+        bytes to :class:`ModelRegistry`, which owns capability detection and
+        duplicate protection.
+        """
+        try:
+            from services.model_registry import ModelRegistry
+
+            with SessionLocal() as session:
+                task = session.get(DownloadTaskRecord, task_id)
+                if task is None:
+                    return
+                ModelRegistry(session).register_download(
+                    user_id=task.user_id,
+                    repo_id=task.repo_id,
+                    target=self._target_path(task.repo_id),
+                    filename=task.filename,
+                )
+        except Exception:
+            # A registration failure leaves the bytes on disk; a later scan
+            # re-discovers them, so the download itself still succeeded.
+            return
 
     def _resolve_files(self, repo_id: str, filename: str | None = None) -> list[DownloadFile]:
         from huggingface_hub import HfApi, hf_hub_url

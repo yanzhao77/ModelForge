@@ -19,16 +19,24 @@ from PySide6.QtWidgets import (
 class LoginDialog(QDialog, AsyncApiMixin):
     """Accessible, cancellable desktop sign-in and registration entry point."""
 
+    # Vertical rhythm for the credential forms: a tight gap keeps each label
+    # attached to its own input, while FIELD_GAP separates one input from the
+    # next field group.
+    LABEL_GAP = 6
+    FIELD_GAP = 18
+    SECTION_GAP = 10
+
     def __init__(self, api, parent=None):
         QDialog.__init__(self, parent)
         self._init_async_api()
         self.api = api
         self._busy = False
         self.setWindowTitle("ModelForge · 本地工作区登录")
-        self.setMinimumSize(420, 430)
-        self.resize(500, 490)
+        self.setMinimumSize(420, 470)
         self.setModal(True)
         self._init_ui()
+        hint = self.sizeHint()
+        self.resize(max(hint.width(), 500), max(hint.height(), 560))
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -86,6 +94,16 @@ class LoginDialog(QDialog, AsyncApiMixin):
             field.setAccessibleDescription("密码输入内容不会显示。")
         return field
 
+    def _field_group(self, text: str, field: QLineEdit) -> QWidget:
+        """Bundle a label with its input so groups can be spaced apart evenly."""
+        group = QWidget()
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(self.LABEL_GAP)
+        layout.addWidget(self._label(text, field))
+        layout.addWidget(field)
+        return group
+
     def _show_page(self, index: int) -> None:
         if self._busy:
             return
@@ -101,17 +119,16 @@ class LoginDialog(QDialog, AsyncApiMixin):
     def _login_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setSpacing(10)
+        layout.setSpacing(self.SECTION_GAP)
         hint = QLabel("登录后继续")
         hint.setProperty("role", "eyebrow")
         layout.addWidget(hint)
         self.login_user = self._field("用户名")
         self.login_pwd = self._field("密码", True)
         self.login_pwd.returnPressed.connect(self.handle_login)
-        layout.addWidget(self._label("用户名", self.login_user))
-        layout.addWidget(self.login_user)
-        layout.addWidget(self._label("密码", self.login_pwd))
-        layout.addWidget(self.login_pwd)
+        layout.addWidget(self._field_group("用户名", self.login_user))
+        layout.addSpacing(self.FIELD_GAP - self.SECTION_GAP)
+        layout.addWidget(self._field_group("密码", self.login_pwd))
         self.login_action = QPushButton("登录工作区")
         self.login_action.setProperty("accent", True)
         self.login_action.clicked.connect(self.handle_login)
@@ -122,7 +139,7 @@ class LoginDialog(QDialog, AsyncApiMixin):
     def _register_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setSpacing(9)
+        layout.setSpacing(self.FIELD_GAP)
         hint = QLabel("创建本地工作区账号")
         hint.setProperty("role", "eyebrow")
         layout.addWidget(hint)
@@ -137,12 +154,13 @@ class LoginDialog(QDialog, AsyncApiMixin):
             ("密码", self.reg_pwd),
             ("确认密码", self.reg_pwd2),
         ):
-            layout.addWidget(self._label(text, field))
-            layout.addWidget(field)
+            layout.addWidget(self._field_group(text, field))
+        layout.addSpacing(self.SECTION_GAP)
         self.register_action = QPushButton("创建账号")
         self.register_action.setProperty("accent", True)
         self.register_action.clicked.connect(self.handle_register)
         layout.addWidget(self.register_action)
+        layout.addStretch(1)
         return page
 
     def _set_busy(self, busy: bool, notice: str = "") -> None:

@@ -45,35 +45,65 @@ def test_readiness_and_default_are_scoped_and_never_expose_secret_data():
         assert initial.status_code == 200, initial.text
         assert initial.json()["level"] == "SETUP_REQUIRED"
 
+        # The registry only reports a model as usable when its asset exists on
+        # disk, so register a real (placeholder) GGUF file first.
+        model_file = Path("models").resolve() / "readiness-model.gguf"
+        model_file.parent.mkdir(parents=True, exist_ok=True)
+        model_file.write_bytes(b"GGUF-placeholder")
+        try:
+            created = client.post(
+                "/api/v1/models/install",
+                headers=first,
+                json={"name": "readiness-local", "provider": "local", "path": str(model_file)},
+            )
+            assert created.status_code == 200, created.text
+            model_id = created.json()["id"]
+
+            set_default = client.put(
+                "/api/v1/models/default",
+                headers=first,
+                json={"kind": "local", "model_ref": str(model_id)},
+            )
+            assert set_default.status_code == 200, set_default.text
+            snapshot = set_default.json()
+            assert snapshot["level"] == "READY"
+            assert snapshot["default_target"]["model_ref"] == str(model_id)
+            rendered = str(snapshot).lower()
+            assert "ciphertext" not in rendered
+            assert "api_key" not in rendered
+
+            second = _headers(client)
+            cross_user = client.put(
+                "/api/v1/models/default",
+                headers=second,
+                json={"kind": "local", "model_ref": str(model_id)},
+            )
+            assert cross_user.status_code == 400
+
+            cleared = client.delete("/api/v1/models/default", headers=first)
+            assert cleared.status_code == 200, cleared.text
+            assert cleared.json()["default_target"] is None
+        finally:
+            model_file.unlink(missing_ok=True)
+
+
+def test_missing_model_file_is_not_ready():
+    """A record whose declared file is gone must never look like a ready target."""
+    with TestClient(app) as client:
+        headers = _headers(client)
+        missing = Path("models").resolve() / "definitely-missing-model.gguf"
         created = client.post(
             "/api/v1/models/install",
-            headers=first,
-            json={"name": "readiness-local", "provider": "local", "path": str(Path("models").resolve() / "readiness-model.gguf")},
+            headers=headers,
+            json={"name": "missing-local", "provider": "local", "path": str(missing)},
         )
         assert created.status_code == 200, created.text
         model_id = created.json()["id"]
 
-        set_default = client.put(
-            "/api/v1/models/default",
-            headers=first,
-            json={"kind": "local", "model_ref": str(model_id)},
-        )
-        assert set_default.status_code == 200, set_default.text
-        snapshot = set_default.json()
-        assert snapshot["level"] == "READY"
-        assert snapshot["default_target"]["model_ref"] == str(model_id)
-        rendered = str(snapshot).lower()
-        assert "ciphertext" not in rendered
-        assert "api_key" not in rendered
+        snapshot = client.get("/api/v1/models/readiness", headers=headers).json()
+        refs = [target["model_ref"] for target in snapshot["targets"] if target["kind"] == "local"]
+        assert str(model_id) not in refs
 
-        second = _headers(client)
-        cross_user = client.put(
-            "/api/v1/models/default",
-            headers=second,
-            json={"kind": "local", "model_ref": str(model_id)},
-        )
-        assert cross_user.status_code == 400
-
-        cleared = client.delete("/api/v1/models/default", headers=first)
-        assert cleared.status_code == 200, cleared.text
-        assert cleared.json()["default_target"] is None
+        detail = client.get(f"/api/v1/models/{model_id}", headers=headers).json()
+        assert detail["status"] == "invalid"
+        assert detail["ready"] is False

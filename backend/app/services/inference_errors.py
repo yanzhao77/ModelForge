@@ -33,6 +33,17 @@ class InferenceErrorClassification:
 
 def classify_inference_exception(exc: Exception) -> InferenceErrorClassification:
     """Classify an inference failure into a stable error code."""
+    # Registry/runtime failures already carry their own stable code and HTTP
+    # status; mapping them here keeps a missing model a 404 (rather than a
+    # generic 502) on the chat and RAG routes.
+    for error_type in _local_model_error_types():
+        if isinstance(exc, error_type):
+            return InferenceErrorClassification(
+                str(exc.code),
+                str(getattr(exc, "message", None) or "模型运行时返回错误。"),
+                int(getattr(exc, "http_status", 409)),
+                False,
+            )
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         if status in {401, 403}:
@@ -59,3 +70,13 @@ def classify_inference_exception(exc: Exception) -> InferenceErrorClassification
     if isinstance(exc, PermissionError):
         return InferenceErrorClassification("MODEL_ACCESS_DENIED", "无权访问所选模型。请联系管理员。", 403, False)
     return InferenceErrorClassification("INFERENCE_FAILED", "推理请求失败。请稍后重试。", 502, False)
+
+
+def _local_model_error_types() -> tuple[type, ...]:
+    """Resolve the registry/runtime error classes without an import cycle."""
+    try:
+        from services.model_registry import ModelRegistryError
+        from services.model_runtime_manager import ModelRuntimeError
+    except Exception:  # pragma: no cover - defensive
+        return ()
+    return (ModelRegistryError, ModelRuntimeError)

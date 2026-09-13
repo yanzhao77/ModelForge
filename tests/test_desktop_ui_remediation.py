@@ -20,6 +20,7 @@ from pages.run_timeline import RunTimeline
 from pages.settings_page import SettingsPage
 from PySide6.QtWidgets import QApplication
 from theme.metrics import SIDEBAR_COLLAPSED_WIDTH
+from theme.theme import apply_theme
 
 
 @pytest.fixture(scope="module")
@@ -106,6 +107,31 @@ class TestUiSecurityAndAccessibility:
         assert dialog.login_user.accessibleName()
         assert dialog.login_pwd.accessibleDescription()
         dialog.close()
+
+    def test_registration_fields_keep_roomy_even_spacing(self, qt_app):
+        # Measure with the shipped stylesheet so field metrics match the app.
+        previous_stylesheet = qt_app.styleSheet()
+        apply_theme(qt_app)
+        try:
+            dialog = LoginDialog(FakeApi())
+            dialog.show()
+            qt_app.processEvents()
+            dialog._show_page(1)
+            qt_app.processEvents()
+
+            fields = [dialog.reg_user, dialog.reg_email, dialog.reg_pwd, dialog.reg_pwd2]
+            tops = [field.mapTo(dialog, field.rect().topLeft()).y() for field in fields]
+            pitches = [later - earlier for earlier, later in zip(tops, tops[1:])]
+            # Inputs must render at their natural height instead of being squeezed,
+            # and the gap from an input to the next input must stay roomy and even.
+            for field in fields:
+                assert field.height() >= field.sizeHint().height()
+            for field, pitch in zip(fields[1:], pitches):
+                assert pitch - field.height() >= 32
+            assert max(pitches) - min(pitches) <= 1
+            dialog.close()
+        finally:
+            qt_app.setStyleSheet(previous_stylesheet)
 
     def test_navigation_collapses_without_losing_destination_names(self, qt_app):
         rail = NavigationRail(I18n())

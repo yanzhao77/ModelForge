@@ -53,6 +53,19 @@ _TEXT = {
     "保存": ("保存", "Save", "保存"), "验证连接": ("验证连接", "Verify Connection", "接続を検証"), "删除": ("删除", "Delete", "削除"), "新建": ("新建", "New", "新規"),
     "通用": ("通用", "General", "一般"), "外观": ("外观", "Appearance", "外観"), "语言": ("语言", "Language", "言語"),
     "服务连接": ("服务连接", "Service Connection", "サービス接続"), "关于": ("关于", "About", "について"),
+    "设置模型的下载来源与默认存放地址。": ("设置模型的下载来源与默认存放地址。", "Configure where models are downloaded from and stored by default.", "モデルのダウンロード元と既定の保存先を設定します。"),
+    "Hugging Face 下载源": ("Hugging Face 下载源", "Hugging Face Download Source", "Hugging Face ダウンロード元"),
+    "下载源": ("下载源", "Download Source", "ダウンロード元"),
+    "Hugging Face 官方源": ("Hugging Face 官方源", "Hugging Face Official", "Hugging Face 公式"),
+    "HF Mirror 中国大陆镜像": ("HF Mirror 中国大陆镜像", "HF Mirror (Mainland China)", "HF Mirror（中国本土）"),
+    "默认存放地址": ("默认存放地址", "Default Storage Location", "既定の保存先"),
+    "下载的模型默认保存到该目录，模型扫描也以此为根目录；目录不存在时会自动创建。修改位置不会移动已下载的文件。": ("下载的模型默认保存到该目录，模型扫描也以此为根目录；目录不存在时会自动创建。修改位置不会移动已下载的文件。", "Downloaded models are stored here, and model scanning uses it as its root. A missing directory is created automatically; changing it never moves existing files.", "ダウンロードしたモデルはここに保存され、モデルスキャンもこのフォルダをルートにします。存在しない場合は自動作成され、変更しても既存ファイルは移動しません。"),
+    "目录": ("目录", "Directory", "フォルダ"),
+    "浏览…": ("浏览…", "Browse…", "参照…"),
+    "恢复默认": ("恢复默认", "Restore Default", "既定に戻す"),
+    "模型存放地址已更新": ("模型存放地址已更新", "Model Storage Updated", "モデル保存先を更新しました"),
+    "后续模型下载与扫描将使用该目录。已下载的模型文件不会被移动。": ("后续模型下载与扫描将使用该目录。已下载的模型文件不会被移动。", "Future model downloads and scans use this directory. Existing model files are not moved.", "以後のモデルのダウンロードとスキャンはこのフォルダを使用します。既存のモデルファイルは移動しません。"),
+    "请输入模型存放目录。": ("请输入模型存放目录。", "Enter a model storage directory.", "モデルの保存先を入力してください。"),
     "浅色": ("浅色", "Light", "ライト"), "深色": ("深色", "Dark", "ダーク"), "跟随系统": ("跟随系统", "System", "システム"),
     "用户名": ("用户名", "Username", "ユーザー名"), "密码": ("密码", "Password", "パスワード"), "确认密码": ("确认密码", "Confirm Password", "パスワードを確認"),
     "邮箱（可选）": ("邮箱（可选）", "Email (optional)", "メール（任意）"), "登录工作区": ("登录工作区", "Sign In to Workspace", "ワークスペースにログイン"),
@@ -184,6 +197,27 @@ _TEXT = {
     "控制面操作未完成：{action}。{error}": ("控制面操作未完成：{action}。{error}", "Control-plane action did not complete: {action}. {error}", "コントロールプレーン操作は完了しませんでした：{action}。{error}"), "启动 Agent Run": ("启动 Agent Run", "Start Agent Run", "Agent Run を開始"), "取消 Agent Run": ("取消 Agent Run", "Cancel Agent Run", "Agent Run をキャンセル"), "获取运行记录": ("获取运行记录", "Load Run History", "実行履歴を取得"), "运行记录刷新未完成。{error}": ("运行记录刷新未完成。{error}", "Run history refresh did not complete. {error}", "実行履歴の更新は完了しませんでした。{error}"),
     "任务快照不可达。{error}": ("任务快照不可达。{error}", "Task snapshot is unavailable. {error}", "タスクスナップショットを利用できません。{error}"), "实时任务流已断开，正在重连。{error}": ("实时任务流已断开，正在重连。{error}", "Live task stream is disconnected and reconnecting. {error}", "リアルタイムタスクストリームは切断され、再接続中です。{error}"), "任务同步未完成。{error}": ("任务同步未完成。{error}", "Task synchronization did not complete. {error}", "タスク同期は完了しませんでした。{error}"),
     "已启动": ("已启动", "Started", "開始済み"),
+    "已配置 {count} 个远程模型，请在上方选择": (
+        "已配置 {count} 个远程模型，请在上方选择",
+        "{count} remote model(s) configured — select one above.",
+        "リモートモデルを {count} 件設定済みです。上で選択してください。",
+    ), "该服务已保存但尚未验证连接；可直接对话，建议在模型管理中验证。": (
+        "该服务已保存但尚未验证连接；可直接对话，建议在模型管理中验证。",
+        "This service is saved but not verified yet. You can chat with it right away; verifying it in the model workspace is recommended.",
+        "このサービスは保存済みですが未検証です。すぐに会話できますが、モデル管理での検証を推奨します。",
+    ), "连接验证成功，但默认模型 {model} 不在服务返回的模型列表中；请改用列表中的模型编码（例如 {preview}），否则该服务不会被视为可用。": (
+        "连接验证成功，但默认模型 {model} 不在服务返回的模型列表中；请改用列表中的模型编码（例如 {preview}），否则该服务不会被视为可用。",
+        "Connection verified, but the default model {model} is not in the list the service returned. Use a model id from that list (for example {preview}); otherwise this service is not treated as available.",
+        "接続の検証には成功しましたが、既定モデル {model} はサービスが返した一覧にありません。一覧にあるモデル ID（例：{preview}）に変更してください。変更しない場合、このサービスは利用可能と見なされません。",
+    ), "DeepSeek 官方 OpenAI 兼容接口：默认使用 Chat Completions 协议，默认模型可填 deepseek-flash 或 deepseek-v4-pro，密钥在 platform.deepseek.com 创建。": (
+        "DeepSeek 官方 OpenAI 兼容接口：默认使用 Chat Completions 协议，默认模型可填 deepseek-flash 或 deepseek-v4-pro，密钥在 platform.deepseek.com 创建。",
+        "DeepSeek's official OpenAI-compatible endpoint. Chat Completions is used by default; set the default model to deepseek-flash or deepseek-v4-pro and create the key on platform.deepseek.com.",
+        "DeepSeek 公式の OpenAI 互換エンドポイントです。既定では Chat Completions を使用し、既定モデルには deepseek-flash または deepseek-v4-pro を指定します。キーは platform.deepseek.com で作成してください。",
+    ), "先在 CC Switch「设置 → 路由」中启动本地路由（默认 127.0.0.1:15721）；默认模型填该路由当前供应商支持的模型名，例如 deepseek-flash。本地路由会用自己的凭据替换这里的占位密钥。": (
+        "先在 CC Switch「设置 → 路由」中启动本地路由（默认 127.0.0.1:15721）；默认模型填该路由当前供应商支持的模型名，例如 deepseek-flash。本地路由会用自己的凭据替换这里的占位密钥。",
+        "Start the local route in CC Switch (settings → route, default 127.0.0.1:15721) first. Set the default model to one the active provider supports, for example deepseek-flash. The local route replaces the placeholder key with its own credential.",
+        "先に CC Switch の「設定 → ルート」でローカルルート（既定 127.0.0.1:15721）を起動してください。既定モデルには現在のプロバイダーが対応するモデル名（例：deepseek-flash）を指定します。ローカルルートがこのプレースホルダーキーを自身の認証情報に置き換えます。",
+    ),
 }
 
 # Make English source literals equivalent to their Chinese migration counterparts.

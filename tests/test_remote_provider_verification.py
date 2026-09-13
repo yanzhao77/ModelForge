@@ -153,6 +153,31 @@ def test_resolve_revalidates_legacy_target_before_decrypting_key():
     service.cipher.decrypt.assert_not_called()
 
 
+def test_resolve_accepts_enabled_provider_before_verification(monkeypatch):
+    """Chat only needs an enabled service with a stored key.
+
+    Verification gates the agent runtime (``resolve_verified``), so the desktop
+    chat page must not hide a saved-but-unverified service: doing so made a
+    configured model impossible to select.
+    """
+    monkeypatch.setattr(
+        "services.remote_provider_service.validate_provider_target",
+        lambda url, mode: "api.example.test",
+    )
+    db, user, provider, service = _service()
+    assert provider.verification_status == "unknown"
+
+    resolved = service.resolve(user.id, provider.id)
+
+    assert resolved == {
+        "base_url": "https://api.example.test/v1",
+        "protocol": "responses",
+        "default_model": "verified-model",
+        "api_key": "test-secret",
+    }
+    db.close()
+
+
 def test_resolve_verified_revalidates_target_before_returning_runtime_config():
     """A target cannot remain trusted solely because a previous verification succeeded."""
     db, user, provider, service = _service()

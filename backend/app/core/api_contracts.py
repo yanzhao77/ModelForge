@@ -11,16 +11,32 @@ def correlation_id() -> str:
     return uuid.uuid4().hex
 
 
-def problem(status_code: int, code: str, message: str, *, correlation: str | None = None) -> HTTPException:
-    """Return a predictable problem detail without exception internals."""
+def problem(
+    status_code: int,
+    code: str,
+    message: str,
+    *,
+    correlation: str | None = None,
+    details: dict | None = None,
+) -> HTTPException:
+    """Return a predictable problem detail without exception internals.
+
+    ``details`` is optional and only added to the payload when supplied, so
+    existing responses keep their exact shape while newer endpoints (model
+    registry / runtime) can attach structured, non-sensitive context such as
+    the offending ``model_id``.
+    """
     corr = correlation or correlation_id()
+    detail: dict = {
+        "code": code,
+        "message": message,
+        "correlation_id": corr,
+    }
+    if details:
+        detail["details"] = details
     return HTTPException(
         status_code=status_code,
-        detail={
-            "code": code,
-            "message": message,
-            "correlation_id": corr,
-        },
+        detail=detail,
         headers={"X-Correlation-ID": corr},
     )
 

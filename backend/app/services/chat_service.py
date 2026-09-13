@@ -59,11 +59,24 @@ def _persist(db: DBSession, session, user_message: str, response: str) -> None:
     db.commit()
 
 
-async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None) -> dict:
+def _runtime_manager():
+    from services.model_runtime_manager import get_model_runtime_manager
+
+    return get_model_runtime_manager()
+
+
+async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None, model_id: int | None = None) -> dict:
     session, full_messages, user_message = _context(db, user, session_id, messages)
     started = time.monotonic()
     try:
-        result = await _runtime(runtime, provider).chat(model, full_messages)
+        if provider is None and model_id is not None:
+            # Registry-backed path: the runtime manager owns model -> path and
+            # auto-loads an idle model before the first token.
+            result = await _runtime_manager().chat(
+                model_id, full_messages, user_id=user.id if user else None, db=db
+            )
+        else:
+            result = await _runtime(runtime, provider).chat(model, full_messages)
     except Exception as exc:
         ModelMetricRecorder.record(user_id=user.id if user else None, model=model, remote=provider is not None, latency_ms=(time.monotonic() - started) * 1000, success=False, error=exc)
         raise
@@ -73,19 +86,33 @@ async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages
     return {"response": response, "session_id": session.id if session else None, **result}
 
 
-async def stream_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None) -> AsyncIterator[dict]:
+async def stream_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None, model_id: int | None = None) -> AsyncIterator[dict]:
     session, full_messages, user_message = _context(db, user, session_id, messages)
-    selected = _runtime(runtime, provider)
-    stream_fn = getattr(selected, "stream_chat", None)
+    if provider is None and model_id is not None:
+        # Registry-backed path: one loaded instance shared with /runtime and the
+        # OpenAI-compatible API, auto-loaded on first use.
+        manager = _runtime_manager()
+        user_ref = user.id if user else None
+        stream_producer = lambda: manager.stream_chat(  # noqa: E731 - tiny closure
+            model_id, full_messages, user_id=user_ref, db=db
+        )
+        chat_producer = lambda: manager.chat(  # noqa: E731 - tiny closure
+            model_id, full_messages, user_id=user_ref, db=db
+        )
+    else:
+        selected = _runtime(runtime, provider)
+        stream_fn = getattr(selected, "stream_chat", None)
+        stream_producer = (lambda: stream_fn(model, full_messages)) if stream_fn is not None else None
+        chat_producer = lambda: selected.chat(model, full_messages)  # noqa: E731 - tiny closure
     parts: list[str] = []
     started = time.monotonic()
     try:
-        if stream_fn is not None:
-            async for chunk in stream_fn(model, full_messages):
+        if stream_producer is not None:
+            async for chunk in stream_producer():
                 parts.append(chunk)
                 yield {"type": "delta", "data": chunk}
         else:
-            result = await selected.chat(model, full_messages)
+            result = await chat_producer()
             content = result.get("content", "")
             parts.append(content)
             yield {"type": "delta", "data": content}

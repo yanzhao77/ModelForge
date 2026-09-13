@@ -17,6 +17,10 @@ _INSECURE_JWT_SECRETS = {"", "modelforge-dev-secret-change-me-0123456789abcdef",
 _PRODUCTION_ENVIRONMENTS = {"prod", "production"}
 _RUNTIME_SETTINGS_FILE = "runtime_settings.json"
 _DEV_SECRET_FILENAME = ".dev_jwt_secret"
+# Process settings the desktop settings page owns. They are applied after the
+# environment overrides below because the shipped .env carries
+# MODEL_PATH=./models: an explicit choice in the UI has to survive a restart.
+_DESKTOP_MANAGED_KEYS = ("model_dir", "model_path")
 
 
 class RuntimeSettings(BaseModel):
@@ -169,7 +173,9 @@ def load_config(config_path: str | None = None) -> Settings:
             data.update(yaml_data)
 
     # Runtime UI preferences are non-secret process settings persisted by the
-    # local desktop backend. Environment variables still override them below.
+    # local desktop backend. Environment variables still override them below,
+    # except for the desktop-managed keys re-applied at the end of this loader.
+    desktop_overrides: dict[str, str] = {}
     if config_path is None:
         runtime_data_dir = Path(str(data.get("data_dir") or "./data"))
         if not runtime_data_dir.is_absolute():
@@ -181,6 +187,11 @@ def load_config(config_path: str | None = None) -> Settings:
                     runtime_data = json.load(f) or {}
                 if isinstance(runtime_data, dict):
                     data.update({k: v for k, v in runtime_data.items() if k in {"hf_endpoint"}})
+                    desktop_overrides = {
+                        key: value.strip()
+                        for key, value in runtime_data.items()
+                        if key in _DESKTOP_MANAGED_KEYS and isinstance(value, str) and value.strip()
+                    }
             except Exception:
                 pass
 
@@ -237,6 +248,10 @@ def load_config(config_path: str | None = None) -> Settings:
         env_val = os.getenv(env_key)
         if env_val is not None:
             data.setdefault(section, {})[field] = env_val
+
+    # 桌面端「设置 → 模型」写入的存放地址优先于 .env 的 MODEL_PATH/MODEL_DIR：
+    # 用户在界面上显式选择的位置必须在重启后继续生效。
+    data.update(desktop_overrides)
 
     known = {k: v for k, v in data.items() if k in Settings.model_fields}
     result = Settings(**known)

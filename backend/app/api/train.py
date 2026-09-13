@@ -27,7 +27,10 @@ router = APIRouter(prefix="/train", tags=["train"])
 class TrainStartRequest(BaseModel):
     dataset_id: int | None = None
     dataset_path: str | None = None
-    base_model: str
+    # Either a registry ``base_model_id`` (preferred) or a free-form model
+    # reference (Hugging Face repo id / local path) for legacy clients.
+    base_model_id: int | None = None
+    base_model: str = ""
     method: str = "lora"  # full | lora
     epochs: int = 3
     learning_rate: float = 2e-5

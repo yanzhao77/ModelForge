@@ -165,4 +165,23 @@ _MIGRATIONS = (
             "CREATE INDEX IF NOT EXISTS ix_task_outbox_next_attempt ON task_outbox(next_attempt_at)",
         ),
     ),
+    (
+        # Unified model registry: capabilities + lifecycle metadata for the
+        # Model Asset / Runtime Instance split. Legacy rows are backfilled by
+        # ModelRegistry.backfill_capabilities() at startup.
+        "0004_model_registry_capabilities",
+        (
+            ("models", "display_name", "VARCHAR(255)"),
+            ("models", "size_bytes", "INTEGER"),
+            ("models", "capabilities", "TEXT"),
+            ("models", "model_metadata", "TEXT"),
+            ("models", "base_model_id", "INTEGER"),
+            ("models", "parent_model_id", "INTEGER"),
+            ("models", "updated_time", "DATETIME"),
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS ix_models_status ON models(status)",
+            "CREATE INDEX IF NOT EXISTS ix_models_base_model_id ON models(base_model_id)",
+        ),
+    ),
 )

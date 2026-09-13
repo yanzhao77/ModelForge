@@ -3,8 +3,8 @@ from __future__ import annotations
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
-from i18n.ui_localizer import format_api_error, format_text
-from PySide6.QtCore import QThread, Signal
+from i18n.ui_localizer import format_api_error
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -19,6 +19,19 @@ from PySide6.QtWidgets import (
 )
 
 
+def _list_chat_models(api) -> list[dict]:
+    """Registry query used by the selector; tolerates narrow test doubles."""
+    try:
+        return api.list_models(capability="CHAT")
+    except TypeError:
+        try:
+            return api.list_models()
+        except Exception:
+            return []
+    except Exception:
+        return []
+
+
 class StreamWorker(QThread):
     """Reads a chat stream outside the GUI event loop."""
 
@@ -26,16 +39,17 @@ class StreamWorker(QThread):
     done = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, api, model, messages, session_id, provider_id=None):
+    def __init__(self, api, model, messages, session_id, provider_id=None, model_id=None):
         super().__init__()
         self.api, self.model, self.messages = api, model, messages
         self.session_id, self.provider_id = session_id, provider_id
+        self.model_id = model_id
 
     def run(self):
         full = ""
         try:
             for event in self.api.stream_chat(
-                self.model, self.messages, self.session_id, self.provider_id,
+                self.model, self.messages, self.session_id, self.provider_id, self.model_id,
                 cancel_event=self.interruption_requested,
             ):
                 if self.isInterruptionRequested():
@@ -79,20 +93,28 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.api, self.session_id, self.messages, self.worker = api, None, [], None
         self.readiness_store = readiness_store
         self._model_ready = False
+        self._remote_provider_count = 0
+        self._pending_provider_id = None
+        self._local_models: list[dict] = []
+        self._selected_model_id: int | None = None
         self.session_refresher = None
         self._stream_active = False
         self._init_ui()
-        self._run_api(
-            self.api.list_remote_providers,
-            self._render_remote_providers,
-            lambda _error: None,
-            request_key="providers",
-        )
+        self.refresh_providers()
+        self.refresh_local_models()
         if self.readiness_store:
             self.readiness_store.changed.connect(self._render_readiness)
             self.readiness_store.failed.connect(
                 lambda _error: self._render_readiness({"level": "SERVICE_UNAVAILABLE"})
             )
+            self.readiness_store.refresh()
+
+    def showEvent(self, event):
+        """Re-read model state on entry: services may be added while hidden."""
+        super().showEvent(event)
+        self.refresh_providers()
+        self.refresh_local_models()
+        if self.readiness_store:
             self.readiness_store.refresh()
 
     def _init_ui(self):
@@ -106,6 +128,11 @@ class ChatPage(QWidget, AsyncApiMixin):
         header.addWidget(self.chat_status)
         layout.addLayout(header)
         model_row = QHBoxLayout()
+        self.local_model_select = QComboBox()
+        self.local_model_select.setAccessibleName("本地模型")
+        self.local_model_select.setToolTip("来自模型中心（Model Registry）的本地模型")
+        self.local_model_select.currentIndexChanged.connect(self._local_model_changed)
+        model_row.addWidget(self.local_model_select)
         self.model_input = QLineEdit()
         self.model_input.setPlaceholderText("选择本地模型，或已配置的远程模型")
         self.model_input.setAccessibleName("模型名称")
@@ -166,20 +193,133 @@ class ChatPage(QWidget, AsyncApiMixin):
     def _scroll_to_end(self) -> None:
         self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum())
 
+    def refresh_providers(self) -> None:
+        """Re-read the saved remote services so newly configured ones appear."""
+        self._run_api(
+            self.api.list_remote_providers,
+            self._render_remote_providers,
+            self._providers_failed,
+            request_key="providers",
+        )
+
+    # ---- local models come from the unified registry ---------------------
+
+    def refresh_local_models(self) -> None:
+        """Populate the local model selector from the model registry."""
+        self._run_api(
+            lambda: _list_chat_models(self.api),
+            self._render_local_models,
+            self._local_models_failed,
+            request_key="local-models",
+        )
+
+    def _render_local_models(self, models) -> None:
+        self._local_models = [model for model in (models or []) if isinstance(model, dict)]
+        previous = self._selected_model_id
+        self.local_model_select.blockSignals(True)
+        self.local_model_select.clear()
+        self.local_model_select.addItem("本地模型…", None)
+        for model in self._local_models:
+            name = model.get("display_name") or model.get("name") or str(model.get("model_id"))
+            loaded = model.get("runtime_status") == "loaded"
+            self.local_model_select.addItem(f"{name} {'● 已加载' if loaded else '○ 未加载'}", model.get("model_id") or model.get("id"))
+        if previous is not None:
+            index = self.local_model_select.findData(previous)
+            if index >= 0:
+                self.local_model_select.setCurrentIndex(index)
+        self.local_model_select.blockSignals(False)
+        self._local_model_changed(self.local_model_select.currentIndex())
+
+    def _local_models_failed(self, _error) -> None:
+        self._local_models = []
+        self._refresh_status()
+
+    def _selected_local_model(self) -> dict | None:
+        for model in self._local_models:
+            if (model.get("model_id") or model.get("id")) == self._selected_model_id:
+                return model
+        return None
+
+    def _local_model_changed(self, index) -> None:
+        model_id = self.local_model_select.itemData(index)
+        self._selected_model_id = model_id if isinstance(model_id, int) else None
+        if model_id is None:
+            self._refresh_status()
+            self._set_composer_enabled()
+            return
+        model = self._selected_local_model() or {}
+        name = model.get("display_name") or model.get("name") or ""
+        if name:
+            self.model_input.setText(name)
+        # Selecting a local model means "use the local runtime", not a provider.
+        if self.provider_select.currentData() is not None:
+            self.provider_select.blockSignals(True)
+            self.provider_select.setCurrentIndex(0)
+            self.provider_select.blockSignals(False)
+            self.load_btn.setText("使用模型")
+        self._refresh_status()
+        self._set_composer_enabled()
+
+    @staticmethod
+    def _provider_selectable(provider: dict) -> bool:
+        """A saved service is selectable once it is enabled and holds a key.
+
+        Verification only unlocks the agent runtime; the chat route resolves an
+        enabled provider with a stored credential, so hiding unverified
+        services here made a configured model impossible to pick.
+        """
+        if provider.get("enabled") is False:
+            return False
+        return bool(provider.get("key_configured") or provider.get("credential_state") == "configured")
+
     def _render_remote_providers(self, providers):
-        selected = self._provider_id()
+        previous = self._provider_id()
+        selected = previous if previous is not None else self._pending_provider_id
+        selectable = [p for p in (providers or []) if self._provider_selectable(p)]
+        selectable.sort(key=lambda p: p.get("verification_status") != "success")
         self.provider_select.blockSignals(True)
         self.provider_select.clear()
         self.provider_select.addItem("本地运行时", None)
-        for provider in providers:
-            if provider.get("verification_status") != "success":
-                continue
-            self.provider_select.addItem(
-                f"{provider['name']} · {provider['default_model']}", provider
-            )
-            if provider["id"] == selected:
-                self.provider_select.setCurrentIndex(self.provider_select.count() - 1)
+        for provider in selectable:
+            verified = provider.get("verification_status") == "success"
+            label = f"{provider['name']} · {provider['default_model']}"
+            if not verified:
+                label += "（未验证）"
+            self.provider_select.addItem(label, provider)
+            index = self.provider_select.count() - 1
+            if not verified:
+                self.provider_select.setItemData(
+                    index,
+                    "该服务已保存但尚未验证连接；可直接对话，建议在模型管理中验证。",
+                    Qt.ToolTipRole,
+                )
+            if provider.get("id") == selected:
+                self.provider_select.setCurrentIndex(index)
         self.provider_select.blockSignals(False)
+        self._remote_provider_count = len(selectable)
+        if selected is not None and self._provider_id() == selected:
+            self._pending_provider_id = None
+        if self._provider() is not None and previous != self._provider_id():
+            # Sync the model field only when the effective service changed, so a
+            # manually typed model name survives a background refresh.
+            self._provider_changed(self.provider_select.currentIndex())
+        else:
+            self._refresh_status()
+
+    def _providers_failed(self, _error) -> None:
+        self._remote_provider_count = 0
+        self._refresh_status()
+
+    def select_provider(self, provider_id) -> None:
+        """Select one saved service, retrying once the list has been loaded."""
+        self._pending_provider_id = provider_id
+        for index in range(self.provider_select.count()):
+            provider = self.provider_select.itemData(index)
+            if isinstance(provider, dict) and provider.get("id") == provider_id:
+                self.provider_select.setCurrentIndex(index)
+                self._pending_provider_id = None
+                return
+        self.refresh_providers()
 
     def _provider(self):
         value = self.provider_select.currentData()
@@ -194,10 +334,15 @@ class ChatPage(QWidget, AsyncApiMixin):
         if provider:
             self.model_input.setText(provider["default_model"])
             self.load_btn.setText("使用远程服务")
-            self.chat_status.set_state(format_text("已选择 {name}", name=provider["name"]), "online")
+            # A remote service supersedes any local registry selection.
+            self._selected_model_id = None
+            if self.local_model_select.currentIndex() != 0:
+                self.local_model_select.blockSignals(True)
+                self.local_model_select.setCurrentIndex(0)
+                self.local_model_select.blockSignals(False)
         else:
             self.load_btn.setText("使用模型")
-            self.chat_status.set_state("未选择模型", "warning")
+        self._refresh_status()
         self._set_composer_enabled()
 
     def _render_readiness(self, snapshot: dict) -> None:
@@ -215,14 +360,41 @@ class ChatPage(QWidget, AsyncApiMixin):
                         self.provider_select.setCurrentIndex(index)
                         break
         self._set_composer_enabled()
-        if self._provider() is None:
+        self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        """Report the model status without hiding a configured remote service."""
+        provider = self._provider()
+        if provider is not None:
+            model = self.model_input.text().strip() or provider.get("default_model", "")
+            self.chat_status.set_state(f"{provider['name']} · {model}", "online")
+            return
+        local = self._selected_local_model()
+        if local is not None:
+            name = local.get("display_name") or local.get("name") or ""
+            if local.get("runtime_status") == "loaded":
+                self.chat_status.set_state(f"{name} · 已加载", "online")
+            elif local.get("ready"):
+                self.chat_status.set_state(f"{name} · 未加载（发送时自动加载）", "online")
+            else:
+                self.chat_status.set_state(f"{name} · 尚不可用", "warning")
+            return
+        if self._model_ready:
+            self.chat_status.set_state("模型已就绪", "online")
+            return
+        if self._remote_provider_count:
             self.chat_status.set_state(
-                "模型已就绪" if self._model_ready else "请先配置可用模型",
-                "online" if self._model_ready else "warning",
+                f"已配置 {self._remote_provider_count} 个远程模型，请在上方选择", "warning"
             )
+            return
+        self.chat_status.set_state("请先配置可用模型", "warning")
 
     def _chat_ready(self) -> bool:
-        return self._model_ready or self._provider() is not None
+        return (
+            self._model_ready
+            or self._provider() is not None
+            or self._selected_model_id is not None
+        )
 
     def _set_composer_enabled(self) -> None:
         self.send_btn.setEnabled(self._chat_ready() and not self._stream_active)
@@ -267,6 +439,17 @@ class ChatPage(QWidget, AsyncApiMixin):
             self.chat_status.set_state(f"{provider['name']} · {model}", "online")
             self._append_notice("远程模型已就绪", "消息将发送到所选的 OpenAI 兼容服务。")
             return
+        if self._selected_model_id is not None:
+            # Loading is owned by the runtime manager; the page just asks.
+            self.load_btn.setEnabled(False)
+            self._append_notice("正在通过运行时管理器加载本地模型…")
+            self._run_api(
+                lambda: self.api.load_model(self._selected_model_id),
+                lambda result: self._local_model_loaded(model, result),
+                self._model_load_failed,
+                request_key="model-start",
+            )
+            return
         self.load_btn.setEnabled(False)
         self._append_notice("正在准备本地模型…")
         self._run_api(
@@ -275,6 +458,12 @@ class ChatPage(QWidget, AsyncApiMixin):
             self._model_load_failed,
             request_key="model-start",
         )
+
+    def _local_model_loaded(self, model, result):
+        self.load_btn.setEnabled(True)
+        self.chat_status.set_state(f"{model} 已加载", "online")
+        self._append_notice("模型已加载", "现在可以开始对话。")
+        self.refresh_local_models()
 
     def _model_loaded(self, model):
         self.load_btn.setEnabled(True)
@@ -324,7 +513,9 @@ class ChatPage(QWidget, AsyncApiMixin):
             return
         self.display.appendPlainText("ModelForge")
         self._scroll_to_end()
-        self.worker = StreamWorker(self.api, model, self.messages, self.session_id, provider_id)
+        self.worker = StreamWorker(
+            self.api, model, self.messages, self.session_id, provider_id, self._selected_model_id
+        )
         self.worker.delta.connect(self._on_delta)
         self.worker.done.connect(self._on_done)
         self.worker.failed.connect(self._on_failed)

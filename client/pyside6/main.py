@@ -136,6 +136,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.workspace_page.navigate_requested.connect(self._navigate_to)
         self.models_page = ModelsPage(self.api, self.readiness_store)
         self.models_page.navigate_requested.connect(self._navigate_to)
+        self.models_page.provider_chat_requested.connect(self._chat_with_provider)
         self.runtime_page = RuntimePage(self.api)
         self.session_sidebar = SessionSidebar(self.api)
         self.session_sidebar.session_selected.connect(self._on_session_selected)
@@ -308,6 +309,11 @@ class MainWindow(QMainWindow, AsyncApiMixin):
 
     def _on_session_selected(self, session_id: int) -> None:
         self.chat_page.set_session(session_id)
+        self._navigate_to("chat")
+
+    def _chat_with_provider(self, provider_id) -> None:
+        """Open chat with the remote service picked on the model page."""
+        self.chat_page.select_provider(provider_id)
         self._navigate_to("chat")
 
     def _show_task_center(self) -> None:

@@ -9,6 +9,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 from core.api_contracts import correlation_id
+from core.database import get_db
 from core.openai_rate_limiter import (
     Lease,
     acquire_lease,
@@ -23,8 +24,12 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from models.records import User
 from pydantic import BaseModel, Field
+from services.model_registry import ModelRegistry
+from services.model_resolver import ModelResolver
+from services.model_runtime_manager import get_model_runtime_manager
 from services.resource_lease import ResourceBusy, inference_lease
 from services.runtime_registry import get_runtime
+from sqlalchemy.orm import Session as DBSession
 
 log = logging.getLogger(__name__)
 
@@ -104,6 +109,7 @@ async def _stream_with_lease(
     correlation: str,
     total_timeout: float,
     inference_handle=None,
+    runtime=None,
 ) -> AsyncIterator[str]:
     """Streaming generator that owns its lease for the full stream lifetime.
 
@@ -116,7 +122,10 @@ async def _stream_with_lease(
     """
     deadline = asyncio.get_event_loop().time() + total_timeout
     try:
-        runtime = get_runtime()
+        # ``runtime`` is only supplied when the request resolved to a registry
+        # model; otherwise the legacy per-backend registry is used, which keeps
+        # the standalone streaming-lease tests (and Ollama deployments) intact.
+        runtime = runtime or get_runtime()
         runtime_obj = runtime.get()
         stream_fn = getattr(runtime_obj, "stream_chat", None)
         if stream_fn is not None:
@@ -175,11 +184,61 @@ async def _stream_with_lease(
         maybe_cleanup_idle()
 
 
+class _RegistryEngine:
+    """Legacy runtime-engine surface over the unified runtime manager."""
+
+    def __init__(self, model_id: int, user_id: int):
+        self._model_id = model_id
+        self._user_id = user_id
+
+    @staticmethod
+    def _translate(kwargs: dict) -> dict:
+        options = {key: value for key, value in kwargs.items() if value is not None}
+        if "max_tokens" in options:
+            options.setdefault("max_new_tokens", options.pop("max_tokens"))
+        return options
+
+    async def chat(self, model: str, messages: list, **kwargs) -> dict:
+        return await get_model_runtime_manager().chat(
+            self._model_id, messages, user_id=self._user_id, **self._translate(kwargs)
+        )
+
+    def stream_chat(self, model: str, messages: list, **kwargs):
+        return get_model_runtime_manager().stream_chat(
+            self._model_id, messages, user_id=self._user_id, **self._translate(kwargs)
+        )
+
+
+class _RegistryRuntime:
+    """Adapts the runtime manager to the ``runtime.get()`` contract."""
+
+    def __init__(self, model_id: int, user_id: int):
+        self._engine = _RegistryEngine(model_id, user_id)
+
+    def get(self, name: str | None = None):  # noqa: ARG002 - legacy signature
+        return self._engine
+
+    async def chat(self, model: str, messages: list, **kwargs) -> dict:
+        return await self._engine.chat(model, messages, **kwargs)
+
+
+def _registry_runtime(db: DBSession, user: User, model_name: str):
+    """Return a manager-backed runtime when ``model_name`` is a known model."""
+    try:
+        record = ModelResolver(db).resolve(model_name, user.id)
+    except Exception:
+        return None
+    if record is None:
+        return None
+    return _RegistryRuntime(record.id, user.id)
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
     req: ChatCompletionRequest,
     request: Request,
     request_id: str | None = Header(default=None, alias="X-Request-ID"),
+    db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Proxy a user-authorized model request without exposing runtime errors."""
@@ -203,6 +262,9 @@ async def chat_completions(
 
     messages = [{"role": message.role, "content": message.content} for message in req.messages]
     total_timeout = float(inference_timeout_seconds())
+    # Resolve through the registry so Chat UI, Agent runtime and the
+    # OpenAI-compatible API all share one loaded instance.
+    runtime = _registry_runtime(db, user, req.model)
 
     # --- Exclusive inference gate: one account at a time ---
     try:
@@ -229,7 +291,7 @@ async def chat_completions(
         # Streaming: the generator owns the lease for the full stream lifetime.
         # The outer try/finally must NOT release the lease.
         return StreamingResponse(
-            _stream_with_lease(lease, req.model, messages, correlation, total_timeout, inference_handle),
+            _stream_with_lease(lease, req.model, messages, correlation, total_timeout, inference_handle, runtime=runtime),
             media_type="text/event-stream",
             headers={"X-Request-ID": correlation, "X-Correlation-ID": correlation},
         )
@@ -237,7 +299,7 @@ async def chat_completions(
     # Non-streaming: lease is released in the finally block below.
     try:
         result = await asyncio.wait_for(
-            get_runtime().chat(
+            (runtime or get_runtime()).chat(
                 req.model,
                 messages,
                 temperature=req.temperature,
@@ -272,10 +334,26 @@ async def chat_completions(
 
 
 @router.get("/v1/models")
-async def list_openai_models(user: User = Depends(get_current_user)):
-    """OpenAI-compatible model list."""
-    del user  # Authentication dependency remains required; no identity is echoed.
-    return {
-        "object": "list",
-        "data": [{"id": "default-model", "object": "model", "owned_by": "modelforge"}],
-    }
+async def list_openai_models(
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """OpenAI-compatible model list sourced from the unified registry."""
+    registry = ModelRegistry(db)
+    records = registry.list_models(user.id)
+    data = [
+        {
+            "id": record.name,
+            "object": "model",
+            "owned_by": "modelforge",
+            "model_id": record.id,
+            "capabilities": registry.capabilities(record),
+            "ready": registry.is_ready(record),
+        }
+        for record in records
+    ]
+    if not data:
+        # Preserve the historical placeholder so an empty install still answers
+        # with a valid OpenAI model list.
+        data = [{"id": "default-model", "object": "model", "owned_by": "modelforge"}]
+    return {"object": "list", "data": data}

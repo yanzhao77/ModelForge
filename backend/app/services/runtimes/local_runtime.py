@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from collections.abc import AsyncIterator
 
 from services.runtime import RuntimeEngine
 
@@ -58,7 +59,18 @@ class LocalRuntime(RuntimeEngine):
                     path,
                     [f for f in os.listdir(path) if f.lower().endswith(".gguf")][0],
                 )
-            self._model = Llama(model_path=gguf_path, n_ctx=kwargs.get("input_max_length", 4096))
+            # Only forward the optional knobs when the caller asked for them:
+            # llama.cpp applies its own defaults otherwise, and the registry
+            # runtime manager is the layer that decides the shipped defaults.
+            llama_kwargs: dict = {
+                "model_path": gguf_path,
+                "n_ctx": kwargs.get("input_max_length", 4096),
+            }
+            if kwargs.get("n_gpu_layers") is not None:
+                llama_kwargs["n_gpu_layers"] = int(kwargs["n_gpu_layers"])
+            if kwargs.get("n_threads"):
+                llama_kwargs["n_threads"] = int(kwargs["n_threads"])
+            self._model = Llama(**llama_kwargs)
             self._tokenizer = None
         else:
             import torch
@@ -114,6 +126,69 @@ class LocalRuntime(RuntimeEngine):
     async def stop(self, model_name: str) -> dict:
         await asyncio.to_thread(self._locked, self._stop_sync)
         return {"status": "stopped", "model": model_name}
+
+    async def stream_chat(self, model_name: str, messages: list, **kwargs) -> AsyncIterator[str]:
+        """Yield generated text incrementally, off the event loop.
+
+        GGUF models are streamed token by token through a worker thread so the
+        asyncio loop keeps serving heartbeats and cancellation while a long
+        generation runs. Transformers checkpoints have no incremental decode
+        path here, so their full answer is yielded as a single chunk.
+        """
+        if self._model is None:
+            await self.load(model_name)
+        if not self._is_gguf:
+            result = await asyncio.to_thread(
+                self._locked, self._chat_sync, model_name, messages, **kwargs
+            )
+            content = str(result.get("content", ""))
+            if content:
+                yield content
+            return
+        async for chunk in self._stream_gguf(messages, **kwargs):
+            yield chunk
+
+    async def _stream_gguf(self, messages: list, **kwargs) -> AsyncIterator[str]:
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        prompt = self._build_prompt(messages)
+        max_tokens = int(kwargs.get("max_new_tokens", 2048))
+        temperature = float(kwargs.get("temperature", 0.7))
+        top_p = float(kwargs.get("top_p", 0.95))
+
+        def _worker() -> None:
+            try:
+                with self._lock:
+                    for chunk in self._model(
+                        prompt,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        stop=["User:"],
+                        stream=True,
+                    ):
+                        text = ((chunk or {}).get("choices") or [{}])[0].get("text", "")
+                        if text:
+                            loop.call_soon_threadsafe(queue.put_nowait, ("chunk", text))
+            except Exception as exc:  # surfaced to the caller, not swallowed
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, ("end", None))
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+        try:
+            while True:
+                kind, payload = await queue.get()
+                if kind == "end":
+                    return
+                if kind == "error":
+                    raise payload
+                yield payload
+        finally:
+            # The worker is a daemon thread; joining briefly avoids leaking a
+            # generation thread if the consumer stopped early.
+            await asyncio.to_thread(thread.join, 0.5)
 
     def _stop_sync(self) -> None:
         try:
