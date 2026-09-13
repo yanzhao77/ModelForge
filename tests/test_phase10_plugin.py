@@ -170,6 +170,25 @@ class TestPluginManager:
         result = pm.execute("nope")
         assert "error" in result
 
+    def test_execute_failure_is_sanitized(self):
+        class ExplodingToolPlugin(DummyToolPlugin):
+            @property
+            def name(self) -> str:
+                return "exploding-tool"
+
+            def execute(self, **kwargs):
+                raise RuntimeError("C:/internal/secret/path.py exploded")
+
+        pm = PluginManager()
+        pm.register(ExplodingToolPlugin())
+        result = pm.execute("exploding-tool")
+
+        assert result["status"] == "error"
+        assert result["code"] == "PLUGIN_EXECUTION_FAILED"
+        # The caller must never receive plugin internals or host paths.
+        assert "secret" not in result["error"]
+        assert "path.py" not in result["error"]
+
     def test_count(self):
         pm = PluginManager()
         assert pm.count() == 0

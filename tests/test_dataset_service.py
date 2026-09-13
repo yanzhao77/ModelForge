@@ -155,3 +155,19 @@ class TestDatasetService:
         rec = DatasetService().upload(db_session, user.id, "bad.json", b"{invalid")
         assert rec.status == "error"
         assert rec.error
+
+    def test_parse_error_never_echoes_parser_internals(self, db_session, user, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "dataset_dir", str(tmp_path))
+        svc = DatasetService()
+        rec = svc.upload(db_session, user.id, "bad.json", b"{invalid")
+
+        assert rec.error.startswith("DATASET_PARSE_FAILED")
+        assert str(tmp_path) not in rec.error
+
+        check = svc.validate(db_session, rec.id, user.id)
+        assert check["ok"] is False
+        assert check["code"] == "DATASET_PARSE_FAILED"
+        # The client shows this text directly, so it must stay free of host
+        # paths and raw exception messages.
+        assert str(tmp_path) not in check["reason"]
+        assert str(tmp_path) not in check["detail"]

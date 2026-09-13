@@ -12,6 +12,22 @@ class TestLoggingConfig:
         assert logger is not None
         assert logger.name == "modelforge"
 
+    def test_setup_logging_is_idempotent_and_rotates(self):
+        from logging.handlers import RotatingFileHandler
+
+        from core.logging_config import LOG_BACKUP_COUNT, setup_logging
+
+        logger = setup_logging()
+        handlers = len(logger.handlers)
+        # A second call must replace our handlers, not stack duplicates.
+        setup_logging()
+        assert len(logger.handlers) == handlers
+
+        files = [handler for handler in logger.handlers if isinstance(handler, RotatingFileHandler)]
+        assert files, "the log file must be bounded by a rotating handler"
+        assert files[0].maxBytes > 0
+        assert files[0].backupCount == LOG_BACKUP_COUNT
+
 
 class TestDockerFiles:
     def test_dockerfile_exists(self):

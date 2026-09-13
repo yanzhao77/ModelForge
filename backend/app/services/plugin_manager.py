@@ -57,8 +57,13 @@ class PluginManager:
         try:
             result = plugin.execute(**kwargs)
             return {"status": "ok", "result": result}
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+        except Exception:
+            # Never echo plugin internals (paths, stack text) to the caller.
+            return {
+                "status": "error",
+                "code": "PLUGIN_EXECUTION_FAILED",
+                "error": "PLUGIN_EXECUTION_FAILED",
+            }
 
     def count(self) -> int:
         """Return number of registered plugins."""

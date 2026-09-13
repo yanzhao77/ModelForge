@@ -10,6 +10,15 @@ from sqlalchemy.orm import Session as DBSession
 
 ALLOWED_EXTENSIONS = {".jsonl", ".csv", ".json", ".txt"}
 
+# Stable, path-free code returned to clients when a dataset cannot be parsed.
+PARSE_FAILED_CODE = "DATASET_PARSE_FAILED"
+PARSE_FAILED_MESSAGE = "数据集解析失败，请检查文件格式与编码"
+
+
+def _parse_failure_detail(exc: Exception) -> str:
+    """Keep the failure diagnosable without echoing paths or file contents."""
+    return f"{PARSE_FAILED_CODE}:{type(exc).__name__}"
+
 
 class DatasetParser:
     """Parse dataset files into (row_count, columns, sample)."""
@@ -150,7 +159,7 @@ class DatasetService:
             rec.status = "parsed"
         except Exception as exc:
             rec.status = "error"
-            rec.error = str(exc)
+            rec.error = _parse_failure_detail(exc)
         db.commit()
         db.refresh(rec)
         return rec
@@ -215,7 +224,13 @@ class DatasetService:
         if not rec:
             raise ValueError("数据集不存在")
         if rec.status == "error":
-            return {"ok": False, "reason": rec.error or "解析失败", "row_count": 0}
+            return {
+                "ok": False,
+                "reason": PARSE_FAILED_MESSAGE,
+                "code": PARSE_FAILED_CODE,
+                "detail": rec.error or PARSE_FAILED_CODE,
+                "row_count": 0,
+            }
         if rec.status != "parsed":
             try:
                 row_count, columns, _ = DatasetParser.parse(rec.file_path, rec.format)
@@ -224,5 +239,11 @@ class DatasetService:
                 rec.status = "parsed"
                 db.commit()
             except Exception as e:
-                return {"ok": False, "reason": str(e), "row_count": 0}
+                return {
+                    "ok": False,
+                    "reason": PARSE_FAILED_MESSAGE,
+                    "code": PARSE_FAILED_CODE,
+                    "detail": _parse_failure_detail(e),
+                    "row_count": 0,
+                }
         return {"ok": True, "row_count": rec.row_count, "columns": json.loads(rec.columns) if rec.columns else []}
