@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app
 
 from api import chat as chat_api
 from api import runtime as runtime_api
+from core.config import settings
 from main import app
 from services.resource_lease import (
     ResourceBusy,
@@ -148,6 +149,41 @@ def test_runtime_start_is_exclusive_between_accounts(client, monkeypatch):
     assert client.post("/api/v1/runtime/start", json={"model": "m"}, headers=headers_a).status_code == 200
     assert client.post("/api/v1/runtime/stop", json={"model": "m"}, headers=headers_a).status_code == 200
     assert client.post("/api/v1/runtime/start", json={"model": "m"}, headers=headers_b).status_code == 200
+
+
+class _FailingRuntime(_FakeRuntime):
+    """Runtime whose load always fails, e.g. Ollama is not running."""
+
+    async def load(self, model: str) -> dict:
+        raise RuntimeError("connection refused by the local runtime")
+
+
+def test_failed_model_load_releases_the_inference_lease(client, monkeypatch):
+    headers_a, _id_a, name_a = _account(client, "loadfail")
+    headers_b, _id_b, name_b = _account(client, "loadother")
+    monkeypatch.setattr(settings, "runtime_admin_usernames", f"{name_a},{name_b}")
+    monkeypatch.setattr(runtime_api, "_runtime", _FailingRuntime())
+
+    failed = client.post("/api/v1/runtime/start", json={"model": "m"}, headers=headers_a)
+    assert failed.status_code == 502
+    assert failed.json()["detail"]["code"] == "MODEL_LOAD_FAILED"
+    # A failed load must not lock the machine for every other account.
+    assert inference_lease.holder() is None
+
+    allowed = client.post("/api/v1/runtime/start", json={"model": "m"}, headers=headers_b)
+    assert allowed.status_code == 502
+    assert allowed.json()["detail"]["code"] == "MODEL_LOAD_FAILED"
+
+
+def test_missing_runtime_releases_the_lease_and_reports_a_stable_code(client, monkeypatch):
+    headers_a, _id_a, name_a = _account(client, "noruntime")
+    monkeypatch.setattr(settings, "runtime_admin_usernames", name_a)
+    monkeypatch.setattr(runtime_api, "_runtime", None)
+
+    response = client.post("/api/v1/runtime/start", json={"model": "m"}, headers=headers_a)
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "RUNTIME_UNAVAILABLE"
+    assert inference_lease.holder() is None
 
 
 async def _fake_run_chat(*args, **kwargs) -> dict:
