@@ -1,4 +1,5 @@
 """Regression tests for non-blocking PySide6 API task execution."""
+import logging
 import os
 import sys
 import threading
@@ -13,6 +14,8 @@ sys.path.insert(0, str(ROOT / "client" / "pyside6"))
 from components.api_worker import (  # noqa: E402
     ApiWorker,
     AsyncApiMixin,
+    log_pending_api_workers,
+    orphaned_worker_report,
     pending_api_workers,
     wait_for_api_workers,
 )
@@ -91,3 +94,64 @@ def test_shutdown_detaches_a_running_worker_instead_of_destroying_it():
     # The page is shutting down: a late answer must never reach its widgets.
     app.processEvents()
     assert host.results == []
+
+
+def test_retained_workers_are_reported_with_age_and_operation():
+    app = _app()
+    host = _Host()
+    release = threading.Event()
+    started = threading.Event()
+
+    def slow_operation():
+        started.set()
+        release.wait(10)
+        return []
+
+    host._run_api(
+        slow_operation,
+        host.results.append,
+        host.results.append,
+        request_key="slow.refresh",
+    )
+    assert started.wait(5)
+    host.shutdown_async_api(wait_ms=50)
+
+    report = orphaned_worker_report()
+    assert len(report) == 1
+    assert report[0]["running"] is True
+    assert report[0]["operation"].endswith("slow_operation")
+    assert isinstance(report[0]["retained_ms"], int)
+
+    release.set()
+    assert wait_for_api_workers(5000) is True
+    app.processEvents()
+    assert orphaned_worker_report() == []
+
+
+def test_pending_workers_are_logged_before_the_process_exits(caplog):
+    _app()
+    host = _Host()
+    release = threading.Event()
+    started = threading.Event()
+
+    def slow_operation():
+        started.set()
+        release.wait(10)
+        return []
+
+    host._run_api(slow_operation, host.results.append, host.results.append)
+    assert started.wait(5)
+    host.shutdown_async_api(wait_ms=50)
+
+    with caplog.at_level(logging.WARNING, logger="components.api_worker"):
+        log_pending_api_workers()
+
+    assert "in-flight desktop request" in caplog.text
+
+    release.set()
+    assert wait_for_api_workers(5000) is True
+    # Nothing pending: the exit path stays silent.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="components.api_worker"):
+        log_pending_api_workers()
+    assert caplog.text == ""
