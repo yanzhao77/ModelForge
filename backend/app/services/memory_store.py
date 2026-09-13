@@ -2,6 +2,7 @@
 import re
 from datetime import datetime, timezone
 
+from core.text_tokens import iter_terms
 from models.records import Memory
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
@@ -151,16 +152,8 @@ class MemoryStore:
         keyword verbatim (e.g. "我还喜欢茶吗" never matched "我喜欢喝茶").
         Overlapping bigrams restore that match without a tokenizer.
         """
-        terms: list[str] = []
-        for run in re.findall(r"[\u4e00-\u9fa5]+|[A-Za-z]+", query or ""):
-            if run.isascii():
-                if len(run) >= 2:
-                    terms.append(run)
-                continue
-            if len(run) == 1:
-                terms.append(run)
-            else:
-                terms.extend(run[index:index + 2] for index in range(len(run) - 1))
+        # Single ASCII letters would match almost every memory row.
+        terms = [term for term in iter_terms(query) if not term.isascii() or len(term) >= 2]
         unique: list[str] = []
         for term in terms:
             if term not in unique:

@@ -10,10 +10,10 @@ index is rebuilt from the DB on first use. Without db, behaves as before
 """
 import hashlib
 import json
-import re
 from pathlib import Path
 
 import numpy as np
+from core.text_tokens import iter_terms
 from models.records import (
     KnowledgeChunk,
     KnowledgeCollection,
@@ -25,13 +25,16 @@ from models.records import (
 class SimpleEmbedder:
     """Lightweight embedding using TF-IDF-like bag-of-words vectors."""
 
+    # Bounds process memory for long-running servers that ingest many files.
+    MAX_VOCAB = 50_000
+
     def __init__(self):
         self.vocab: dict[str, int] = {}
 
     def fit(self, texts: list[str]):
         for text in texts:
             for token in self._tokenize(text):
-                if token not in self.vocab:
+                if token not in self.vocab and len(self.vocab) < self.MAX_VOCAB:
                     self.vocab[token] = len(self.vocab)
 
     def embed(self, text: str) -> np.ndarray:
@@ -50,7 +53,9 @@ class SimpleEmbedder:
         return [self.embed(t) for t in texts]
 
     def _tokenize(self, text: str) -> list[str]:
-        return re.findall(r"[\w]+", text.lower())
+        # CJK runs are not word-segmented by \w; bigrams keep Chinese queries
+        # searchable (see core.text_tokens).
+        return list(iter_terms(text))
 
 
 class InMemoryVectorStore:
@@ -179,19 +184,44 @@ class KnowledgeBase:
         self.chunker = TextChunker()
         self.parser = FileParser()
         self._docs_count = 0
-        self._db_loaded = False
+        # One entry per owner whose DB rows were pulled into this process.
+        self._loaded_scopes: set[int | None] = set()
 
-    def _ensure_loaded(self, db=None):
-        """Rebuild the in-memory index from the DB once (lazy)."""
-        if db is None or self._db_loaded:
+    def _vector_width(self) -> int:
+        return len(self.embedder.vocab) or 1
+
+    @staticmethod
+    def _pad_vector(vector, width: int) -> np.ndarray:
+        """Zero-pad an older vector after the shared vocabulary grew."""
+        if vector is None:
+            return np.zeros(width, dtype=np.float32)
+        if len(vector) == width:
+            return vector
+        padded = np.zeros(width, dtype=np.float32)
+        padded[: len(vector)] = vector
+        return padded
+
+    def _ensure_loaded(self, db=None, user_id: int | None = None):
+        """Rebuild the in-memory index from the DB once per owner (lazy).
+
+        Only the caller's own rows are pulled in: the process-wide instance
+        must not hold every account's chunk text in memory.
+        """
+        if db is None or user_id in self._loaded_scopes:
             return
         try:
-            for _doc in db.query(KnowledgeDocument).all():
-                self._docs_count += 1
-            chunks = (
+            documents_query = db.query(KnowledgeDocument)
+            chunks_query = (
                 db.query(KnowledgeChunk)
+                .join(KnowledgeDocument, KnowledgeChunk.doc_id == KnowledgeDocument.id)
                 .order_by(KnowledgeChunk.doc_id, KnowledgeChunk.chunk_index)
-                .all()
+            )
+            if user_id is not None:
+                documents_query = documents_query.filter(KnowledgeDocument.user_id == user_id)
+                chunks_query = chunks_query.filter(KnowledgeDocument.user_id == user_id)
+            self._docs_count += len(documents_query.all())
+            chunks = (
+                chunks_query.all()
             )
             for ch in chunks:
                 meta = json.loads(ch.meta) if ch.meta else {}
@@ -201,10 +231,10 @@ class KnowledgeBase:
             texts = [d["text"] for d in self.vector_store.documents]
             self.embedder.fit(texts)
             self.vector_store.vectors = self.embedder.embed_batch(texts)
-            self._db_loaded = True
         except Exception:
             # DB not ready (e.g. table missing) -> in-memory only
-            self._db_loaded = True
+            pass
+        self._loaded_scopes.add(user_id)
 
     def upload(self, filepath: str, db=None, user_id: int | None = None, filename: str | None = None) -> dict:
         """Ingest a file: parse, chunk, embed, index (and persist when db given)."""
@@ -222,13 +252,17 @@ class KnowledgeBase:
         if db is not None and user_id is not None:
             self._delete_documents_by_name(db, user_id, document_name)
         self.vector_store.remove_by_metadata("filename", document_name)
-        self._ensure_loaded(db)
-        all_texts = [d["text"] for d in self.vector_store.documents] + chunks
-        self.embedder.fit(all_texts)
-        new_vectors = self.embedder.embed_batch(all_texts)
-        old_count = len(self.vector_store.documents)
-        self.vector_store.vectors = new_vectors[:old_count]
-        new_vecs = new_vectors[old_count:]
+        self._ensure_loaded(db, user_id)
+        self.embedder.fit(chunks)
+        # New tokens only append to the vocabulary, so existing vectors keep
+        # their dot products once padded to the new width. Re-embedding the
+        # whole corpus on every upload made large libraries progressively
+        # slower for no gain.
+        width = self._vector_width()
+        self.vector_store.vectors = [
+            self._pad_vector(vector, width) for vector in self.vector_store.vectors
+        ]
+        new_vecs = self.embedder.embed_batch(chunks)
 
         file_id = hashlib.md5(filepath.encode()).hexdigest()[:12]
         chunk_meta_base = {"filename": document_name, "type": metadata.get("type", "text")}
@@ -294,7 +328,7 @@ class KnowledgeBase:
         return {"mode": mode, "collection_ids": collection_ids}
 
     def query(self, question: str, top_k: int = 5, db=None, user_id: int | None = None, knowledge_binding: dict | None = None) -> dict:
-        self._ensure_loaded(db)
+        self._ensure_loaded(db, user_id)
         binding = self.normalize_binding(knowledge_binding)
         if binding["mode"] == "disabled":
             return {"question": question, "results": [], "total_results": 0, "knowledge_binding": binding}
@@ -434,7 +468,7 @@ class KnowledgeBase:
         ]
 
     def stats(self, db=None, user_id: int | None = None) -> dict:
-        self._ensure_loaded(db)
+        self._ensure_loaded(db, user_id)
         if db is not None and user_id is not None:
             docs = db.query(KnowledgeDocument).filter(KnowledgeDocument.user_id == user_id).all()
             return {
