@@ -877,3 +877,33 @@ class TestStreamProtocol:
                 pass
         assert "temperature" not in captured["json"]
         assert "max_output_tokens" not in captured["json"]
+
+
+@pytest.mark.asyncio
+async def test_remote_stream_keeps_a_connect_deadline_and_no_read_deadline():
+    """A dead endpoint must not hold the inference lease until the OS gives up."""
+    rt = OpenAIRuntime("sk-1", "https://api.example.com/v1", "gpt-4o", "chat_completions")
+    timeouts: list[httpx.Timeout] = []
+
+    class RecordingStreamClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, *a, **kw):
+            return _MockStreamResponse([])
+
+    def client_factory(**kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        return RecordingStreamClient()
+
+    with patch("services.runtimes.openai_api_runtime.httpx.AsyncClient", side_effect=client_factory):
+        async for _ in rt.stream_chat("gpt-4o", [{"role": "user", "content": "hi"}]):
+            pass
+
+    timeout = timeouts[-1]
+    assert timeout is not None, "streaming must not disable every timeout"
+    assert timeout.connect == 10.0
+    assert timeout.read is None

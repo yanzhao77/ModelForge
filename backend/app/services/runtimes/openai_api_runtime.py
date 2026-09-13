@@ -116,7 +116,11 @@ class OpenAIRuntime(RuntimeEngine):
             for key in ("temperature", "top_p", "max_tokens"):
                 if kwargs.get(key) is not None:
                     payload[key] = kwargs[key]
-        async with httpx.AsyncClient(timeout=None, follow_redirects=False) as client:
+        # The stream body has no read deadline (a model may think for minutes),
+        # but an unreachable provider must not hold the inference lease until
+        # the OS gives up on the TCP connect.
+        connect_only = httpx.Timeout(None, connect=10.0, write=30.0, pool=30.0)
+        async with httpx.AsyncClient(timeout=connect_only, follow_redirects=False) as client:
             endpoint = f"{self.base_url}/responses" if protocol == "responses" else f"{self.base_url}/chat/completions"
             async with client.stream("POST", endpoint, headers=self._headers, json=payload) as response:
                 response.raise_for_status()

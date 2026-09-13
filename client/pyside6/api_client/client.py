@@ -7,6 +7,9 @@ import httpx
 
 _CHAT_STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=3.0, write=30.0, pool=30.0)
 _LONG_STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=12.0, write=30.0, pool=30.0)
+# SSE bodies stay open for as long as the job runs, but a dead endpoint must
+# not hold the request (and its worker thread) forever.
+_OPEN_STREAM_TIMEOUT = httpx.Timeout(None, connect=10.0, write=30.0, pool=30.0)
 
 
 def _is_cancelled(cancel_event: Callable[[], bool] | None) -> bool:
@@ -739,7 +742,7 @@ class ModelForgeClient:
 
     def train_stream(self, task_id: str) -> Iterator[dict]:
         """Yield training SSE events: {type: log|progress|done, data: ...}."""
-        with httpx.Client(timeout=None) as client, client.stream(
+        with httpx.Client(timeout=_OPEN_STREAM_TIMEOUT) as client, client.stream(
             "GET",
             f"{self.base_url}/api/v1/train/stream/{task_id}",
             headers=self._headers(),

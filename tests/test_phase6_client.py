@@ -81,3 +81,45 @@ class TestModelForgeClient:
         client = ModelForgeClient("http://localhost:19999")
         with pytest.raises(ServiceUnavailableError):
             client.get_info()
+
+    def test_train_stream_bounds_the_connect_phase(self, monkeypatch):
+        """A dead server must not leave the log stream (and its thread) hanging."""
+        import api_client.client as client_module
+
+        seen: list = []
+
+        class _Response:
+            def raise_for_status(self):
+                return None
+
+            def iter_lines(self):
+                return iter(())
+
+        class _Stream:
+            def __enter__(self):
+                return _Response()
+
+            def __exit__(self, *exc):
+                return False
+
+        class _Client:
+            def __init__(self, **kwargs):
+                seen.append(kwargs.get("timeout"))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def stream(self, *args, **kwargs):
+                return _Stream()
+
+        monkeypatch.setattr(client_module.httpx, "Client", _Client)
+        client = ModelForgeClient("http://localhost:19999")
+
+        assert list(client.train_stream("task-1")) == []
+        timeout = seen[-1]
+        assert timeout is not None
+        assert timeout.connect == 10.0
+        assert timeout.read is None
