@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 from api_client.client import ModelForgeClient
-from components.api_worker import AsyncApiMixin
+from components.api_worker import AsyncApiMixin, wait_for_api_workers
 from components.app_shell import AppShell
 from components.command_palette import CommandPalette
 from components.desktop_update import GitHubReleaseUpdater, UpdateInfo
@@ -488,19 +489,20 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.task_store.stop()
         self.chat_page.shutdown_stream()
         self.agent_page.timeline.shutdown_stream()
-        for page in (
-            self.session_sidebar,
-            self.dataset_page,
-            self.training_page,
-            self.knowledge_page,
-            self.agent_page,
-            self.runtime_page,
-        ):
+        # Every page owns background workers, and a page that is destroyed
+        # while one of its workers still runs aborts the process. Shut down
+        # all of them instead of a hand-maintained subset.
+        for page in dict.fromkeys([self.session_sidebar, *self._pages.values(), self.task_center]):
             shutdown = getattr(page, "shutdown_async_api", None)
             if shutdown:
                 shutdown()
         self.shutdown_async_api()
         super().closeEvent(event)
+
+
+# A request that is still in flight when the window closes is detached from
+# its page; give it a moment so the process can exit cleanly.
+_EXIT_WORKER_GRACE_MS = 5000
 
 
 def main() -> int:
@@ -519,6 +521,11 @@ def main() -> int:
     window.show()
     exit_code = app.exec()
     recovery.mark_clean_exit()
+    if not wait_for_api_workers(_EXIT_WORKER_GRACE_MS):
+        # Qt calls qFatal when a running QThread is destroyed during teardown,
+        # which surfaced as a crash dialog on Windows. The window is already
+        # closed, so leave without letting Qt destroy the live thread.
+        os._exit(exit_code)
     return exit_code
 
 
