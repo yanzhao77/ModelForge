@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
 
 from api_client.client import ModelForgeClient
-from components.api_worker import AsyncApiMixin, wait_for_api_workers
+from components.api_worker import (
+    AsyncApiMixin,
+    log_pending_api_workers,
+    wait_for_api_workers,
+)
 from components.app_shell import AppShell
 from components.command_palette import CommandPalette
 from components.desktop_update import GitHubReleaseUpdater, UpdateInfo
@@ -504,6 +509,31 @@ class MainWindow(QMainWindow, AsyncApiMixin):
 # its page; give it a moment so the process can exit cleanly.
 _EXIT_WORKER_GRACE_MS = 5000
 
+# Qt teardown is not recoverable from Python: the window object graph keeps
+# reference cycles that are only collected during interpreter shutdown, after
+# `QApplication` is gone, which Qt turns into an access violation
+# (0xC0000005). Set MODELFORGE_DEBUG_TEARDOWN=1 to keep Python's normal
+# shutdown path when debugging that teardown itself.
+_DEBUG_TEARDOWN_ENV = "MODELFORGE_DEBUG_TEARDOWN"
+
+
+def _exit_process(exit_code: int) -> int:
+    """Leave the process deterministically instead of letting Qt tear down.
+
+    The window is already closed at this point, so the only teardown left is
+    the one that crashes. `os._exit` skips atexit handlers and logging
+    teardown, so buffered diagnostics are flushed by hand first.
+    """
+    if os.environ.get(_DEBUG_TEARDOWN_ENV) == "1":
+        return exit_code
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (OSError, ValueError):
+            pass
+    logging.shutdown()
+    os._exit(exit_code)
+
 
 def main() -> int:
     app = QApplication(sys.argv)
@@ -522,11 +552,10 @@ def main() -> int:
     exit_code = app.exec()
     recovery.mark_clean_exit()
     if not wait_for_api_workers(_EXIT_WORKER_GRACE_MS):
-        # Qt calls qFatal when a running QThread is destroyed during teardown,
-        # which surfaced as a crash dialog on Windows. The window is already
-        # closed, so leave without letting Qt destroy the live thread.
-        os._exit(exit_code)
-    return exit_code
+        # A blocking socket call cannot be cancelled safely, so the thread is
+        # still owned by the process-level holder; report it before leaving.
+        log_pending_api_workers()
+    return _exit_process(exit_code)
 
 
 if __name__ == "__main__":

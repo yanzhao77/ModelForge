@@ -5,11 +5,14 @@ marshals success/failure notifications back through Qt signals.
 """
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import QThread, Signal
+
+logger = logging.getLogger(__name__)
 
 
 def safe_api_error_text(exc: Exception) -> str:
@@ -55,11 +58,29 @@ class ApiWorker(QThread):
 # a QThread is destroyed while running, which made "close the window during a
 # slow request" exit with 0xC0000409 instead of closing.
 _ORPHANED_WORKERS: set[ApiWorker] = set()
+# Retained workers are *pinned*, not dropped: releasing a running QThread is the
+# crash we are avoiding. The threshold therefore only drives diagnostics — a
+# stuck socket fleet is reported instead of silently accumulated.
+_ORPHAN_WARN_THRESHOLD = 2
+_ORPHANED_SINCE: dict[ApiWorker, float] = {}
 
 
 def _release_orphan(worker: ApiWorker) -> None:
     _ORPHANED_WORKERS.discard(worker)
+    _ORPHANED_SINCE.pop(worker, None)
     worker.deleteLater()
+
+
+def _prune_finished_orphans() -> None:
+    """Drop retained workers whose thread already finished.
+
+    ``finished`` is delivered through the event loop, so a thread that ended
+    while the window was closing can still sit in the holder until Qt runs the
+    connected callback. Such a worker is not in flight any more.
+    """
+    for worker in list(_ORPHANED_WORKERS):
+        if worker.isFinished():
+            _release_orphan(worker)
 
 
 def retain_api_worker(worker: ApiWorker) -> None:
@@ -68,12 +89,50 @@ def retain_api_worker(worker: ApiWorker) -> None:
     if worker in _ORPHANED_WORKERS:
         return
     _ORPHANED_WORKERS.add(worker)
+    _ORPHANED_SINCE[worker] = time.monotonic()
     worker.finished.connect(lambda: _release_orphan(worker))
+    if len(_ORPHANED_WORKERS) > _ORPHAN_WARN_THRESHOLD:
+        logger.warning(
+            "retained %d in-flight desktop requests after page teardown: %s",
+            len(_ORPHANED_WORKERS),
+            orphaned_worker_report(),
+        )
 
 
 def pending_api_workers() -> int:
     """Number of detached workers that have not finished yet."""
+    _prune_finished_orphans()
     return len(_ORPHANED_WORKERS)
+
+
+def orphaned_worker_report() -> list[dict[str, Any]]:
+    """Diagnostics for retained workers: age and whether the thread still runs."""
+    _prune_finished_orphans()
+    now = time.monotonic()
+    report: list[dict[str, Any]] = []
+    for worker in list(_ORPHANED_WORKERS):
+        retained_at = _ORPHANED_SINCE.get(worker)
+        report.append(
+            {
+                "operation": getattr(worker._operation, "__qualname__", None)
+                or getattr(worker._operation, "__name__", "request"),
+                "running": worker.isRunning(),
+                "retained_ms": int((now - retained_at) * 1000) if retained_at else None,
+            }
+        )
+    return report
+
+
+def log_pending_api_workers() -> None:
+    """Report what kept the process alive at exit; called by the desktop entry."""
+    _prune_finished_orphans()
+    if not _ORPHANED_WORKERS:
+        return
+    logger.warning(
+        "exiting with %d in-flight desktop request(s): %s",
+        len(_ORPHANED_WORKERS),
+        orphaned_worker_report(),
+    )
 
 
 def wait_for_api_workers(timeout_ms: int = 5000) -> bool:
@@ -123,17 +182,38 @@ class AsyncApiMixin:
             generation = state["generation"].get(request_key, 0) + 1
             state["generation"][request_key] = generation
 
-        def deliver(callback: Callable[[Any], None], payload: Any) -> None:
+        def deliver(
+            callback: Callable[[Any], None], payload: Any, *, is_failure: bool = False
+        ) -> None:
             if state["suppressed"]:
                 return
             if request_key is not None and state["generation"].get(request_key) != generation:
                 return
-            callback(payload)
+            try:
+                callback(payload)
+            except Exception as exc:
+                # PySide6 only prints exceptions raised inside a slot, so a page
+                # whose handler rejects the payload used to keep stale state and
+                # report nothing. Turn it into a visible failure instead.
+                logger.exception("desktop handler failed (%s)", request_key or "request")
+                if is_failure:
+                    return
+                detail = getattr(exc, "code", None)
+                if not isinstance(detail, str) or not detail:
+                    detail = type(exc).__name__
+                try:
+                    on_failure(f"CLIENT_RENDER_FAILED:{detail}")
+                except Exception:
+                    logger.exception(
+                        "desktop failure handler failed (%s)", request_key or "request"
+                    )
 
         worker = ApiWorker(operation, self)
         workers.add(worker)
         worker.succeeded.connect(lambda result: deliver(on_success, result))
-        worker.failed.connect(lambda message: deliver(on_failure, message))
+        worker.failed.connect(
+            lambda message: deliver(on_failure, message, is_failure=True)
+        )
         worker.finished.connect(lambda: workers.discard(worker))
         worker.start()
         return worker
