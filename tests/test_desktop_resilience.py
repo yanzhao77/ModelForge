@@ -1,6 +1,10 @@
 """Tests for GitHub Release update selection and desktop crash recovery state."""
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.desktop
+
 import os
 import sys
 

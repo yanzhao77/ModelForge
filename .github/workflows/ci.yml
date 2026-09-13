@@ -127,25 +127,14 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt -r requirements-gui.txt
       - name: Lint desktop client
         run: ruff check client/pyside6
-      - name: Run desktop readiness and onboarding tests
+      - name: Run desktop GUI tests with client coverage
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          pytest -q \
-            tests/test_model_readiness_service.py \
-            tests/test_model_readiness_api.py \
-            tests/test_chat_cursor.py \
-            tests/test_desktop_error_messages.py \
-            tests/test_desktop_resilience.py \
-            tests/test_desktop_shutdown.py \
-            tests/test_desktop_ui_remediation.py \
-            tests/test_gui_async_worker.py \
-            tests/test_workspace_task_center_smoke.py \
-            tests/test_i18n_runtime.py \
-            tests/test_task_store_stream.py \
-            tests/test_desktop_payload_shape.py \
-            tests/test_desktop_process_exit.py \
-            --cov=client/pyside6 --cov-report=xml:desktop-coverage.xml
+          # The `desktop` marker is applied automatically to every Qt-requiring
+          # test file (see tests/conftest.py), so a new GUI test cannot be left
+          # out of this job by forgetting to extend a file list.
+          pytest -q -m desktop --cov=client/pyside6 --cov-report=xml:desktop-coverage.xml
       - name: Upload desktop coverage report
         uses: actions/upload-artifact@v4
         with:

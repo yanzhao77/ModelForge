@@ -1,4 +1,8 @@
 """Regression tests for non-blocking PySide6 API task execution."""
+import pytest
+
+pytestmark = pytest.mark.desktop
+
 import logging
 import os
 import sys

@@ -20,6 +20,8 @@ import sys
 
 import pytest
 
+pytestmark = pytest.mark.desktop
+
 pytest.importorskip("PySide6")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

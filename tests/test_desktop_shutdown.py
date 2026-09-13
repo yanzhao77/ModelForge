@@ -4,6 +4,10 @@ A page that is destroyed while one of its ApiWorker threads is still running
 makes Qt abort the process (0xC0000409 on Windows), which turned "close the
 window during a slow request" into a crash.
 """
+import pytest
+
+pytestmark = pytest.mark.desktop
+
 import importlib.util
 import os
 import sys

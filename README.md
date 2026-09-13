@@ -145,20 +145,18 @@ python -m venv .venv-gui
 $env:QT_QPA_PLATFORM="offscreen"; .\.venv-gui\Scripts\python -m pytest tests/ -q
 ```
 
-全量包含非 GUI 用例与 11 个桌面 GUI 文件（约 1045 条，4 条按环境跳过）；
-其中 `tests/test_desktop_process_exit.py` 以子进程方式断言真实入口的退出码，
-因为解释器收尾阶段崩溃不会体现在同进程断言里。
-解释器没有 PySide6 时只能跑非 GUI 子集：
+全量包含非 GUI 用例与需要 Qt 的桌面用例（约 1080 条，4 条按环境跳过）。需要 Qt 的测试文件
+在文件内声明 `pytestmark = pytest.mark.desktop`；`tests/conftest.py` 依据该声明在缺少 Qt 时
+自动忽略这些文件，因此新增 GUI 用例既不用改 CI 文件清单，也不用维护 `--ignore` 列表：
 
 ```bash
-pytest tests/ -q \
-  --ignore=tests/test_chat_cursor.py --ignore=tests/test_desktop_resilience.py \
-  --ignore=tests/test_desktop_error_messages.py \
-  --ignore=tests/test_desktop_payload_shape.py --ignore=tests/test_desktop_process_exit.py \
-  --ignore=tests/test_desktop_shutdown.py --ignore=tests/test_desktop_ui_remediation.py \
-  --ignore=tests/test_gui_async_worker.py --ignore=tests/test_i18n_runtime.py \
-  --ignore=tests/test_task_store_stream.py --ignore=tests/test_workspace_task_center_smoke.py
+pytest tests/ -q              # 无 PySide6 时自动跳过 desktop 用例
+pytest tests/ -q -m desktop   # 只跑桌面 GUI 用例（CI 的 desktop 作业）
+pytest tests/ -q -m "not desktop"
 ```
+
+其中 `tests/test_desktop_process_exit.py` 以子进程方式断言真实入口的退出码，
+因为解释器收尾阶段崩溃不会体现在同进程断言里。
 
 本机 Anaconda 基础环境存在 Qt DLL 冲突，桌面用例请在 `.venv-gui` 中运行
 （该目录已加入 `.gitignore`）。

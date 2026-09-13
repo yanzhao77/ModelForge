@@ -15,6 +15,8 @@ import sys
 
 import pytest
 
+pytestmark = pytest.mark.desktop
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

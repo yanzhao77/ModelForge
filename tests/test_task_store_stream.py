@@ -1,4 +1,8 @@
 """Unit coverage for desktop TaskStore durable SSE event application."""
+import pytest
+
+pytestmark = pytest.mark.desktop
+
 import os
 import sys
 import uuid

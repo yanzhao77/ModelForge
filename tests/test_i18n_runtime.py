@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.desktop
+
 import sys
 from pathlib import Path
 

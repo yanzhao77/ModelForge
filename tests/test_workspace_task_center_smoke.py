@@ -1,4 +1,8 @@
 """Offscreen smoke verification for workspace and global task center integration."""
+import pytest
+
+pytestmark = pytest.mark.desktop
+
 import importlib.util
 import os
 import sys
