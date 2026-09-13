@@ -17,6 +17,7 @@ from models.records import (
     User,
 )
 from pydantic import BaseModel, ConfigDict, Field
+from runtime.errors import AgentNotFoundError
 from schemas.agent import AgentCreateRequest
 from schemas.run import RunCreateRequest
 from services.audit_log import (
@@ -239,10 +240,11 @@ async def agent_versions(name: str, db: DBSession = Depends(get_db), user: User 
 @router.post("/{name}/chat")
 async def agent_chat(name: str, req: dict, user: User = Depends(get_current_user)):
     """Send a message to an agent owned by the requesting user."""
+    corr = correlation_id()
     rt = _get_runtime()
     agent = rt.get_agent(name, user_id=user.id)
     if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr)
     policy = rt.policy_engine.for_agent(agent) if rt.policy_engine is not None else None
     result = _get_engine().chat(
         name,
@@ -253,7 +255,14 @@ async def agent_chat(name: str, req: dict, user: User = Depends(get_current_user
         user_id=user.id,
     )
     if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
+        raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr)
+    if result.get("error_code") == "AGENT_GRAPH_FAILED":
+        raise problem(
+            502,
+            "AGENT_GRAPH_FAILED",
+            "Agent runtime could not initialise this agent.",
+            correlation=corr,
+        )
     return result
 
 @router.get("/list")
@@ -772,13 +781,35 @@ async def run_schedule_now(
         }, corr)
     rt = _get_runtime()
     try:
-        run = rt.create_run(spec.get("agent_id", ""), spec.get("input", ""), user.id, spec.get("session_id"), {**(spec.get("metadata") or {}), "schedule_id": job.id, "trigger_kind": "manual"}, execute=True)
+        # `create_run` is keyword-only; the positional call raised TypeError and
+        # turned every "run now" into a bare HTTP 500.
+        run = rt.create_run(
+            agent_id=spec.get("agent_id", ""),
+            input_text=spec.get("input", ""),
+            user_id=user.id,
+            session_id=spec.get("session_id"),
+            metadata={
+                **(spec.get("metadata") or {}),
+                "schedule_id": job.id,
+                "trigger_kind": "manual",
+            },
+            execute=True,
+        )
         if claim is not None:
             service.bind_claim_to_run(claim, run.run_id)
+    except AgentNotFoundError as exc:
+        if claim is not None:
+            service.fail_claim(claim, exc)
+        raise problem(404, "AGENT_NOT_FOUND", "Agent not found", correlation=corr) from exc
     except Exception as exc:
         if claim is not None:
             service.fail_claim(claim, exc)
-        raise
+        raise problem(
+            502,
+            "SCHEDULE_RUN_FAILED",
+            "Scheduled run could not be started.",
+            correlation=corr,
+        ) from exc
     record_operation(db, user_id=user.id, action="schedule.run_now", object_type="schedule", object_id=job.id, correlation_id=corr, metadata={"operation_id_supplied": bool(idempotency_key), "explicit_confirm": True})
     db.commit()
     return operation_result({"schedule_id": job.id, "run_id": run.run_id, "status": run.status}, corr)
@@ -789,7 +820,7 @@ async def schedule_executions(schedule_id: str, limit: int = Query(100, ge=1, le
     service = ScheduleService(db)
     job = service.owned(user.id, schedule_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=correlation_id())
     return {"schedule_id": job.id, "executions": [item.to_dict() for item in service.executions(job, limit)]}
 
 
@@ -798,7 +829,7 @@ async def schedule_preview(schedule_id: str, db: DBSession = Depends(get_db), us
     service = ScheduleService(db)
     job = service.owned(user.id, schedule_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise problem(404, "SCHEDULE_NOT_FOUND", "Schedule not found", correlation=correlation_id())
     return {"schedule_id": job.id, "timezone": job.timezone, "next_runs": service.preview(job)}
 
 

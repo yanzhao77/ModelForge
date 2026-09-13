@@ -121,12 +121,16 @@ class AgentEngine:
             response = "No LLM provider configured. Tools available: " + ", ".join(agent["tools"] or [])
             agent["messages"].append(HumanMessage(content=user_message))
             agent["messages"].append(AIMessage(content=response))
-            return {"response": response, "tool_calls": []}
+            # `provider_required` lets a client tell this notice apart from a
+            # real answer without parsing the English text.
+            return {"response": response, "tool_calls": [], "provider_required": True}
 
         try:
             graph = self._build_graph(agent, model, policy=policy, tool_registry=tool_registry)
-        except Exception as e:
-            return {"response": f"Agent graph build failed: {e}", "tool_calls": []}
+        except Exception:
+            # Never echo the exception: it carried internal detail straight into
+            # the API response. The route maps this marker to a stable code.
+            return {"error_code": "AGENT_GRAPH_FAILED", "tool_calls": []}
 
         state = {"messages": agent["messages"] + [HumanMessage(content=user_message)]}
         result_state = graph.invoke(state)

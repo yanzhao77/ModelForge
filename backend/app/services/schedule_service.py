@@ -296,6 +296,12 @@ class ScheduleService:
     def delete_desired(self, job: ScheduledJob, *, commit: bool = True) -> str | None:
         """Delete a schedule in the database and return any later-cancel runtime ID."""
         runtime_job_id = job.runtime_job_id
+        # Execution rows reference the schedule, so deleting the parent first
+        # aborted on the FK constraint (surfacing as
+        # SCHEDULE_DELETE_PERSIST_FAILED for every schedule that had run).
+        self.db.query(ScheduleExecution).filter(
+            ScheduleExecution.schedule_id == job.id
+        ).delete(synchronize_session=False)
         self.db.delete(job)
         self.db.flush()
         if commit:
