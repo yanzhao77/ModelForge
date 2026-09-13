@@ -865,6 +865,20 @@
 - [x] B-06（P3）：更正 `docs/BEHAVIOR_CHANGES_2026-09-12.md` 中 `0xC0000005` 的归因。
 - [x] 复跑：定向 12 passed；全量 **1069 passed / 4 skipped**，覆盖率 **83.25%**；渲染审计 `ALL_CAPTURES_OK` 且退出码 0。
 
+## 全量测试与第三轮 bug 收敛（2026-09-13）
+
+清册与结果见 `docs/FULL_TEST_AND_BUG_ROUND3_2026-09-13.md`。
+
+- [x] 全量测试（GUI + 后端）：1069 passed / 4 skipped，覆盖率 83.23%；桌面 GUI 子集 39 passed；渲染审计与路由统计通过；4 条跳过项均为环境门槛。
+- [x] B-01（P1）：客户端不再强制 `Content-Type: application/json`，数据集/知识库上传恢复正常（此前全部 422）。
+- [x] B-02（P1）：带 body 的 DELETE 改走 `client.request()`，9 处删除类操作不再 `TypeError`。
+- [x] B-03（P2）：上传文件名改用 `os.path.basename`，Windows 路径不再被当成文件名。
+- [x] B-04（P2）：抽出 `services/inference_errors.py` 供 `/chat` 与 `/knowledge/answer` 共用，RAG 上游失败返回 `PROVIDER_UNAVAILABLE` 而非裸 500。
+- [x] B-05（P2）：15 处错误对话框统一走 `format_api_error`（main/dataset/knowledge/model_dialogs/runtime/session_sidebar）。
+- [x] B-06/B-08（P2/P3）：GUI 用例改为文件内声明 `pytestmark = pytest.mark.desktop`，conftest 在无 Qt 时自动忽略；CI desktop 作业改用 `-m desktop`，README 去掉手写 ignore 清单。
+- [x] B-07（P3）：`knowledge_answer` 调用点改为关键字参数，避免 `(model, question)` 顺序误用。
+- [x] 复跑：全量 **1079 passed / 4 skipped**，覆盖率 **83.31%**；真实后端写入流程 15 项 0 bug；渲染审计退出码 0；无 Qt 解释器收集 1044 条 0 error。
+
 ### P0
 
 - [x] T1：先定性再修复"正常退出 `0xC0000005`"（GUI-BUG-01），新增 `tests/test_desktop_process_exit.py` 子进程级退出码回归（无在途 / 慢在途 / 超宽限三条路径），修复方案二选一（退出前显式销毁窗口并 `gc.collect()`，或统一 `os._exit` 收尾）并挂进 CI。→ 定性结论：窗口对象图在 `QApplication` 之后回收；采用 `_exit_process()` 确定性退出（`MODELFORGE_DEBUG_TEARDOWN=1` 可保留正常收尾调试）。
