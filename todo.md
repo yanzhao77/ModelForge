@@ -879,6 +879,20 @@
 - [x] B-07（P3）：`knowledge_answer` 调用点改为关键字参数，避免 `(model, question)` 顺序误用。
 - [x] 复跑：全量 **1079 passed / 4 skipped**，覆盖率 **83.31%**；真实后端写入流程 15 项 0 bug；渲染审计退出码 0；无 Qt 解释器收集 1044 条 0 error。
 
+## 全量测试与第四轮 bug 收敛（2026-09-13）
+
+清册与结果见 `docs/FULL_TEST_AND_BUG_ROUND4_2026-09-13.md`。
+
+- [x] 全量测试（GUI + 后端）：1079 passed / 4 skipped，覆盖率 83.29%；渲染审计与路由统计通过。
+- [x] B-01（P1）：`run-now` 改为关键字调用 keyword-only 的 `create_run`，失败映射为 404 `AGENT_NOT_FOUND` / 502 `SCHEDULE_RUN_FAILED`（此前必然 500）。
+- [x] B-02（P1）：删除计划前先清理 `schedule_executions`，修复外键导致的 `SCHEDULE_DELETE_PERSIST_FAILED`。
+- [x] B-03（P2）：`AgentEngine.chat` 图构建失败不再回显异常文本，改返回 `error_code=AGENT_GRAPH_FAILED`。
+- [x] B-04（P2）：`agent_chat`、`schedule_executions`、`schedule_preview` 的 404 统一为 problem 契约（含 correlation_id）。
+- [x] B-05（P3）：无 provider 的占位响应新增 `provider_required` 结构化标记。
+- [x] B-06（P2）：`tests/conftest.py` 在任何测试模块导入前固定会话级临时数据库，修复模块间隔离失效导致的注册 400。
+- [x] B-07（P3）：调度重复触发用例改为带截止时间的轮询，消除负载下的计数抖动。
+- [x] 复跑：组合用例 146 passed；全量 **1088 passed / 4 skipped**，覆盖率 **83.37%**；run-now 与删除计划端到端通过；渲染审计退出码 0。
+
 ### P0
 
 - [x] T1：先定性再修复"正常退出 `0xC0000005`"（GUI-BUG-01），新增 `tests/test_desktop_process_exit.py` 子进程级退出码回归（无在途 / 慢在途 / 超宽限三条路径），修复方案二选一（退出前显式销毁窗口并 `gc.collect()`，或统一 `os._exit` 收尾）并挂进 CI。→ 定性结论：窗口对象图在 `QApplication` 之后回收；采用 `_exit_process()` 确定性退出（`MODELFORGE_DEBUG_TEARDOWN=1` 可保留正常收尾调试）。
