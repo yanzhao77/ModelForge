@@ -1,5 +1,6 @@
 """API Client for communicating with ModelForge backend (REST + SSE)."""
 import json
+import os
 from collections.abc import Callable, Iterator
 from typing import Dict
 
@@ -92,7 +93,10 @@ class ModelForgeClient:
         return bool(self._token)
 
     def _headers(self) -> dict:
-        headers = {"Content-Type": "application/json"}
+        # No Content-Type here: httpx sets `application/json` for `json=` bodies
+        # and `multipart/form-data` for `files=`. Forcing JSON made every upload
+        # arrive without a `file` part, so the service answered 422.
+        headers: dict[str, str] = {}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         return headers
@@ -559,7 +563,9 @@ class ModelForgeClient:
 
     def knowledge_upload(self, filepath: str) -> dict:
         with open(filepath, "rb") as f:
-            files = {"file": (filepath.split("/")[-1], f, "application/octet-stream")}
+            # os.path.basename: on Windows `split("/")` kept the whole path as
+            # the upload filename.
+            files = {"file": (os.path.basename(filepath), f, "application/octet-stream")}
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
                     f"{self.base_url}/api/v1/knowledge/upload", files=files, headers=self._headers()
@@ -719,7 +725,7 @@ class ModelForgeClient:
 
     def upload_dataset(self, filepath: str, name: str | None = None) -> dict:
         with open(filepath, "rb") as f:
-            files = {"file": (filepath.split("/")[-1], f, "application/octet-stream")}
+            files = {"file": (os.path.basename(filepath), f, "application/octet-stream")}
             data = {"name": name} if name else None
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
@@ -931,8 +937,17 @@ class ModelForgeClient:
     def _request_json(self, method: str, path: str, timeout: float, **kwargs) -> dict:
         try:
             with httpx.Client(timeout=timeout) as client:
-                request = getattr(client, method)
-                response = request(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
+                url = f"{self.base_url}{path}"
+                if method.lower() == "delete" and kwargs:
+                    # `Client.delete()` has no body parameters, so confirm-style
+                    # DELETEs used to raise TypeError before reaching the wire.
+                    response = client.request(
+                        "DELETE", url, headers=self._headers(), **kwargs
+                    )
+                else:
+                    response = getattr(client, method)(
+                        url, headers=self._headers(), **kwargs
+                    )
                 self._raise_for_status(response)
                 try:
                     payload = response.json()
