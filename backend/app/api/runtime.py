@@ -30,7 +30,9 @@ class ChatRequest(BaseModel):
 
 
 class LoadRequest(BaseModel):
-    model: str = Field(min_length=1, max_length=256)
+    model: str = Field(default="", max_length=256)
+    model_id: int | None = None
+    priority: str = Field(default="NORMAL", max_length=16)
 
 
 class RuntimeResponse(BaseModel):
@@ -91,6 +93,61 @@ async def runtime_instance(_admin: User = Depends(get_runtime_admin)):
     }
 
 
+@router.get("/instances")
+async def runtime_instances(_admin: User = Depends(get_runtime_admin)):
+    """Every loaded/loading instance plus the admission queue (V1.3)."""
+    manager = get_model_runtime_manager()
+    return {
+        "instances": manager.instances_payload(),
+        "queue": manager.queue_snapshot(),
+        "max_instances": manager.max_instances,
+    }
+
+
+@router.get("/resources")
+async def runtime_resources(_admin: User = Depends(get_runtime_admin)):
+    """CPU / RAM / GPU / VRAM / disk snapshot plus per-instance estimates."""
+    return get_model_runtime_manager().resources.status()
+
+
+@router.get("/queue")
+async def runtime_queue(_admin: User = Depends(get_runtime_admin)):
+    manager = get_model_runtime_manager()
+    return {"queue": manager.queue_snapshot(), "max_instances": manager.max_instances}
+
+
+@router.post("/evict")
+async def runtime_evict(
+    req: LoadRequest,
+    db: DBSession = Depends(get_db),
+    _admin: User = Depends(get_runtime_admin),
+):
+    """Evict one instance explicitly (LRU runs this automatically)."""
+    corr = correlation_id()
+    manager = get_model_runtime_manager()
+    model_id = req.model_id
+    if model_id is None and req.model:
+        record = _registry_model(db, _admin, req.model)
+        model_id = record.id if record is not None else None
+    if model_id is None:
+        raise problem(400, "MODEL_ID_REQUIRED", "model_id or a known model name is required.", correlation=corr)
+    try:
+        return await manager.unload(model_id, _admin.id, db=db)
+    except ModelRuntimeError as exc:
+        raise _runtime_problem(exc, corr) from exc
+
+
+@router.post("/unload-all")
+async def runtime_unload_all(
+    db: DBSession = Depends(get_db),
+    _admin: User = Depends(get_runtime_admin),
+):
+    result = await get_model_runtime_manager().unload_all(_admin.id)
+    if inference_holder() is not None and inference_holder()["user_id"] == _admin.id:
+        inference_lease.release(user_id=_admin.id)
+    return result
+
+
 @router.post("/start")
 async def runtime_start(
     req: LoadRequest,
@@ -111,9 +168,15 @@ async def runtime_start(
     except ResourceBusy as exc:
         raise exc.to_problem(corr) from exc
     record = _registry_model(db, _admin, req.model)
+    if record is None and req.model_id is not None:
+        from services.model_registry import ModelRegistry
+
+        record = ModelRegistry(db).get(req.model_id, _admin.id)
     if record is not None:
         try:
-            instance = await get_model_runtime_manager().load(record.id, _admin.id, db=db)
+            instance = await get_model_runtime_manager().load(
+                record.id, _admin.id, db=db, priority=req.priority
+            )
         except ModelRuntimeError as exc:
             if handle.created:
                 handle.release()
@@ -213,6 +276,8 @@ async def runtime_status(_admin: User = Depends(get_runtime_admin)):
         "inference_holder": holder,
         "active": instance is not None,
         "instance": instance.to_dict() if instance is not None else None,
+        "instances": manager.instances_payload(),
+        "queue": manager.queue_snapshot(),
         "load_config": manager.load_config(),
         "recent_events": manager.recent_events(),
     }

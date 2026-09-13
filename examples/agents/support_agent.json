@@ -1,0 +1,9 @@
+{
+  "name": "support-agent",
+  "description": "Answers product questions from the project knowledge base.",
+  "model_id": 1,
+  "system_prompt": "You are ModelForge support. Answer with the knowledge base context and cite the source file.",
+  "tools": ["knowledge.search", "filesystem.read"],
+  "knowledge_config": {"collection_ids": []},
+  "policy": {"filesystem_access": true, "network_access": false, "shell_access": false}
+}

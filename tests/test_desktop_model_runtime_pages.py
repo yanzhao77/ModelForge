@@ -191,3 +191,39 @@ def test_training_base_models_only_include_trainable_models(qt_app):
     assert labels == ["llama-base"]
     assert data == [BASE_MODEL["id"]]
     page.close()
+
+
+def test_workflow_page_lists_definitions_and_runs(qt_app):
+    from pages.workflow_page import WorkflowPage
+
+    class WorkflowApi(FakeApi):
+        def list_workflows(self):
+            return {
+                "workflows": [
+                    {
+                        "workflow_id": "wf-1",
+                        "name": "Sequential",
+                        "definition": {"entry": "start", "nodes": [{"id": "start", "type": "input"}]},
+                    }
+                ],
+                "node_types": ["input", "output"],
+            }
+
+        def workflow_runs(self, workflow_id, limit=50):
+            return {"runs": [{"run_id": "run-1234567890", "status": "COMPLETED", "current_node": "done"}]}
+
+        def workflow_trace(self, run_id):
+            return {"trace_id": run_id, "summary": {"node_count": 3}, "spans": []}
+
+    api = WorkflowApi()
+    with patch.object(WorkflowPage, "_run_api", _synchronous_run_api):
+        page = WorkflowPage(api)
+        assert page.workflow_list.count() == 1
+        page.workflow_list.setCurrentRow(0)
+        assert "start" in page.definition.toPlainText()
+        assert page.run_table.rowCount() == 1
+        page.run_table.selectRow(0)
+        page.show_trace()
+        assert "trace_id" in page.detail.toPlainText()
+
+    page.close()

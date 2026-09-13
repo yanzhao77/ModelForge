@@ -8,53 +8,51 @@ from contextlib import asynccontextmanager
 
 from api import (
     agent,
+    agents,
     auth,
     chat,
+    dashboard,
     datasets,
+    developer_api,
     knowledge,
     memories,
     models,
+    observability,
     openai_api,
+    packages,
     platform_api,
     plugin,
     providers,
     runtime,
+    runtimes,
     sessions,
     system,
     tasks,
     train,
+    workflows,
     workspaces,
 )
 from core.api_contracts import correlation_id
 from core.config import settings
-from core.database import SessionLocal, init_db
+from core.database import init_db
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from services.agent_engine import get_engine
 from services.agent_runtime_service import build_agent_runtime, init_agent_runtime
-from services.api_platform import reconcile_orphaned_invocations
-from services.downloader import get_downloader
 from services.knowledge_base import get_global_kb
 from services.plugin_manager import get_manager
+from services.recovery_service import get_recovery_service
 from services.runtime_registry import get_runtime
 from services.task_execution import RetryTaskMonitor
 from services.task_realtime import task_outbox_publisher
-from services.training import get_training_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize the database and inject service singletons."""
     init_db()
-    # Workers only live in memory, so any non-terminal download row at this
-    # point belongs to a previous process and must not stay fake-RUNNING.
-    get_downloader().reconcile_orphaned_tasks()
-    get_training_service().reconcile_orphaned_tasks()
-    with SessionLocal() as startup_session:
-        # Project API reservations only live as long as their in-memory Run.
-        reconcile_orphaned_invocations(startup_session)
     task_outbox_publisher.start()
     task_retry_monitor.start()
     runtime.set_runtime(get_runtime())
@@ -66,9 +64,10 @@ async def lifespan(app: FastAPI):
     agent_runtime = build_agent_runtime()
     init_agent_runtime(agent_runtime)
     agent.set_agent_runtime(agent_runtime)
-    # Run executors only live in memory: anything still non-terminal belongs to
-    # the previous process and can never finish.
-    agent_runtime.reconcile_orphaned_runs()
+    # V1.9: one ordered recovery pass settles every subsystem that keeps its
+    # executor in memory (models, downloads, training, agent/workflow runs,
+    # API invocations) before the process starts serving.
+    app.state.recovery_report = get_recovery_service().startup_recovery()
     agent_runtime.start()
     agent.restore_persistent_schedules()
     try:
@@ -147,25 +146,32 @@ async def csrf_protect_cookie_session(request: Request, call_next):
 
 for _router in (
     auth.router,
+    dashboard.router,
     datasets.router,
     models.router,
+    observability.router,
     providers.router,
     runtime.router,
+    runtimes.router,
     chat.router,
     sessions.router,
     memories.router,
+    packages.router,
     agent.router,
+    agents.router,
     knowledge.router,
     plugin.router,
     train.router,
     system.router,
     tasks.router,
     workspaces.router,
+    workflows.router,
 ):
     app.include_router(_router, prefix="/api/v1")
 
 # OpenAI-compatible endpoints keep their standard paths (/v1/...)
 app.include_router(openai_api.router)
+app.include_router(developer_api.router)
 # Commercial API control-plane and project-key invocation surface.
 app.include_router(platform_api.router, prefix="/api/v2")
 

@@ -184,4 +184,19 @@ _MIGRATIONS = (
             "CREATE INDEX IF NOT EXISTS ix_models_base_model_id ON models(base_model_id)",
         ),
     ),
+    (
+        # V1.1 Agent Runtime: agents reference models by model_id, plus the
+        # runtime/multi-runtime columns V1.2 adds to the registry.
+        "0005_agent_model_and_runtime_columns",
+        (
+            ("agents", "model_id", "INTEGER"),
+            ("agents", "updated_at", "DATETIME"),
+            ("models", "supported_runtimes", "TEXT"),
+            ("models", "preferred_runtime", "VARCHAR(64)"),
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS ix_agents_model_id ON agents(model_id)",
+            "CREATE INDEX IF NOT EXISTS ix_models_preferred_runtime ON models(preferred_runtime)",
+        ),
+    ),
 )

@@ -204,7 +204,7 @@ class AgentRuntime:
         metadata: dict[str, Any] | None = None,
         execute: bool = True,
     ) -> RunRecord:
-        agent = self.agent_store.get(agent_id)
+        agent = self.agent_store.get(agent_id, user_id=user_id)
         if agent is None:
             raise AgentNotFoundError(agent_id)
         self._validate_run_bindings(agent_id, user_id, session_id)
@@ -322,7 +322,7 @@ class AgentRuntime:
             # durable claim above as the execution authority.
             return {"status": run.status, "output": run.output, "error": run.error}
 
-        agent = self.agent_store.get(run.agent_id)
+        agent = self.agent_store.get(run.agent_id, user_id=run.user_id)
         if agent is None:
             await self._fail(run_id, "AGENT_NOT_FOUND", f"Agent {run.agent_id} not found", "FAILED")
             return {"status": "FAILED", "error": "agent not found"}
@@ -403,6 +403,13 @@ class AgentRuntime:
                     finished_at=datetime.datetime.utcnow(),
                 )
             self.metrics.on_run_finished(status, duration)
+            # V1.9: release the inference lease as soon as the Run is terminal.
+            # The client that observes COMPLETED may start the next Run
+            # immediately; holding the lease until the event flush finished made
+            # that next Run fail with RUNTIME_BUSY.
+            if lease_handle is not None and lease_handle.created:
+                lease_handle.release()
+                lease_handle = None
             try:
                 from services.model_metrics import ModelMetricRecorder
                 target = agent.model_target or {}

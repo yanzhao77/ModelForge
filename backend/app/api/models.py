@@ -52,6 +52,9 @@ class LoadModelRequest(BaseModel):
     context_length: int | None = Field(default=None, ge=1, le=1_048_576)
     gpu_layers: int | None = Field(default=None, ge=-1, le=4096)
     threads: int | None = Field(default=None, ge=0, le=1024)
+    #: V1.2: force one adapter (llama_cpp / transformers). Must be supported by
+    #: the asset, otherwise the load is rejected.
+    runtime: str | None = Field(default=None, max_length=64)
 
 
 def _manager(db: DBSession) -> ModelManager:
@@ -114,7 +117,14 @@ def list_models(
         model_format=format,
         source=source,
     )
-    return [_model_payload(record, registry) for record in records]
+    payload = [_model_payload(record, registry) for record in records]
+    # V1.2: remote providers are part of the same inventory (source=remote).
+    if source in (None, "", "remote") and format in (None, "", "remote_openai"):
+        remote = registry.remote_model_descriptors(user.id)
+        if capability_value:
+            remote = [item for item in remote if capability_value in item["capabilities"]]
+        payload.extend(remote)
+    return payload
 
 
 @router.post("/scan")
@@ -332,6 +342,7 @@ async def load_model(
             model_id,
             user.id,
             db=db,
+            runtime=options.runtime,
             context_length=options.context_length,
             gpu_layers=options.gpu_layers,
             threads=options.threads,

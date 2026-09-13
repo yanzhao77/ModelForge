@@ -1,0 +1,31 @@
+{
+  "name": "Research pipeline",
+  "description": "Planner -> Research -> Tool -> Output (multi-agent with a human gate).",
+  "definition": {
+    "entry": "start",
+    "nodes": [
+      {"id": "start", "type": "input", "next": "plan"},
+      {
+        "id": "plan",
+        "type": "agent",
+        "config": {"agent_id": "support-agent", "input": "{{input.question}}"},
+        "next": "fan"
+      },
+      {
+        "id": "fan",
+        "type": "parallel",
+        "branches": [["research"], ["draft"]],
+        "next": "gate"
+      },
+      {"id": "research", "type": "tool", "config": {"tool": "knowledge.search", "arguments": {"query": "{{input.question}}"}}},
+      {"id": "draft", "type": "llm", "config": {"model_id": 1, "prompt": "Draft an answer: {{input.question}}"}},
+      {
+        "id": "gate",
+        "type": "approval",
+        "config": {"message": "Review the draft before publishing"},
+        "next": "publish"
+      },
+      {"id": "publish", "type": "output", "config": {"value": "{{nodes.draft.output}}"}}
+    ]
+  }
+}

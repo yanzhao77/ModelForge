@@ -108,6 +108,8 @@ _ADAPTER_FORMATS = {"peft-adapter", "lora", "adapter"}
 _TRANSFORMERS_FORMATS = {"safetensors", "transformers", "pytorch", "bin", "pt", "pth"}
 _GGUF_FORMATS = {"gguf", "ggml"}
 _CONFIG_INDICATORS = ("config.json", "tokenizer.json", "tokenizer_config.json")
+#: Sentence-Transformers artefacts: presence marks an embedding-only model.
+_EMBEDDING_MARKERS = ("sentence_bert_config.json", "modules.json", "1_Pooling/config.json")
 
 
 def _suffix_of(path: str | None) -> str:
@@ -118,6 +120,14 @@ def _suffix_of(path: str | None) -> str:
 
 def _is_directory(path: str | None) -> bool:
     return bool(path) and Path(str(path)).is_dir()
+
+
+def is_embedding_asset(path: str | None) -> bool:
+    """Whether a model directory declares itself as a sentence-embedding model."""
+    if not _is_directory(path):
+        return False
+    base = Path(str(path))
+    return any((base / marker).exists() for marker in _EMBEDDING_MARKERS)
 
 
 def normalize_format(model_format: str | None, path: str | None = None) -> str | None:
@@ -160,6 +170,10 @@ def infer_capabilities(
         return [ModelCapability.LORA.value]
     if fmt in _GGUF_FORMATS:
         return [ModelCapability.CHAT.value, ModelCapability.INFERENCE.value]
+    if is_embedding_asset(path):
+        # An embedding model cannot chat; advertising CHAT would let Chat/Agent
+        # try to generate from a BERT-style encoder.
+        return [ModelCapability.EMBEDDING.value]
     if fmt in _TRANSFORMERS_FORMATS:
         # Hugging Face checkpoints are the format the training pipeline consumes,
         # so they may serve as training bases. GGUF files never reach this branch.

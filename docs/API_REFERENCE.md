@@ -136,6 +136,23 @@
 
 ## 错误模型（spec 47）
 
+## V1.1 → V2.0 新增接口组
+
+| 组 | 路径 | 说明 |
+|---|---|---|
+| AgentDefinition | `/api/v1/agents`（GET/POST）、`/agents/{id}`（GET/PUT/DELETE）、`/agents/{id}/versions`、`/agents/{id}/runs`、`/agents/runs/{run_id}`、`/agents/runs/{run_id}/trace` | 规范 Agent 入口；`model_id` 绑定统一运行时 |
+| 多运行时 | `/api/v1/runtimes`、`/api/v1/runtimes/{id}/health`；`POST /models/{id}/load` 支持 `runtime` | 适配器目录、健康、运行时覆盖 |
+| 多模型/资源 | `/api/v1/runtime/instances`、`/runtime/resources`、`/runtime/queue`、`POST /runtime/evict`、`POST /runtime/unload-all` | 多实例、LRU、队列、资源 |
+| 知识库 | `/api/v1/knowledge/bases`（GET/POST）、`/knowledge/bases/{id}`（GET/PATCH/DELETE）、`/knowledge/bases/{id}/documents`（GET/POST）、`/knowledge/bases/{id}/documents/{doc}`（DELETE）、`/knowledge/embedding`、`/knowledge/embed` | 知识库 CRUD、文档绑定、embedding provider |
+| 工作流 | `/api/v1/workflows`（GET/POST）、`/workflows/validate`、`/workflows/{id}`（GET/PUT/DELETE）、`/workflows/{id}/runs`（GET/POST）、`/workflows/runs/{id}`、`/workflows/runs/{id}/events`、`/trace`、`POST /runs/{id}/approve`、`/cancel` | 编排、审批、Trace |
+| 开发者 | `/v1/embeddings`、`/v1/agents`、`/v1/agents/{id}/runs`、`/v1/agents/runs/{id}`、`/trace`、`/v1/knowledge/search`、`/v1/workflows/{id}/runs`、`/v1/workflows/runs/{id}`、`/trace`、`/v1/platform/capabilities` | OpenAI 兼容扩展 |
+| 包管理 | `/api/v1/packages`、`POST /packages/export`、`POST /packages/import`、`/packages/{id}`（GET/DELETE） | model/agent/tool/workflow 包 |
+| 可观测 | `/api/v1/traces`、`/traces/{id}`、`/metrics/overview`、`/metrics/resources`、`/evaluations*`、`/security/secrets` | Trace、指标、评测、密钥后端 |
+| 加固 | `/api/v1/system/hardening`、`POST /api/v1/system/recovery` | 恢复与加固视图（需运行时管理员） |
+| 平台 | `/api/v1/dashboard`、`/api/v1/events` | 总览与统一事件流 |
+
+完整说明见 `docs/V1_1_AGENT_RUNTIME.md` … `docs/V2_0_PLATFORM.md`。
+
 ```json
 {"error": {"code": "RUN_NOT_FOUND", "message": "Run not found", "details": {}}}
 ```

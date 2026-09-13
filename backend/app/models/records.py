@@ -140,6 +140,10 @@ class ModelRecord(Base):
     quant = Column(String(50), nullable=True)  # Q4_K_M 等量化类型
     capabilities = Column(Text, nullable=True)  # JSON array, e.g. ["CHAT","INFERENCE"]
     model_metadata = Column(Text, nullable=True)  # JSON object (architecture, params, …)
+    #: V1.2 multi-runtime: which adapters can serve this asset, and which one the
+    #: user prefers. Both are JSON/scalar so the schema stays portable.
+    supported_runtimes = Column(Text, nullable=True)  # JSON array, e.g. ["llama_cpp"]
+    preferred_runtime = Column(String(64), nullable=True)
     base_model_id = Column(Integer, nullable=True)  # training artifact -> base model
     parent_model_id = Column(Integer, nullable=True)  # LoRA adapter -> full model
     created_time = Column(DateTime, default=datetime.datetime.utcnow)
@@ -165,6 +169,21 @@ class ModelRecord(Base):
 
     def has_capability(self, capability: str) -> bool:
         return str(capability).strip().upper() in self.capability_list()
+
+    def supported_runtime_list(self) -> list[str]:
+        """Parsed multi-runtime list, never ``None``."""
+        # Runtime ids are lower-case adapter names, unlike UPPER_CASE capabilities.
+        return [item.lower() for item in _parse_json_list(self.supported_runtimes, uppercase=False)]
+
+    def set_supported_runtimes(self, values: list[str]) -> None:
+        import json as _json
+
+        cleaned: list[str] = []
+        for value in values or []:
+            text = str(value).strip().lower()
+            if text and text not in cleaned:
+                cleaned.append(text)
+        self.supported_runtimes = _json.dumps(cleaned, ensure_ascii=False)
 
     # -- metadata helpers ---------------------------------------------------
 
@@ -195,6 +214,8 @@ class ModelRecord(Base):
             "format": self.format,
             "quant": self.quant,
             "capabilities": self.capability_list(),
+            "supported_runtimes": self.supported_runtime_list(),
+            "preferred_runtime": self.preferred_runtime,
             "metadata": self.metadata_dict(),
             "base_model_id": self.base_model_id,
             "parent_model_id": self.parent_model_id,
@@ -203,7 +224,7 @@ class ModelRecord(Base):
         }
 
 
-def _parse_json_list(value: str | None) -> list[str]:
+def _parse_json_list(value: str | None, *, uppercase: bool = True) -> list[str]:
     """Decode a JSON array column without ever raising on corrupt data."""
     import json as _json
 
@@ -215,7 +236,8 @@ def _parse_json_list(value: str | None) -> list[str]:
         return []
     if not isinstance(parsed, list):
         return []
-    return [str(item).strip().upper() for item in parsed if str(item).strip()]
+    cleaned = [str(item).strip() for item in parsed if str(item).strip()]
+    return [item.upper() for item in cleaned] if uppercase else cleaned
 
 
 def _parse_json_object(value: str | None) -> dict:
@@ -229,6 +251,18 @@ def _parse_json_object(value: str | None) -> dict:
     except (TypeError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _parse_json_value(value: str | None):
+    """Decode any JSON value (a node output may be a string, list or number)."""
+    import json as _json
+
+    if value is None or value == "":
+        return None
+    try:
+        return _json.loads(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class DownloadTaskRecord(Base):
@@ -267,13 +301,16 @@ class DownloadTaskRecord(Base):
 
 
 class AgentRecord(Base):
-    """Persisted AI agent configuration."""
+    """Persisted AgentDefinition (V1.1): model bound by ``model_id``."""
     __tablename__ = "agents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False, unique=True)
     user_id = Column(Integer, nullable=True, index=True)
     model = Column(String(255), nullable=False)
+    #: Stable cross-module model reference (ModelRegistry.id). Agents never hold
+    #: a file path; the runtime manager resolves model_id -> path.
+    model_id = Column(Integer, nullable=True, index=True)
     tools = Column(Text, nullable=True)
     memory = Column(Text, nullable=True)
     system_prompt = Column(Text, nullable=True)
@@ -283,22 +320,43 @@ class AgentRecord(Base):
     runtime_config = Column(Text, nullable=True)  # JSON
     knowledge_config = Column(Text, nullable=True)  # JSON
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )
 
     def to_dict(self) -> dict:
         import json as _json
+
+        def _parsed_list(value: str | None) -> list:
+            try:
+                parsed = _json.loads(value) if value else []
+            except (TypeError, ValueError):
+                return []
+            return parsed if isinstance(parsed, list) else []
+
+        def _parsed_dict(value: str | None) -> dict:
+            try:
+                parsed = _json.loads(value) if value else {}
+            except (TypeError, ValueError):
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+
         return {
             "id": self.id,
+            "agent_id": self.name,
             "name": self.name,
             "model": self.model,
-            "tools": self.tools,
-            "memory": self.memory,
+            "model_id": self.model_id,
+            "tools": _parsed_list(self.tools),
+            "memory": _parsed_dict(self.memory),
             "system_prompt": self.system_prompt,
             "description": self.description,
             "status": self.status,
-            "policy": _json.loads(self.policy) if self.policy else {},
-            "runtime_config": _json.loads(self.runtime_config) if self.runtime_config else {},
-            "knowledge_config": _json.loads(self.knowledge_config) if self.knowledge_config else {},
+            "policy": _parsed_dict(self.policy),
+            "runtime_config": _parsed_dict(self.runtime_config),
+            "knowledge_config": _parsed_dict(self.knowledge_config),
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -1224,4 +1282,213 @@ class ProjectAgentBinding(Base):
             "project_id": self.project_id,
             "agent_id": self.agent_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# --------------------------------------------------------------------------
+# V1.5 Workflow / Multi-Agent
+# --------------------------------------------------------------------------
+
+
+class Workflow(Base):
+    """A task-orchestration definition (nodes / edges / variables)."""
+
+    __tablename__ = "workflows"
+
+    id = Column(String(32), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    #: Full graph as JSON: nodes, edges, variables, input/output schema.
+    definition_json = Column(Text, nullable=False, default="{}")
+    version = Column(Integer, nullable=False, default=1)
+    status = Column(String(20), nullable=False, default="active")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False
+    )
+
+    def definition(self) -> dict:
+        return _parse_json_object(self.definition_json)
+
+    def to_dict(self) -> dict:
+        return {
+            "workflow_id": self.id,
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "definition": self.definition(),
+            "version": self.version,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class WorkflowRun(Base):
+    """One execution of a Workflow."""
+
+    __tablename__ = "workflow_runs"
+
+    id = Column(String(32), primary_key=True)
+    workflow_id = Column(String(32), ForeignKey("workflows.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(24), nullable=False, default="PENDING", index=True)
+    input_json = Column(Text, nullable=True)
+    output_json = Column(Text, nullable=True)
+    #: Per-node results + variables (the run's working memory).
+    state_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    current_node = Column(String(120), nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.id,
+            "workflow_id": self.workflow_id,
+            "status": self.status,
+            "input": _parse_json_object(self.input_json),
+            "output": _parse_json_value(self.output_json),
+            "state": _parse_json_object(self.state_json),
+            "error": self.error,
+            "current_node": self.current_node,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WorkflowRunEvent(Base):
+    """Durable per-run event stream (node lifecycle, approvals, errors)."""
+
+    __tablename__ = "workflow_run_events"
+    __table_args__ = (Index("ix_workflow_run_event_seq", "run_id", "sequence", unique=True),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(32), ForeignKey("workflow_runs.id"), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(String(64), nullable=False)
+    payload_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.run_id,
+            "sequence": self.sequence,
+            "event_type": self.event_type,
+            "payload": _parse_json_object(self.payload_json),
+            "timestamp": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# --------------------------------------------------------------------------
+# V1.7 Packages / V1.8 Evaluation
+# --------------------------------------------------------------------------
+
+
+class PlatformPackage(Base):
+    """An exported/imported ModelForge package (model/agent/tool/workflow)."""
+
+    __tablename__ = "platform_packages"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    package_id = Column(String(160), nullable=False, index=True)
+    kind = Column(String(24), nullable=False, index=True)
+    version = Column(String(40), nullable=False, default="1.0.0")
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    license = Column(String(120), nullable=True)
+    manifest_json = Column(Text, nullable=False, default="{}")
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self, *, include_payload: bool = False) -> dict:
+        payload = {
+            "package_id": self.package_id,
+            "kind": self.kind,
+            "version": self.version,
+            "name": self.name,
+            "description": self.description,
+            "license": self.license,
+            "manifest": _parse_json_object(self.manifest_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+        if include_payload:
+            payload["payload"] = _parse_json_object(self.payload_json)
+        return payload
+
+
+class EvaluationDataset(Base):
+    """A named set of evaluation cases."""
+
+    __tablename__ = "evaluation_datasets"
+
+    id = Column(String(32), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    cases_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def cases(self) -> list:
+        import json as _json
+
+        try:
+            parsed = _json.loads(self.cases_json or "[]")
+        except (TypeError, ValueError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    def to_dict(self) -> dict:
+        return {
+            "evaluation_id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "case_count": len(self.cases()),
+            "cases": self.cases(),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class EvaluationRun(Base):
+    """One evaluation of an Agent/Workflow against a dataset."""
+
+    __tablename__ = "evaluation_runs"
+
+    id = Column(String(32), primary_key=True)
+    evaluation_id = Column(String(32), ForeignKey("evaluation_datasets.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    target_kind = Column(String(24), nullable=False, default="agent")
+    target_id = Column(String(160), nullable=False)
+    status = Column(String(24), nullable=False, default="PENDING", index=True)
+    metrics_json = Column(Text, nullable=True)
+    results_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+
+    def results(self) -> list:
+        import json as _json
+
+        try:
+            parsed = _json.loads(self.results_json or "[]")
+        except (TypeError, ValueError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.id,
+            "evaluation_id": self.evaluation_id,
+            "target_kind": self.target_kind,
+            "target_id": self.target_id,
+            "status": self.status,
+            "metrics": _parse_json_object(self.metrics_json),
+            "results": self.results(),
+            "error": self.error,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }

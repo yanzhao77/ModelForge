@@ -92,6 +92,10 @@ class Settings(BaseModel):
     openai_inference_timeout_seconds: int = 120
     # 3.x Plugins
     plugins_dir: str = "./plugins"
+    # V1.3 Multi-Model runtime resource governance
+    runtime_max_loaded_models: int = 2
+    runtime_load_queue_timeout_seconds: int = 30
+    runtime_memory_ratio: float = 0.85
 
     @property
     def is_production(self) -> bool:
@@ -225,6 +229,9 @@ def load_config(config_path: str | None = None) -> Settings:
         "OPENAI_RATE_LIMIT_WINDOW_SECONDS": "openai_rate_limit_window_seconds",
         "OPENAI_RATE_LIMIT_MAX_REQUESTS": "openai_rate_limit_max_requests",
         "OPENAI_INFERENCE_TIMEOUT_SECONDS": "openai_inference_timeout_seconds",
+        "RUNTIME_MAX_LOADED_MODELS": "runtime_max_loaded_models",
+        "RUNTIME_LOAD_QUEUE_TIMEOUT_SECONDS": "runtime_load_queue_timeout_seconds",
+        "RUNTIME_MEMORY_RATIO": "runtime_memory_ratio",
     }
     for env_key, field_name in env_map.items():
         env_val = os.getenv(env_key)

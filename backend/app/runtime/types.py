@@ -115,6 +115,9 @@ class AgentConfig:
 
     name: str
     model: str
+    #: Registry reference (V1.1). When set, the agent's model is resolved through
+    #: ModelResolver -> ModelRuntimeManager instead of a bare model name.
+    model_id: int | None = None
     user_id: int | None = None
     tools: list[str] = field(default_factory=list)
     plugins: list[str] = field(default_factory=list)
@@ -131,6 +134,7 @@ class AgentConfig:
         return {
             "name": self.name,
             "model": self.model,
+            "model_id": self.model_id,
             "user_id": self.user_id,
             "tools": self.tools,
             "plugins": self.plugins,
@@ -149,6 +153,7 @@ class AgentConfig:
         return cls(
             name=data["name"],
             model=data.get("model", ""),
+            model_id=data.get("model_id"),
             user_id=data.get("user_id"),
             tools=data.get("tools") or [],
             plugins=data.get("plugins") or [],

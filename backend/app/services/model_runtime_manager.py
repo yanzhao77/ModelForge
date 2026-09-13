@@ -34,10 +34,15 @@ from core.config import settings
 from models.records import ModelRecord
 from services.model_capabilities import ModelCapability
 from services.model_registry import ModelRegistry, ModelRegistryError
+from services.runtime_resolver import RuntimeResolver
 
 _RUNTIME_CONFIG_FILENAME = "model_runtime_config.json"
 #: Defaults mirror the llama.cpp / transformers options the UI exposes.
 DEFAULT_LOAD_CONFIG: dict[str, int] = {"context_length": 4096, "gpu_layers": 0, "threads": 0}
+
+#: Load-queue priorities (V1.3). Lower rank is admitted first.
+_PRIORITY_RANKS = {"HIGH": 0, "NORMAL": 1, "LOW": 2}
+_PRIORITY_LABELS = {rank: label for label, rank in _PRIORITY_RANKS.items()}
 
 
 class ModelRuntimeError(RuntimeError):
@@ -62,6 +67,7 @@ class RuntimeInstance:
     model_id: int
     model_name: str
     runtime_type: str
+    runtime_id: str | None
     status: str
     model_path: str
     context_length: int | None = None
@@ -92,22 +98,47 @@ def _runtime_type_for(model_format: str | None) -> str:
 
 def _default_runtime_factory(record: ModelRecord, model_path: str):
     """Build the engine for a local asset; heavy imports stay lazy."""
-    from services.runtimes.local_runtime import LocalRuntime
-
-    return LocalRuntime(model_path=model_path)
+    _runtime_id, _adapter, engine = RuntimeResolver.create_engine(record, model_path)
+    return engine
 
 
 class ModelRuntimeManager:
-    """Single-active-instance manager for local model inference."""
+    """Multi-instance manager for local model inference (V1.3).
 
-    def __init__(self, *, runtime_factory: Callable[[ModelRecord, str], object] | None = None):
+    Several models may be loaded at once, bounded by ``max_instances`` and (when
+    RAM is measurable) by a memory budget. When capacity is exhausted the
+    least-recently-used **idle** instance is evicted; a busy instance is never
+    evicted, so a request either waits in the priority queue or is rejected.
+    """
+
+    def __init__(
+        self,
+        *,
+        runtime_factory: Callable[[ModelRecord, str], object] | None = None,
+        max_instances: int | None = None,
+        queue_timeout_seconds: float | None = None,
+        resource_manager=None,
+    ):
         self._factory = runtime_factory or _default_runtime_factory
         self._state_lock = threading.RLock()
-        self._instance: RuntimeInstance | None = None
-        self._engine = None
+        self._instances: dict[int, RuntimeInstance] = {}
+        self._engines: dict[int, object] = {}
         self._transitioning = False
         self._load_config: dict[str, int] = dict(DEFAULT_LOAD_CONFIG)
         self._load_config.update(self._read_persisted_config())
+        self.max_instances = max(1, int(max_instances or settings.runtime_max_loaded_models or 1))
+        self.queue_timeout_seconds = float(
+            queue_timeout_seconds
+            if queue_timeout_seconds is not None
+            else (settings.runtime_load_queue_timeout_seconds or 30)
+        )
+        from services.resource_manager import get_resource_manager
+
+        self.resources = resource_manager or get_resource_manager()
+        self.resources.memory_ratio = float(settings.runtime_memory_ratio or 0.85)
+        #: Pending loads: (priority_rank, sequence, model_id, user_id).
+        self._queue: list[tuple[int, int, int, int | None]] = []
+        self._queue_seq = 0
         #: Bounded lifecycle log. Phase 9 keeps page synchronisation on polling,
         #: so clients can compare this sequence instead of diffing every field.
         self._events: deque[dict] = deque(maxlen=50)
@@ -116,19 +147,44 @@ class ModelRuntimeManager:
     # -- introspection ------------------------------------------------------
 
     def get_current(self) -> RuntimeInstance | None:
+        """The most recently used loaded instance (single-instance API compat)."""
         with self._state_lock:
-            return self._instance
+            loaded = [item for item in self._instances.values() if item.status == "loaded"]
+        if not loaded:
+            return None
+        return max(loaded, key=lambda item: item.last_used_at or item.started_at or datetime.datetime.min)
 
     def list_loaded(self) -> list[RuntimeInstance]:
         with self._state_lock:
-            if self._instance is None or self._instance.status != "loaded":
-                return []
-            return [self._instance]
+            return [item for item in self._instances.values() if item.status == "loaded"]
+
+    def instances_payload(self) -> list[dict]:
+        """All instances (including transitional ones) for the runtime API."""
+        with self._state_lock:
+            instances = list(self._instances.values())
+        return [instance.to_dict() for instance in instances]
+
+    def queue_snapshot(self) -> list[dict]:
+        with self._state_lock:
+            return [
+                {
+                    "position": index,
+                    "priority": _PRIORITY_LABELS.get(rank, "NORMAL"),
+                    "model_id": model_id,
+                    "user_id": user_id,
+                }
+                for index, (rank, _seq, model_id, user_id) in enumerate(
+                    sorted(self._queue, key=lambda item: (item[0], item[1]))
+                )
+            ]
 
     def get_status(self, model_id: int | None = None) -> dict:
         with self._state_lock:
-            instance = self._instance
-            if instance is None or (model_id is not None and instance.model_id != model_id):
+            if model_id is None:
+                instance = self.get_current()
+            else:
+                instance = self._instances.get(int(model_id))
+            if instance is None:
                 return {"active": False, "status": "idle", "model_id": model_id}
             return instance.to_dict()
 
@@ -176,12 +232,14 @@ class ModelRuntimeManager:
         user_id: int | None = None,
         *,
         db=None,
+        runtime: str | None = None,
+        priority: str = "NORMAL",
         context_length: int | None = None,
         gpu_layers: int | None = None,
         threads: int | None = None,
         **kwargs: object,
     ) -> RuntimeInstance:
-        """Load a model by ``model_id``, replacing any other active model."""
+        """Load a model by ``model_id``, evicting or queueing as needed."""
         record, model_path = self._resolve_target(model_id, user_id, db)
         config = self.record_load_config(
             context_length=context_length, gpu_layers=gpu_layers, threads=threads
@@ -194,43 +252,68 @@ class ModelRuntimeManager:
         if config.get("threads"):
             engine_kwargs.setdefault("n_threads", config["threads"])
 
+        runtime_id = self._resolve_runtime(record, runtime)
         with self._state_lock:
-            if self._transitioning:
+            existing = self._instances.get(record.id)
+            if existing is not None and existing.status == "loading":
                 raise ModelRuntimeError(
                     "MODEL_ALREADY_LOADING",
                     "已有模型正在加载，请等待当前操作完成。",
                     {"model_id": model_id},
                 )
-            current = self._instance
             if (
-                current is not None
-                and current.model_id == record.id
-                and current.status == "loaded"
+                existing is not None
+                and existing.status == "loaded"
+                and (runtime_id is None or existing.runtime_id == runtime_id)
             ):
                 # Idempotent re-load: hand back the already loaded instance.
-                return current
+                # Requesting a *different* adapter falls through and reloads.
+                return existing
+            if runtime_id is None:
+                # No adapter can serve this asset: report it honestly instead of
+                # loading it with an engine that cannot read the weights.
+                raise ModelRuntimeError(
+                    "MODEL_FORMAT_UNSUPPORTED",
+                    "该模型格式没有可用的运行时适配器。",
+                    {
+                        "model_id": record.id,
+                        "format": record.format,
+                        "supported_runtimes": record.supported_runtime_list(),
+                    },
+                )
+
+        await self._make_room(record, user_id, priority=priority)
+
+        with self._state_lock:
             self._transitioning = True
         self._record_event("MODEL_LOADING", model_id=record.id)
 
-        previous = current
+        previous = self._instances.get(record.id)
         instance = RuntimeInstance(
             instance_id=uuid.uuid4().hex,
             model_id=record.id,
             model_name=record.display_name or record.name,
-            runtime_type=_runtime_type_for(record.format),
+            runtime_type=RuntimeResolver.label(runtime_id),
+            runtime_id=runtime_id,
             status="loading",
             model_path=model_path,
             context_length=config.get("context_length"),
             gpu_layers=config.get("gpu_layers"),
             threads=config.get("threads"),
         )
+        claim = self.resources.claim(
+            record.id,
+            bytes_estimate=self.resources.estimate_instance_bytes(record, config.get("context_length")),
+            context_length=config.get("context_length"),
+        )
+        instance.memory_bytes = claim["estimated_bytes"]
         try:
             if previous is not None:
                 await self._teardown(previous)
             engine = self._factory(record, model_path)
             with self._state_lock:
-                self._engine = engine
-                self._instance = instance
+                self._engines[record.id] = engine
+                self._instances[record.id] = instance
             await engine.load(model_path, **engine_kwargs)
         except ModelRuntimeError:
             self._fail(instance, "模型加载失败", db)
@@ -252,35 +335,116 @@ class ModelRuntimeManager:
         self._record_event("MODEL_LOADED", model_id=record.id, instance_id=instance.instance_id)
         return instance
 
+    async def _make_room(self, record: ModelRecord, user_id: int | None, *, priority: str) -> None:
+        """Evict an idle LRU instance, or wait in the priority queue for capacity."""
+        rank = _PRIORITY_RANKS.get(str(priority).upper(), _PRIORITY_RANKS["NORMAL"])
+        deadline = asyncio.get_event_loop().time() + max(0.1, self.queue_timeout_seconds)
+        queued = False
+        entry: tuple[int, int, int, int | None] | None = None
+        while True:
+            with self._state_lock:
+                if record.id in self._instances:
+                    return
+                capacity_free = len(self._instances) < self.max_instances
+                needed = self.resources.estimate_instance_bytes(record)
+                fits = self.resources.fits(needed)
+                if fits is False:
+                    capacity_free = False
+                head = min(self._queue, key=lambda item: (item[0], item[1])) if self._queue else None
+
+            if capacity_free and (not queued or head is entry):
+                self._dequeue(entry)
+                return
+            if capacity_free and queued and head is not entry:
+                # A higher-priority waiter is ahead of us; let it go first.
+                pass
+            elif not capacity_free:
+                victim = self._lru_victim(exclude={record.id})
+                if victim is not None:
+                    self._record_event("MODEL_EVICTING", model_id=victim.model_id, reason="lru")
+                    await self.unload(victim.model_id)
+                    continue
+            if not queued:
+                entry = self._enqueue(rank, record.id, user_id)
+                queued = True
+                self._record_event("MODEL_LOAD_QUEUED", model_id=record.id, priority=str(priority).upper())
+            if asyncio.get_event_loop().time() >= deadline:
+                self._dequeue(entry)
+                raise ModelRuntimeError(
+                    "RUNTIME_BUSY",
+                    "资源不足且所有已加载模型都在使用中，请稍后再试。",
+                    {"model_id": record.id, "max_instances": self.max_instances},
+                )
+            await asyncio.sleep(0.05)
+
+    def _enqueue(self, rank: int, model_id: int, user_id: int | None):
+        with self._state_lock:
+            self._queue_seq += 1
+            entry = (rank, self._queue_seq, model_id, user_id)
+            self._queue.append(entry)
+            return entry
+
+    def _dequeue(self, entry) -> None:
+        if entry is None:
+            return
+        with self._state_lock:
+            if entry in self._queue:
+                self._queue.remove(entry)
+
+    def _lru_victim(self, *, exclude: set[int] | None = None) -> RuntimeInstance | None:
+        """Least-recently-used instance that is safe to evict (never busy)."""
+        excluded = exclude or set()
+        with self._state_lock:
+            candidates = [
+                item
+                for item in self._instances.values()
+                if item.model_id not in excluded
+                and item.status == "loaded"
+                and item.active_requests == 0
+            ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda item: item.last_used_at or item.started_at or datetime.datetime.min)
+
+    async def evict(self, model_id: int, user_id: int | None = None) -> dict:
+        """Explicitly unload one instance (used by the runtime page)."""
+        return await self.unload(model_id, user_id)
+
+    async def unload_all(self, user_id: int | None = None) -> dict:
+        unloaded: list[int] = []
+        for instance in list(self.list_loaded()):
+            try:
+                await self.unload(instance.model_id, user_id)
+                unloaded.append(instance.model_id)
+            except ModelRuntimeError:
+                continue
+        return {"unloaded": unloaded, "count": len(unloaded)}
+
     async def unload(self, model_id: int | None = None, user_id: int | None = None, *, db=None) -> dict:
         """Release the active runtime; refuses while requests are in flight."""
         del user_id  # resource ownership is enforced by the API layer's lease
         with self._state_lock:
-            if self._transitioning:
+            if model_id is None:
+                instance = self.get_current()
+            else:
+                instance = self._instances.get(int(model_id))
+            if instance is None:
+                return {"status": "idle", "model_id": model_id, "unloaded": False}
+            if instance.status in {"loading", "unloading"}:
                 raise ModelRuntimeError(
                     "RUNTIME_BUSY",
                     "模型正在加载或卸载，请稍后再试。",
-                    {"model_id": model_id},
+                    {"model_id": instance.model_id, "status": instance.status},
                 )
-            instance = self._instance
-            if instance is None:
-                return {"status": "idle", "model_id": model_id, "unloaded": False}
-            if model_id is not None and instance.model_id != model_id:
-                return {"status": "idle", "model_id": model_id, "unloaded": False}
             if instance.active_requests > 0:
                 raise ModelRuntimeError(
                     "RUNTIME_BUSY",
                     "模型正在处理请求，请等待请求完成后再卸载。",
                     {"model_id": instance.model_id, "active_requests": instance.active_requests},
                 )
-            self._transitioning = True
             instance.status = "unloading"
         self._record_event("MODEL_UNLOADING", model_id=instance.model_id)
-        try:
-            await self._teardown(instance)
-        finally:
-            with self._state_lock:
-                self._transitioning = False
+        await self._teardown(instance)
         self._persist_status(instance.model_id, "ready", db)
         self._record_event("MODEL_UNLOADED", model_id=instance.model_id)
         return {
@@ -293,10 +457,10 @@ class ModelRuntimeManager:
     async def _teardown(self, instance: RuntimeInstance) -> None:
         """Release engine references and force the garbage collector to reclaim."""
         with self._state_lock:
-            engine = self._engine
-            self._engine = None
-            if self._instance is instance:
-                self._instance = None
+            engine = self._engines.pop(instance.model_id, None)
+            if self._instances.get(instance.model_id) is instance:
+                self._instances.pop(instance.model_id, None)
+        self.resources.release(instance.model_id)
         if engine is not None:
             try:
                 await engine.stop(instance.model_path)
@@ -309,10 +473,11 @@ class ModelRuntimeManager:
 
     def _fail(self, instance: RuntimeInstance, message: str, db=None) -> None:
         with self._state_lock:
-            if self._instance is instance:
-                self._instance = None
-            self._engine = None
+            if self._instances.get(instance.model_id) is instance:
+                self._instances.pop(instance.model_id, None)
+            self._engines.pop(instance.model_id, None)
             self._transitioning = False
+        self.resources.release(instance.model_id)
         gc.collect()
         self._persist_status(instance.model_id, "load_failed", db)
         self._record_event("MODEL_LOAD_FAILED", model_id=instance.model_id)
@@ -326,10 +491,11 @@ class ModelRuntimeManager:
         *,
         user_id: int | None = None,
         db=None,
+        runtime: str | None = None,
         ensure_loaded: bool = True,
         **kwargs: object,
     ) -> dict:
-        instance, engine = await self._acquire(model_id, user_id, db, ensure_loaded)
+        instance, engine = await self._acquire(model_id, user_id, db, ensure_loaded, runtime)
         try:
             result = await engine.chat(instance.model_path, messages, **kwargs)
         finally:
@@ -346,10 +512,11 @@ class ModelRuntimeManager:
         *,
         user_id: int | None = None,
         db=None,
+        runtime: str | None = None,
         ensure_loaded: bool = True,
         **kwargs: object,
     ) -> AsyncIterator[str]:
-        instance, engine = await self._acquire(model_id, user_id, db, ensure_loaded)
+        instance, engine = await self._acquire(model_id, user_id, db, ensure_loaded, runtime)
         stream_fn = getattr(engine, "stream_chat", None)
         try:
             if stream_fn is None:
@@ -361,14 +528,13 @@ class ModelRuntimeManager:
         finally:
             self._release_request(instance)
 
-    async def _acquire(self, model_id, user_id, db, ensure_loaded):
+    async def _acquire(self, model_id, user_id, db, ensure_loaded, runtime=None):
         with self._state_lock:
-            instance = self._instance
-            engine = self._engine
+            instance = self._instances.get(int(model_id))
+            engine = self._engines.get(int(model_id))
             ready = (
                 instance is not None
                 and engine is not None
-                and instance.model_id == model_id
                 and instance.status == "loaded"
             )
             if ready:
@@ -381,12 +547,12 @@ class ModelRuntimeManager:
                 "模型尚未加载，请先加载模型。",
                 {"model_id": model_id},
             )
-        instance = await self.load(model_id, user_id, db=db)
+        instance = await self.load(model_id, user_id, db=db, runtime=runtime)
         with self._state_lock:
-            if self._instance is instance:
+            if self._instances.get(instance.model_id) is instance:
                 instance.active_requests += 1
                 instance.last_used_at = datetime.datetime.utcnow()
-                return instance, self._engine
+                return instance, self._engines.get(instance.model_id)
         raise ModelRuntimeError(
             "RUNTIME_LOAD_FAILED",
             "模型加载后状态异常，请重试。",
@@ -422,6 +588,11 @@ class ModelRuntimeManager:
         finally:
             if owns_session:
                 session.close()
+
+    @staticmethod
+    def _resolve_runtime(record: ModelRecord, runtime: str | None) -> str | None:
+        """Pick the adapter for this asset (explicit override wins)."""
+        return RuntimeResolver.resolve(record, runtime)
 
     def _persist_status(self, model_id: int, status: str, db=None) -> None:
         """Reflect the runtime state on the registry row (best effort).

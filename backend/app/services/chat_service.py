@@ -65,7 +65,7 @@ def _runtime_manager():
     return get_model_runtime_manager()
 
 
-async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None, model_id: int | None = None) -> dict:
+async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None, model_id: int | None = None, runtime_id: str | None = None) -> dict:
     session, full_messages, user_message = _context(db, user, session_id, messages)
     started = time.monotonic()
     try:
@@ -73,7 +73,7 @@ async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages
             # Registry-backed path: the runtime manager owns model -> path and
             # auto-loads an idle model before the first token.
             result = await _runtime_manager().chat(
-                model_id, full_messages, user_id=user.id if user else None, db=db
+                model_id, full_messages, user_id=user.id if user else None, db=db, runtime=runtime_id
             )
         else:
             result = await _runtime(runtime, provider).chat(model, full_messages)
@@ -86,7 +86,7 @@ async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages
     return {"response": response, "session_id": session.id if session else None, **result}
 
 
-async def stream_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None, model_id: int | None = None) -> AsyncIterator[dict]:
+async def stream_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None, model_id: int | None = None, runtime_id: str | None = None) -> AsyncIterator[dict]:
     session, full_messages, user_message = _context(db, user, session_id, messages)
     if provider is None and model_id is not None:
         # Registry-backed path: one loaded instance shared with /runtime and the
@@ -94,10 +94,10 @@ async def stream_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messa
         manager = _runtime_manager()
         user_ref = user.id if user else None
         stream_producer = lambda: manager.stream_chat(  # noqa: E731 - tiny closure
-            model_id, full_messages, user_id=user_ref, db=db
+            model_id, full_messages, user_id=user_ref, db=db, runtime=runtime_id
         )
         chat_producer = lambda: manager.chat(  # noqa: E731 - tiny closure
-            model_id, full_messages, user_id=user_ref, db=db
+            model_id, full_messages, user_id=user_ref, db=db, runtime=runtime_id
         )
     else:
         selected = _runtime(runtime, provider)

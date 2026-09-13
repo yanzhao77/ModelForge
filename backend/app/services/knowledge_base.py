@@ -175,6 +175,8 @@ class FileParser:
         ".txt", ".md", ".markdown", ".py", ".js", ".ts", ".java",
         ".go", ".rs", ".cpp", ".c", ".h", ".html", ".css", ".json",
         ".yaml", ".yml", ".xml", ".toml", ".cfg", ".ini",
+        # V1.4: spreadsheets and Word documents are first-class sources.
+        ".csv", ".tsv", ".docx",
     }
 
     def parse(self, filepath: str) -> tuple[str, dict]:
@@ -182,6 +184,10 @@ class FileParser:
         ext = path.suffix.lower()
         if ext == ".pdf":
             return self._parse_pdf(path)
+        if ext == ".docx":
+            return self._parse_docx(path)
+        if ext in {".csv", ".tsv"}:
+            return self._parse_table(path, delimiter="," if ext == ".csv" else "\t")
         elif ext in self.SUPPORTED_EXTENSIONS:
             return self._parse_text(path)
         else:
@@ -214,6 +220,111 @@ class FileParser:
             raise RuntimeError(
                 "PDF parsing requires PyPDF2 or pdfplumber. Install with: pip install PyPDF2"
             )
+
+    def _parse_table(self, path: Path, *, delimiter: str) -> tuple[str, dict]:
+        """Flatten a CSV/TSV into ``header: value`` lines the chunker can split."""
+        import csv
+
+        rows: list[str] = []
+        with open(path, "r", encoding="utf-8", errors="replace", newline="") as handle:
+            reader = csv.reader(handle, delimiter=delimiter)
+            header: list[str] = []
+            for index, row in enumerate(reader):
+                if index == 0:
+                    header = [cell.strip() for cell in row]
+                    continue
+                cells = [cell.strip() for cell in row]
+                if not any(cells):
+                    continue
+                if header and len(header) == len(cells):
+                    rows.append("\n".join(f"{name}: {value}" for name, value in zip(header, cells, strict=False)))
+                else:
+                    rows.append(" | ".join(cells))
+        text = "\n\n".join(rows)
+        return text, {"filename": path.name, "type": "table", "rows": len(rows), "columns": header}
+
+    def _parse_docx(self, path: Path) -> tuple[str, dict]:
+        """Extract paragraph + table text from a .docx package.
+
+        ``python-docx`` is used when installed; otherwise the file is read as an
+        OOXML zip, which needs no extra dependency and still yields the text.
+        """
+        try:
+            import docx  # type: ignore
+
+            document = docx.Document(str(path))
+            parts = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
+            for table in document.tables:
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells]
+                    if any(cells):
+                        parts.append(" | ".join(cells))
+            return "\n\n".join(parts), {"filename": path.name, "type": "docx", "paragraphs": len(parts)}
+        except ImportError:
+            pass
+        import re
+        import zipfile
+
+        try:
+            with zipfile.ZipFile(path) as archive:
+                xml = archive.read("word/document.xml").decode("utf-8", errors="replace")
+        except (KeyError, OSError, zipfile.BadZipFile) as exc:
+            raise RuntimeError("无法读取 DOCX 文件（不是有效的 Word 文档）") from exc
+        # Paragraph boundaries first, then strip tags so text does not run together.
+        xml = re.sub(r"</w:p>", "\n", xml)
+        text = re.sub(r"<[^>]+>", "", xml)
+        text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+        return text, {"filename": path.name, "type": "docx", "paragraphs": len(text.splitlines())}
+
+
+#: Retrieval strategies supported by the knowledge base (V1.4).
+RETRIEVAL_MODES = ("semantic", "keyword", "hybrid", "rerank")
+
+
+def normalize_retrieval_mode(value: str | None) -> str:
+    mode = str(value or "semantic").strip().lower()
+    if mode not in RETRIEVAL_MODES:
+        raise ValueError("retrieval mode must be one of " + ", ".join(RETRIEVAL_MODES))
+    return mode
+
+
+def lexical_score(question: str, text: str) -> float:
+    """Term-overlap score in ``[0, 1]`` used by keyword/hybrid/rerank modes."""
+    query_terms = list(dict.fromkeys(iter_terms(question)))
+    if not query_terms:
+        return 0.0
+    haystack = set(iter_terms(text))
+    if not haystack:
+        return 0.0
+    hits = sum(1 for term in query_terms if term in haystack)
+    return hits / len(query_terms)
+
+
+def _combine_scores(mode: str, semantic: float, lexical: float) -> float:
+    if mode == "keyword":
+        return lexical
+    if mode == "hybrid" or mode == "rerank":
+        # Cosine similarity and term overlap are both in [0, 1]; the weights
+        # keep semantics dominant while still rewarding exact term hits.
+        return 0.6 * semantic + 0.4 * lexical
+    return semantic
+
+
+def _rank_scored(scored: list[tuple], mode: str, top_k: int) -> list[tuple]:
+    """Rank ``(payload, semantic, lexical)`` rows for one retrieval mode."""
+    if mode == "rerank":
+        # Recall with the vector score, then re-order the shortlist lexically.
+        shortlist = sorted(scored, key=lambda item: item[1], reverse=True)[: max(top_k * 3, top_k)]
+        ordered = sorted(
+            shortlist, key=lambda item: _combine_scores(mode, item[1], item[2]), reverse=True
+        )[:top_k]
+    else:
+        ordered = sorted(
+            scored, key=lambda item: _combine_scores(mode, item[1], item[2]), reverse=True
+        )[:top_k]
+    return [
+        (item[0], _combine_scores(mode, item[1], item[2]), item[1], item[2]) for item in ordered
+    ]
 
 
 class KnowledgeBase:
@@ -370,11 +481,26 @@ class KnowledgeBase:
             raise ValueError("collections knowledge binding requires collection_ids")
         return {"mode": mode, "collection_ids": collection_ids}
 
-    def query(self, question: str, top_k: int = 5, db=None, user_id: int | None = None, knowledge_binding: dict | None = None) -> dict:
+    def query(
+        self,
+        question: str,
+        top_k: int = 5,
+        db=None,
+        user_id: int | None = None,
+        knowledge_binding: dict | None = None,
+        retrieval_mode: str | None = None,
+    ) -> dict:
         self._ensure_loaded(db, user_id)
         binding = self.normalize_binding(knowledge_binding)
+        mode = normalize_retrieval_mode(retrieval_mode)
         if binding["mode"] == "disabled":
-            return {"question": question, "results": [], "total_results": 0, "knowledge_binding": binding}
+            return {
+                "question": question,
+                "results": [],
+                "total_results": 0,
+                "knowledge_binding": binding,
+                "retrieval_mode": mode,
+            }
         query_vector = self.embedder.embed(question)
         if not query_vector.any() and self.embedder.vocab:
             # No indexed term at all: every score would be zero and the caller
@@ -409,45 +535,64 @@ class KnowledgeBase:
                 for document_id, collection_id, name in memberships:
                     collection_names.setdefault(document_id, []).append({"id": collection_id, "name": name})
             vectors = self.embedder.embed_batch([row.content for row in rows]) if rows else []
-            ranked = sorted(
-                zip(rows, vectors, strict=False),
-                key=lambda pair: float(np.dot(query_vector, pair[1])),
-                reverse=True,
-            )[:top_k]
+            scored = [
+                (row, float(np.dot(query_vector, vector)), lexical_score(question, row.content))
+                for row, vector in zip(rows, vectors, strict=False)
+            ]
+            ranked = _rank_scored(scored, mode, top_k)
             results = [
                 {
                     "text": row.content,
-                    "score": float(np.dot(query_vector, vector)),
+                    "score": round(score, 6),
+                    "semantic_score": round(semantic, 6),
+                    "lexical_score": round(lexical, 6),
                     "metadata": json.loads(row.meta) if row.meta else {},
                     "document_id": row.doc_id,
                     "chunk_id": row.id,
                     "collections": collection_names.get(row.doc_id, []),
                 }
-                for row, vector in ranked
-                if float(np.dot(query_vector, vector)) > 0
+                for row, score, semantic, lexical in ranked
+                if score > 0
             ]
         else:
-            results = self.vector_store.search(query_vector, top_k=top_k)
+            memory_hits = self.vector_store.search(query_vector, top_k=max(top_k, top_k * 3))
+            scored = [
+                (item, float(item["score"]), lexical_score(question, item["text"]))
+                for item in memory_hits
+            ]
+            ranked = _rank_scored(scored, mode, top_k)
+            results = []
+            for item, score, semantic, lexical in ranked:
+                if score <= 0:
+                    continue
+                enriched = dict(item)
+                enriched["score"] = round(score, 6)
+                enriched["semantic_score"] = round(semantic, 6)
+                enriched["lexical_score"] = round(lexical, 6)
+                results.append(enriched)
         return {
             "question": question,
             "results": [
                 {
                     "text": item["text"][:300],
-                    "score": round(item["score"], 4),
+                    "score": round(float(item["score"]), 4),
                     "source": item["metadata"].get("filename", ""),
                     "chunk_index": item["metadata"].get("chunk_index"),
                     "document_id": item.get("document_id"),
                     "chunk_id": item.get("chunk_id"),
                     "collections": item.get("collections", []),
+                    "semantic_score": item.get("semantic_score"),
+                    "lexical_score": item.get("lexical_score"),
                 }
                 for item in results
             ],
             "total_results": len(results),
             "knowledge_binding": binding,
+            "retrieval_mode": mode,
         }
 
     async def answer(
-        self, question: str, top_k: int = 5, db=None, user_id: int | None = None, runtime=None, model: str = "default-model", knowledge_binding: dict | None = None
+        self, question: str, top_k: int = 5, db=None, user_id: int | None = None, runtime=None, model: str = "default-model", knowledge_binding: dict | None = None, retrieval_mode: str | None = None
     ) -> dict:
         """RAG answer: retrieve relevant chunks, then generate with the runtime."""
         # Retrieval is synchronous (DB read + embedding), so it must not block
@@ -460,6 +605,7 @@ class KnowledgeBase:
             db=db,
             user_id=user_id,
             knowledge_binding=knowledge_binding,
+            retrieval_mode=retrieval_mode,
         )
         sources = query_result["results"]
         if not sources:

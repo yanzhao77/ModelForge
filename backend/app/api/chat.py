@@ -39,6 +39,8 @@ class ChatRequest(BaseModel):
     # ``model`` field stays required so metrics, sessions and legacy clients
     # keep working (the chat UI sends both).
     model_id: int | None = None
+    #: V1.2: force one runtime adapter for a registry model (e.g. "transformers").
+    runtime: str | None = Field(default=None, max_length=64)
     messages: list[ChatMessage] = Field(min_length=1, max_length=100)
     session_id: int | None = None
     provider_id: int | None = None
@@ -71,6 +73,7 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Dep
                 req.session_id,
                 _provider(db, user, req.provider_id),
                 model_id=req.model_id,
+                runtime_id=req.runtime,
             )
             return result
     except ResourceBusy as exc:
@@ -108,6 +111,7 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user: Use
                     req.session_id,
                     provider,
                     model_id=req.model_id,
+                    runtime_id=req.runtime,
                 ):
                     await queue.put(("event", event))
             except Exception as exc:

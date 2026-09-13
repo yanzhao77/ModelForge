@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modelforge-sdk"
+version = "1.6.0"
+description = "Official Python SDK for the ModelForge Local AI Platform"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["modelforge*"]

@@ -8,6 +8,7 @@ from typing import Any
 from core.database import SessionLocal
 from models.records import AgentRecord
 from runtime.types import AgentConfig
+from sqlalchemy import or_
 
 
 class DBAgentStore:
@@ -29,9 +30,11 @@ class DBAgentStore:
 
     @staticmethod
     def _from_row(row: AgentRecord) -> AgentConfig:
+        runtime_config = json.loads(row.runtime_config) if row.runtime_config else {}
         return AgentConfig(
             name=row.name,
             model=row.model,
+            model_id=row.model_id,
             user_id=row.user_id,
             tools=json.loads(row.tools) if row.tools else [],
             system_prompt=row.system_prompt,
@@ -39,9 +42,9 @@ class DBAgentStore:
             memory_config=json.loads(row.memory) if row.memory else None,
             knowledge_config=json.loads(row.knowledge_config) if row.knowledge_config else None,
             policy=json.loads(row.policy) if row.policy else None,
-            runtime_config=json.loads(row.runtime_config) if row.runtime_config else None,
-            model_target=(json.loads(row.runtime_config) if row.runtime_config else {}).get("model_target"),
-            plugins=(json.loads(row.runtime_config) if row.runtime_config else {}).get("plugins", []),
+            runtime_config=runtime_config or None,
+            model_target=runtime_config.get("model_target"),
+            plugins=runtime_config.get("plugins", []),
             status=row.status or "active",
         )
 
@@ -51,7 +54,12 @@ class DBAgentStore:
         with SessionLocal() as db:
             query = db.query(AgentRecord).filter(AgentRecord.name == name)
             if user_id is not None:
-                query = query.filter(AgentRecord.user_id == user_id)
+                # A user-scoped lookup must never return another account's
+                # definition; globally owned legacy rows (user_id IS NULL) stay
+                # resolvable so old agents keep working.
+                query = query.filter(
+                    or_(AgentRecord.user_id == user_id, AgentRecord.user_id.is_(None))
+                )
             row = query.first()
             if row is not None:
                 return self._from_row(row)
@@ -72,6 +80,7 @@ class DBAgentStore:
                 row = AgentRecord(name=config.name)
                 db.add(row)
             row.model = config.model
+            row.model_id = config.model_id
             row.user_id = config.user_id
             row.tools = json.dumps(config.tools, ensure_ascii=False) if config.tools else None
             row.system_prompt = config.system_prompt

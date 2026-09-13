@@ -174,6 +174,25 @@ def get_model_storage(user: object = Depends(get_current_user)):
     return _model_storage_payload()
 
 
+@router.get("/hardening")
+def system_hardening(user: object = Depends(get_runtime_admin)):
+    """V1.9 hardening view: recovery, caches, runtime state, migration preflight."""
+    del user
+    from services.recovery_service import get_recovery_service
+
+    report = get_recovery_service().hardening_report()
+    return report
+
+
+@router.post("/recovery")
+def run_recovery(user: object = Depends(get_runtime_admin)):
+    """Re-run the idempotent recovery pass (safe to call repeatedly)."""
+    del user
+    from services.recovery_service import get_recovery_service
+
+    return get_recovery_service().startup_recovery()
+
+
 @router.put("/model-storage")
 def update_model_storage(req: ModelStorageRequest, user: object = Depends(get_current_user)):
     """Point downloads and model scanning at one explicit local directory.

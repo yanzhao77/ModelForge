@@ -7,6 +7,8 @@ ICONS = {
     "knowledge": "⌘",
     "agents": "◉",
     "workbench": "◫",
+    "workflows": "⇶",
+    "dashboard": "◈",
     "automation": "◔",
     "control": "⊞",
     "extensions": "⊕",

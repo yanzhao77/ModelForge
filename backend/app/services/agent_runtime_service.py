@@ -63,6 +63,14 @@ def build_agent_runtime(
         )
     def routed_provider_factory(model: str, agent=None):
         target = getattr(agent, "model_target", None) or {}
+        # V1.1: a registry-backed (local) Agent runs through the unified runtime
+        # manager; it must never build a llama.cpp/Transformers engine itself.
+        if target.get("kind") == "local" or getattr(agent, "model_id", None) is not None:
+            from services.agent_model_provider import RuntimeBackedProvider
+
+            provider = RuntimeBackedProvider.from_agent(agent)
+            if provider is not None:
+                return provider
         if target.get("kind") != "remote":
             return default_provider_factory(model)
         user_id = getattr(agent, "user_id", None)

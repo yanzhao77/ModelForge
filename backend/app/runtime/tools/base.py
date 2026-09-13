@@ -16,6 +16,34 @@ class PermissionLevel:
     SYSTEM = "SYSTEM"
     ADMIN = "ADMIN"
 
+    #: V1.1 roadmap vocabulary. These are aliases, not new levels: an existing
+    #: deployment keeps the same enforcement while new code can speak the
+    #: documented names (READ_ONLY / FILESYSTEM_WRITE / PROCESS_EXECUTE /
+    #: DANGEROUS).
+    READ_ONLY = READ
+    FILESYSTEM_WRITE = WRITE
+    PROCESS_EXECUTE = EXECUTE
+    DANGEROUS = SYSTEM
+
+    ALIASES = {
+        "READ_ONLY": READ,
+        "FILESYSTEM_READ": FILESYSTEM_READ,
+        "FILESYSTEM_WRITE": WRITE,
+        "PROCESS_EXECUTE": EXECUTE,
+        "NETWORK": NETWORK,
+        "DANGEROUS": SYSTEM,
+    }
+
+    @classmethod
+    def catalog(cls) -> dict[str, str]:
+        """Roadmap name -> canonical enforced level."""
+        return dict(cls.ALIASES)
+
+    @classmethod
+    def normalize(cls, values: list[str] | None) -> list[str]:
+        """Map roadmap permission names onto the enforced level names."""
+        return [cls.ALIASES.get(str(value).upper(), str(value).upper()) for value in (values or [])]
+
 
 @dataclass
 class ToolResult:

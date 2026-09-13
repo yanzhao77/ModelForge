@@ -30,6 +30,7 @@ from pages.agent_workbench_page import AgentWorkbenchPage
 from pages.automation_page import AutomationPage
 from pages.chat_page import ChatPage
 from pages.control_center_page import ControlCenterPage
+from pages.dashboard_page import DashboardPage
 from pages.dataset_page import DatasetPage
 from pages.developer_api_page import DeveloperApiPage
 from pages.extensions_page import ExtensionsPage
@@ -41,6 +42,7 @@ from pages.runtime_page import RuntimePage
 from pages.session_sidebar import SessionSidebar
 from pages.settings_page import SettingsPage
 from pages.training_page import TrainingPage
+from pages.workflow_page import WorkflowPage
 from pages.workspace_page import WorkspacePage
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
@@ -62,6 +64,7 @@ from version import APP_NAME, APP_VERSION, UPDATE_REPOSITORY
 class MainWindow(QMainWindow, AsyncApiMixin):
     PAGE_TITLES = {
         "overview": "概览",
+        "dashboard": "总览",
         "chat": "对话",
         "models": "模型",
         "datasets": "数据集",
@@ -74,6 +77,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         "tasks": "任务",
         "runtime": "运行时",
         "activity": "活动",
+        "workflows": "工作流",
         "settings": "设置",
     }
 
@@ -134,6 +138,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.shell.content_layout.addWidget(self.stack, 1)
         self.workspace_page = WorkspacePage(self.task_store, self.readiness_store)
         self.workspace_page.navigate_requested.connect(self._navigate_to)
+        self.dashboard_page = DashboardPage(self.api)
         self.models_page = ModelsPage(self.api, self.readiness_store)
         self.models_page.navigate_requested.connect(self._navigate_to)
         self.models_page.provider_chat_requested.connect(self._chat_with_provider)
@@ -157,6 +162,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.agent_page = AgentPage(self.api, self.readiness_store)
         self.agent_workbench_page = AgentWorkbenchPage(self.api)
         self.agent_workbench_page.navigate_requested.connect(self._navigate_to)
+        self.workflow_page = WorkflowPage(self.api)
         self.activity_page = ActivityPage(self.task_store)
         self.control_center_page = ControlCenterPage(self.api)
         self.developer_api_page = DeveloperApiPage(self.api)
@@ -171,6 +177,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         )
         self._pages = {
             "overview": self.workspace_page,
+            "dashboard": self.dashboard_page,
             "chat": chat_surface,
             "models": self.models_page,
             "datasets": self.dataset_page,
@@ -178,6 +185,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             "knowledge": self.knowledge_page,
             "agents": self.agent_page,
             "workbench": self.agent_workbench_page,
+            "workflows": self.workflow_page,
             "runtime": self.runtime_page,
             "activity": self.activity_page,
             "control": self.control_center_page,
@@ -218,6 +226,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             )
             for key in (
                 "overview",
+                "dashboard",
                 "chat",
                 "models",
                 "datasets",
@@ -225,6 +234,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 "knowledge",
                 "agents",
                 "workbench",
+                "workflows",
                 "automation",
                 "developer",
                 "control",

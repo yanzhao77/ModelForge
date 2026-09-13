@@ -107,7 +107,8 @@ async def test_load_chat_unload_cycle(harness):
 
 
 @pytest.mark.asyncio
-async def test_loading_second_model_replaces_the_first(harness):
+async def test_loading_second_model_keeps_both_within_capacity(harness):
+    """V1.3: multiple instances coexist; the LRU policy only evicts when full."""
     manager = harness["manager"]
     alpha, beta = harness["models"]["alpha"], harness["models"]["beta"]
 
@@ -115,9 +116,9 @@ async def test_loading_second_model_replaces_the_first(harness):
     instance = await manager.load(beta.id, 1, db=harness["session"])
 
     assert instance.model_id == beta.id
-    assert harness["engines"][0].stopped is True  # alpha was unloaded first
+    assert harness["engines"][0].stopped is False
     assert manager.get_current().model_id == beta.id
-    assert len(manager.list_loaded()) == 1
+    assert len(manager.list_loaded()) == 2
 
 
 @pytest.mark.asyncio

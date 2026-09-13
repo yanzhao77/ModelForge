@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Tests](https://img.shields.io/badge/tests-866%20passed-brightgreen)
-![API](https://img.shields.io/badge/API-145%20paths%2F172%20ops-important)
+![API](https://img.shields.io/badge/API-203%20paths%2F245%20ops-important)
 ![Desktop](https://img.shields.io/badge/Desktop-0.1.3--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
@@ -100,7 +100,7 @@ curl http://localhost:8000/healthz   # {"status":"ok"}
 docker rm -f modelforge
 ```
 
-## API 概览（145 paths / 172 operations；业务前缀 /api/v1）
+## API 概览（203 paths / 245 operations；业务前缀 /api/v1）
 
 | 模块 | 端点 |
 |------|------|
@@ -117,7 +117,17 @@ docker rm -f modelforge
 | **Agent Run（3.0）** | agent/runs（POST/GET）· runs/{id} · runs/{id}/cancel · approve · reject · events · **stream（SSE）** |
 | **Agent 工具/服务（3.0）** | agent/tools · agent/metrics · agent/mcp/servers（CRUD）· agent/schedules（CRUD） |
 | **插件（3.x）** | plugins/discover · plugins/load · plugins/{name}/{start,stop,mount,unmount} · plugins/capabilities |
-| OpenAI 兼容 | /v1/chat/completions（含流式）· /v1/models |
+| **AgentDefinition（V1.1）** | agents（CRUD）· agents/{id}/runs · agents/runs/{id} · agents/runs/{id}/trace |
+| **多运行时（V1.2）** | runtimes · runtimes/{id}/health · models/{id}/load（runtime 覆盖） |
+| **多模型/资源（V1.3）** | runtime/instances · runtime/resources · runtime/queue · runtime/evict · runtime/unload-all |
+| **知识库（V1.4）** | knowledge/bases（CRUD）· knowledge/bases/{id}/documents · knowledge/embedding · knowledge/embed |
+| **工作流（V1.5）** | workflows（CRUD）· workflows/validate · workflows/{id}/runs · workflows/runs/{id}/{events,trace,approve,cancel} |
+| **开发者平台（V1.6）** | /v1/embeddings · /v1/agents · /v1/knowledge/search · /v1/workflows/... · /v1/platform/capabilities |
+| **包管理（V1.7）** | packages · packages/export · packages/import · packages/{id} |
+| **可观测（V1.8）** | traces · traces/{id} · metrics/overview · metrics/resources · evaluations（CRUD/runs/compare）· security/secrets |
+| **生产加固（V1.9）** | system/hardening · system/recovery |
+| **平台（V2.0）** | dashboard · events |
+| OpenAI 兼容 | /v1/chat/completions（含流式）· /v1/models · /v1/embeddings |
 | 系统 | system/status · system/logs · system/download-source · system/model-storage · /healthz |
 
 > 路由统计由 `scripts/api_route_stats.py --check` 从 `app.openapi()` 实时生成并核对，README 不以手工数字为准。

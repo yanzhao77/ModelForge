@@ -106,6 +106,16 @@ class ModelForgeClient:
     def get_info(self) -> dict:
         return self._get("/")
 
+    def dashboard(self) -> dict:
+        """Platform dashboard: system, runtime, resources, recent activity."""
+        return self._get("/api/v1/dashboard")
+
+    def unified_events(self, kind: str | None = None, limit: int = 50) -> dict:
+        params = {"limit": limit}
+        if kind:
+            params["kind"] = kind
+        return self._get("/api/v1/events", params=params)
+
     def system_status(self) -> dict:
         return self._get("/api/v1/system/status")
 
@@ -659,6 +669,86 @@ class ModelForgeClient:
     def get_agent_run_events(self, run_id: str, after_sequence: int = 0) -> list[dict]:
         data = self._get(f"/api/v1/agent/runs/{run_id}/events", params={"after_sequence": after_sequence})
         return data.get("events", [])
+
+    # ---- AgentDefinition / Trace (V1.1) ----
+
+    def list_agent_definitions(self) -> list[dict]:
+        return self._get("/api/v1/agents").get("agents", [])
+
+    def get_agent_definition(self, agent_id: str) -> dict:
+        return self._get(f"/api/v1/agents/{agent_id}")
+
+    def create_agent_definition(self, payload: dict) -> dict:
+        return self._post("/api/v1/agents", json=payload)
+
+    def update_agent_definition(self, agent_id: str, payload: dict) -> dict:
+        return self._put(f"/api/v1/agents/{agent_id}", json=payload)
+
+    def delete_agent_definition(self, agent_id: str) -> dict:
+        return self._delete(f"/api/v1/agents/{agent_id}")
+
+    def agent_definition_runs(self, agent_id: str, limit: int = 50) -> list[dict]:
+        return self._get(f"/api/v1/agents/{agent_id}/runs", params={"limit": limit}).get("runs", [])
+
+    def create_agent_definition_run(
+        self, agent_id: str, input_text: str, *, session_id: int | None = None, execute: bool = True
+    ) -> dict:
+        return self._post(
+            f"/api/v1/agents/{agent_id}/runs",
+            json={"input": input_text, "session_id": session_id, "execute": execute, "confirm": True},
+        )
+
+    def agent_definition_run(self, run_id: str) -> dict:
+        return self._get(f"/api/v1/agents/runs/{run_id}")
+
+    def agent_run_trace(self, run_id: str) -> dict:
+        """Full trace (spans + events) for one Agent Run."""
+        return self._get(f"/api/v1/agents/runs/{run_id}/trace")
+
+    # ---- workflows (V1.5) ----
+
+    def list_workflows(self) -> dict:
+        """Return ``{"workflows": [...], "node_types": [...]}``."""
+        return self._get("/api/v1/workflows")
+
+    def create_workflow(self, name: str, definition: dict, description: str | None = None) -> dict:
+        payload = {"name": name, "definition": definition}
+        if description:
+            payload["description"] = description
+        return self._post("/api/v1/workflows", json=payload)
+
+    def get_workflow(self, workflow_id: str) -> dict:
+        return self._get(f"/api/v1/workflows/{workflow_id}")
+
+    def update_workflow(self, workflow_id: str, payload: dict) -> dict:
+        return self._put(f"/api/v1/workflows/{workflow_id}", json=payload)
+
+    def delete_workflow(self, workflow_id: str) -> dict:
+        return self._delete(f"/api/v1/workflows/{workflow_id}")
+
+    def validate_workflow(self, definition: dict) -> dict:
+        return self._post("/api/v1/workflows/validate", json=definition)
+
+    def workflow_runs(self, workflow_id: str, limit: int = 50) -> dict:
+        return self._get(f"/api/v1/workflows/{workflow_id}/runs", params={"limit": limit})
+
+    def run_workflow(self, workflow_id: str, run_input: dict | None = None) -> dict:
+        return self._post(
+            f"/api/v1/workflows/{workflow_id}/runs",
+            json={"input": run_input or {}, "confirm": True},
+        )
+
+    def workflow_run(self, run_id: str) -> dict:
+        return self._get(f"/api/v1/workflows/runs/{run_id}")
+
+    def workflow_trace(self, run_id: str) -> dict:
+        return self._get(f"/api/v1/workflows/runs/{run_id}/trace")
+
+    def approve_workflow_run(self, run_id: str) -> dict:
+        return self._post(f"/api/v1/workflows/runs/{run_id}/approve", json={})
+
+    def cancel_workflow_run(self, run_id: str) -> dict:
+        return self._post(f"/api/v1/workflows/runs/{run_id}/cancel", json={})
 
     def stream_agent_run(
         self,

@@ -1,0 +1,20 @@
+{
+  "id": "examples.word_count",
+  "name": "Word Count",
+  "version": "1.0.0",
+  "type": "tool",
+  "description": "Counts characters, words and lines of a provided text.",
+  "entry": "plugin.py",
+  "permissions": ["READ_ONLY"],
+  "tools": [
+    {
+      "name": "examples.word_count",
+      "description": "Count characters, words and lines of the text argument",
+      "input_schema": {
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"]
+      }
+    }
+  ]
+}

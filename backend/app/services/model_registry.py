@@ -126,6 +126,72 @@ class ModelRegistry:
         record = self.get(model_id, user_id)
         return record if record is not None and self.is_ready(record) else None
 
+    def remote_model_descriptors(self, user_id: int) -> list[dict]:
+        """Synthetic registry entries for the user's remote providers (V1.2).
+
+        Remote capacity is provider-managed rather than file-backed, so these
+        entries carry ``model_id = None`` and a ``provider_id`` /
+        ``model_ref`` pair instead of a ``ModelRecord`` row. They still flow
+        through the same registry listing, which is what "remote models enter
+        the registry" means in practice: one inventory, two sources.
+        """
+        import json as _json
+
+        from models.records import RemoteProviderConfig
+        from services.runtimes.adapters import REMOTE_OPENAI
+
+        providers = (
+            self.db.query(RemoteProviderConfig)
+            .filter(RemoteProviderConfig.user_id == user_id, RemoteProviderConfig.enabled.is_(True))
+            .order_by(RemoteProviderConfig.name)
+            .all()
+        )
+        descriptors: list[dict] = []
+        for provider in providers:
+            try:
+                verified = _json.loads(provider.verified_models_json or "[]")
+            except (TypeError, ValueError):
+                verified = []
+            names = [str(item) for item in verified if isinstance(item, str)] or [provider.default_model]
+            for name in names:
+                descriptors.append(
+                    {
+                        "id": None,
+                        "model_id": None,
+                        "name": name,
+                        "display_name": f"{provider.name} · {name}",
+                        "provider": "remote",
+                        "source": "remote",
+                        "path": None,
+                        "size": None,
+                        "size_bytes": None,
+                        "status": "ready" if provider.verification_status == "success" else "installed",
+                        "format": REMOTE_OPENAI,
+                        "quant": None,
+                        "capabilities": ["CHAT", "INFERENCE", "EMBEDDING"],
+                        "supported_runtimes": [REMOTE_OPENAI],
+                        "preferred_runtime": REMOTE_OPENAI,
+                        "resource": "remote",
+                        "metadata": {
+                            "provider_id": provider.id,
+                            "provider_name": provider.name,
+                            "protocol": provider.protocol,
+                            "base_url": provider.base_url,
+                        },
+                        "base_model_id": None,
+                        "parent_model_id": None,
+                        "provider_id": provider.id,
+                        "provider_name": provider.name,
+                        "protocol": provider.protocol,
+                        "model_ref": f"provider:{provider.id}:{name}",
+                        "ready": provider.verification_status == "success" and bool(provider.key_ciphertext),
+                        "runtime_status": "remote",
+                        "created_time": provider.created_at.isoformat() if provider.created_at else None,
+                        "updated_time": provider.updated_at.isoformat() if provider.updated_at else None,
+                    }
+                )
+        return descriptors
+
     # -- capability / lifecycle --------------------------------------------
 
     def capabilities(self, record: ModelRecord) -> list[str]:
@@ -216,6 +282,14 @@ class ModelRegistry:
             size = directory_size_bytes(record.path)
             if size:
                 record.size_bytes = size
+        if not record.supported_runtime_list():
+            from services.runtime_resolver import RuntimeResolver
+
+            supported = RuntimeResolver.supported_runtimes(record)
+            if supported:
+                record.set_supported_runtimes(supported)
+                if not record.preferred_runtime:
+                    record.preferred_runtime = supported[0]
         if detect and record.path and not record.metadata_dict():
             metadata = detect_metadata(record.path, model_format=record.format)
             if metadata:

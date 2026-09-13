@@ -220,6 +220,9 @@ class AgentPage(QWidget, AsyncApiMixin):
         self.replay_btn = QPushButton("回放所选 Run")
         self.replay_btn.clicked.connect(self.replay_selected_run)
         mlay.addWidget(self.replay_btn)
+        self.trace_btn = QPushButton("查看 Trace")
+        self.trace_btn.clicked.connect(self.show_selected_trace)
+        mlay.addWidget(self.trace_btn)
         self.status = QLabel("正在加载 Agent 与运行记录…")
         self.status.setWordWrap(True)
         mlay.addWidget(self.status)
@@ -398,6 +401,16 @@ class AgentPage(QWidget, AsyncApiMixin):
             return
         self.timeline.watch(self.current_run_id, after_sequence=0)
         self.status.setText(f"正在从持久化事件回放 Run {self.current_run_id[:8]}。")
+
+    def show_selected_trace(self):
+        """Open the span-level Trace for the selected Run (V1.1)."""
+        if not self.current_run_id:
+            QMessageBox.information(self, "提示", "请先选择已有 Run 再查看 Trace。")
+            return
+        from pages.agent_trace_dialog import AgentTraceDialog
+
+        dialog = AgentTraceDialog(self.api, self.current_run_id, self)
+        dialog.exec()
 
     def cancel_run(self):
         run_id = self.current_run_id
