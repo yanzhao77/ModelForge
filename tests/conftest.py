@@ -17,10 +17,22 @@ from __future__ import annotations
 
 import gc
 import os
+import tempfile
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# The application binds its SQLAlchemy engine when `core.database` is first
+# imported, so whichever module runs first decides the database for the whole
+# process. Modules that set DATABASE_PATH at their own import time (e.g.
+# tests/test_api_integration.py) were therefore ignored whenever an earlier
+# module had already imported the app, and registration tests then collided
+# with rows left in the developer's ./data database. Pin a fresh session
+# database here, before any test module is imported.
+_SESSION_TMP = tempfile.mkdtemp(prefix="mf_pytest_")
+os.environ.setdefault("DATABASE_PATH", os.path.join(_SESSION_TMP, "test.db"))
+os.environ.setdefault("JWT_SECRET", "pytest-session-secret-with-enough-length-32+")
 
 _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _QT_MARKER = "pytest.mark.desktop"

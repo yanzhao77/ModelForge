@@ -2,6 +2,7 @@
 import asyncio
 import os
 import sys
+import time
 
 import pytest
 
@@ -35,7 +36,11 @@ class TestScheduler:
         sched = Scheduler(trigger=trigger)
         sched.start()
         sched.schedule_interval(0.05, {"agent_id": "b", "input": "tick"})
-        await asyncio.sleep(0.22)
+        # Poll instead of sleeping a fixed window: a busy runner could tick only
+        # twice in 0.22s and fail the assertion even though the job repeats.
+        deadline = time.monotonic() + 3.0
+        while len(fired) < 3 and time.monotonic() < deadline:
+            await asyncio.sleep(0.02)
         assert len(fired) >= 3
         await sched.stop()
 
