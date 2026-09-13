@@ -851,6 +851,20 @@
 - [x] 验证：`ruff check backend client tests scripts reports` 与 `git diff --check` 通过；桌面相关 16 个文件 62 passed；退出码回归 4 passed；形状边界 9 passed；渲染审计 `ALL_CAPTURES_OK` + 退出码 0。
 - [ ] 跟进（可选）：把 `MainWindow` 排定的 `QTimer.singleShot(1800, _check_for_updates)` 绑定到窗口生命周期（关闭即取消），消除重负载下出界网络调用落进后续用例 mock 的顺序性抖动（`test_desktop_task_client` 曾出现一次 `StopIteration`；空载全量 1063 passed / 4 skipped 通过）。
 
+## 全量测试与第二轮 bug 收敛（2026-09-13）
+
+清册与结果见 `docs/FULL_TEST_AND_BUG_ROUND2_2026-09-13.md`。
+
+- [x] 推送：`0801696` 等 4 个提交推送 `origin/master`。
+- [x] 全量测试（GUI + 后端）：`pytest tests/ -q --cov=backend/app --cov-fail-under=75` → 1063 passed / 4 skipped，覆盖率 83.24%；渲染审计、路由统计、pip-audit 均通过；另起真实后端走 30 个端点确认响应形状契约。
+- [x] B-01（P1）：更新检查定时器改为窗口持有并在 `closeEvent` 停止，消除关窗后出界网络调用与跨用例 mock 串扰。
+- [x] B-02（P2）：`MODELFORGE_DEBUG_TEARDOWN=1` 路径先显式销毁窗口再返回，调试通道不再以 `0xC0000005` 结束。
+- [x] B-03（P2）：9 个页面/组件的失败文案统一走 `format_api_error`；扩展页按错误码判定管理员权限（原 `"403" in message` 判据永不成立）。
+- [x] B-04（P2）：`format_api_error` 候选字符集补上 `:` 与 `.`，带作用域后缀的错误码不再降级为 `OPERATION_FAILED`。
+- [x] B-05（P3）：新增 `tests/conftest.py`，会话结束前在 `QApplication` 存活时释放顶层控件，GUI 用例失败不再伪装成进程崩溃。
+- [x] B-06（P3）：更正 `docs/BEHAVIOR_CHANGES_2026-09-12.md` 中 `0xC0000005` 的归因。
+- [x] 复跑：定向 12 passed；全量 **1069 passed / 4 skipped**，覆盖率 **83.25%**；渲染审计 `ALL_CAPTURES_OK` 且退出码 0。
+
 ### P0
 
 - [x] T1：先定性再修复"正常退出 `0xC0000005`"（GUI-BUG-01），新增 `tests/test_desktop_process_exit.py` 子进程级退出码回归（无在途 / 慢在途 / 超宽限三条路径），修复方案二选一（退出前显式销毁窗口并 `gc.collect()`，或统一 `os._exit` 收尾）并挂进 CI。→ 定性结论：窗口对象图在 `QApplication` 之后回收；采用 `_exit_process()` 确定性退出（`MODELFORGE_DEBUG_TEARDOWN=1` 可保留正常收尾调试）。

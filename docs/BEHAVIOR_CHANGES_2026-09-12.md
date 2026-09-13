@@ -145,5 +145,11 @@
 | 关闭窗口时仍有在途请求 | `0xC0000409`（崩溃） | `0` |
 | 关闭窗口时无在途请求 | `0xC0000005`（探针脚本退出顺序所致，HEAD 同样存在；显式 `deleteLater()` 后两边均为 `0`） | 同上，无回归 |
 
+> 更正（2026-09-13）：上述"探针脚本退出顺序所致"的归因经复核不成立。在真实 `main()` 代码路径上
+> （含真实 `ModelForgeClient`、无在途请求）该退出码稳定复现；`del`+`gc` 与
+> `deleteLater`+`sendPostedEvents(DeferredDelete)` 两种收尾都仍为 `0xC0000005`，只有跳过解释器收尾才为 `0`。
+> 根因是窗口对象图在 `QApplication` 析构之后才被循环回收，已由 `main()` 的确定性退出修复，
+> 详见 `docs/DESKTOP_GUI_TEST_BUG_PLAN_2026-09-13.md`（GUI-BUG-01）。
+
 桌面 GUI 用例需要可导入 PySide6 的解释器（本机 Anaconda 基础环境存在 Qt DLL 冲突），
 本地请用 `.venv-gui`（已加入 `.gitignore`）运行，命令见 README 的"测试"一节。

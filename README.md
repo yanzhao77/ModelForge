@@ -145,7 +145,7 @@ python -m venv .venv-gui
 $env:QT_QPA_PLATFORM="offscreen"; .\.venv-gui\Scripts\python -m pytest tests/ -q
 ```
 
-全量包含非 GUI 用例与 10 个桌面 GUI 文件（约 1040 条，4 条按环境跳过）；
+全量包含非 GUI 用例与 11 个桌面 GUI 文件（约 1045 条，4 条按环境跳过）；
 其中 `tests/test_desktop_process_exit.py` 以子进程方式断言真实入口的退出码，
 因为解释器收尾阶段崩溃不会体现在同进程断言里。
 解释器没有 PySide6 时只能跑非 GUI 子集：
@@ -153,6 +153,7 @@ $env:QT_QPA_PLATFORM="offscreen"; .\.venv-gui\Scripts\python -m pytest tests/ -q
 ```bash
 pytest tests/ -q \
   --ignore=tests/test_chat_cursor.py --ignore=tests/test_desktop_resilience.py \
+  --ignore=tests/test_desktop_error_messages.py \
   --ignore=tests/test_desktop_payload_shape.py --ignore=tests/test_desktop_process_exit.py \
   --ignore=tests/test_desktop_shutdown.py --ignore=tests/test_desktop_ui_remediation.py \
   --ignore=tests/test_gui_async_worker.py --ignore=tests/test_i18n_runtime.py \

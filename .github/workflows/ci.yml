@@ -135,6 +135,7 @@ jobs:
             tests/test_model_readiness_service.py \
             tests/test_model_readiness_api.py \
             tests/test_chat_cursor.py \
+            tests/test_desktop_error_messages.py \
             tests/test_desktop_resilience.py \
             tests/test_desktop_shutdown.py \
             tests/test_desktop_ui_remediation.py \
