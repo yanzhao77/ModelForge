@@ -54,3 +54,28 @@ def test_desktop_process_exits_cleanly(mode: str, extra: list[str], timeout: int
     assert "PROBE_STARTED" in proc.stdout, output
     assert "fatal exception" not in output.lower(), output
     assert proc.returncode == 0, f"exit code {proc.returncode} for mode={mode}\n{output}"
+    if mode == "overrun":
+        # Proves the "worker still running at the exit deadline" branch ran
+        # instead of the request quietly finishing inside the grace period.
+        assert "in-flight desktop request" in output, output
+
+
+def test_debug_teardown_path_also_exits_cleanly() -> None:
+    """MODELFORGE_DEBUG_TEARDOWN keeps Python's shutdown; it must not crash."""
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["MODELFORGE_DEBUG_TEARDOWN"] = "1"
+
+    proc = subprocess.run(
+        [sys.executable, PROBE, "--mode", "fast"],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        env=env,
+        cwd=ROOT,
+    )
+    output = f"{proc.stdout}\n{proc.stderr}"
+
+    assert "PROBE_MAIN_RETURNED 0" in proc.stdout, output
+    assert "fatal exception" not in output.lower(), output
+    assert proc.returncode == 0, f"exit code {proc.returncode}\n{output}"

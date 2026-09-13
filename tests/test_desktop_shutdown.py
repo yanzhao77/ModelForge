@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import time
+import types
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -95,3 +96,25 @@ def test_close_shuts_down_every_page_not_a_subset(tmp_path):
         assert pending_api_workers() == 0
         window.deleteLater()
         _APP.processEvents()
+
+
+def test_closing_the_window_cancels_the_scheduled_update_check(tmp_path, monkeypatch):
+    """A pending update check must not outlive the window it belongs to."""
+    monkeypatch.setattr(_desktop_main, "_UPDATE_CHECK_DELAY_MS", 30)
+    checked: list[str] = []
+    window = _window(tmp_path)
+    window.updater = types.SimpleNamespace(check_latest=lambda: checked.append("checked"))
+
+    window.show()
+    window.close()
+
+    assert window._update_check_timer.isActive() is False
+    # Run the loop well past the delay: the cancelled check must stay silent.
+    deadline = time.monotonic() + 0.3
+    while time.monotonic() < deadline:
+        _APP.processEvents()
+        time.sleep(0.01)
+
+    assert checked == []
+    window.deleteLater()
+    _APP.processEvents()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import sys
@@ -111,7 +112,13 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self._load_status()
         QTimer.singleShot(0, lambda: self._offer_recovery(restored))
         QTimer.singleShot(450, lambda: self.readiness_store.refresh(force=True))
-        QTimer.singleShot(1800, lambda: self._check_for_updates(False))
+        # Owned by the window so closing it cancels the check: a bare
+        # `QTimer.singleShot` fired after the window was gone and reached
+        # GitHub from a process that was already shutting down.
+        self._update_check_timer = QTimer(self)
+        self._update_check_timer.setSingleShot(True)
+        self._update_check_timer.timeout.connect(lambda: self._check_for_updates(False))
+        self._update_check_timer.start(_UPDATE_CHECK_DELAY_MS)
 
     def _init_ui(self) -> None:
         self.shell = AppShell(self.translator)
@@ -489,6 +496,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         QMessageBox.warning(self, "Update download", error)
 
     def closeEvent(self, event) -> None:
+        self._update_check_timer.stop()
         self.readiness_store.shutdown()
         self.recovery.save_window_state(self)
         self.task_store.stop()
@@ -509,6 +517,10 @@ class MainWindow(QMainWindow, AsyncApiMixin):
 # its page; give it a moment so the process can exit cleanly.
 _EXIT_WORKER_GRACE_MS = 5000
 
+# How long the window waits before the background update check runs. Keeping it
+# as a module constant lets tests exercise the cancel-on-close path quickly.
+_UPDATE_CHECK_DELAY_MS = 1800
+
 # Qt teardown is not recoverable from Python: the window object graph keeps
 # reference cycles that are only collected during interpreter shutdown, after
 # `QApplication` is gone, which Qt turns into an access violation
@@ -517,7 +529,27 @@ _EXIT_WORKER_GRACE_MS = 5000
 _DEBUG_TEARDOWN_ENV = "MODELFORGE_DEBUG_TEARDOWN"
 
 
-def _exit_process(exit_code: int) -> int:
+def _dispose_window(app, window) -> None:
+    """Best-effort widget teardown while ``QApplication`` is still alive.
+
+    Only used on the debug path: releasing the window object graph while the
+    application exists avoids the access violation that happens when the cyclic
+    collector frees it during interpreter shutdown.
+    """
+    if window is None:
+        return
+    try:
+        window.hide()
+        window.setParent(None)
+        window.deleteLater()
+        if app is not None:
+            app.processEvents()
+    except RuntimeError:  # already destroyed
+        pass
+    gc.collect()
+
+
+def _exit_process(exit_code: int, *, app=None, window=None) -> int:
     """Leave the process deterministically instead of letting Qt tear down.
 
     The window is already closed at this point, so the only teardown left is
@@ -525,6 +557,9 @@ def _exit_process(exit_code: int) -> int:
     teardown, so buffered diagnostics are flushed by hand first.
     """
     if os.environ.get(_DEBUG_TEARDOWN_ENV) == "1":
+        # Keep Python's own shutdown for debugging, but do not hand Qt a live
+        # window object graph: that is the crash we are working around.
+        _dispose_window(app, window)
         return exit_code
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -555,7 +590,7 @@ def main() -> int:
         # A blocking socket call cannot be cancelled safely, so the thread is
         # still owned by the process-level holder; report it before leaving.
         log_pending_api_workers()
-    return _exit_process(exit_code)
+    return _exit_process(exit_code, app=app, window=window)
 
 
 if __name__ == "__main__":
