@@ -111,7 +111,7 @@ class ControlCenterPage(QWidget, AsyncApiMixin):
             "collections": self.api.list_knowledge_collections(),
             "profiles": self.api.list_plugin_profiles(),
             "insight_data": self.api.model_insights(),
-        }, self._loaded, lambda error: self.insight_list.addItem(f"无法加载控制中心：{error}"), request_key="control-refresh")
+        }, self._loaded, lambda error: self.insight_list.addItem(f"无法加载控制中心：{format_api_error(error)}"), request_key="control-refresh")
         worker.finished.connect(lambda: self.refresh_button.setEnabled(True))
         self._worker = worker
 

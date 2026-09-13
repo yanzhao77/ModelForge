@@ -218,7 +218,12 @@ def format_api_error(error) -> str:
     correlation = getattr(error, "correlation_id", None)
     if not code and isinstance(error, str):
         candidate = error.split("(", 1)[0].strip()
-        if candidate and all(char.isalnum() or char in {"_", "-"} for char in candidate):
+        # Codes may carry a scope suffix (`INVALID_RESPONSE_SHAPE:models`) or a
+        # dotted detail (`REFUSED.download`); dropping those characters turned
+        # every such failure into a generic OPERATION_FAILED.
+        if candidate and all(
+            char.isalnum() or char in {"_", "-", ":", "."} for char in candidate
+        ):
             code = candidate
     code = code or "OPERATION_FAILED"
     hint = _EXCLUSIVE_RESOURCE_HINTS.get(code)

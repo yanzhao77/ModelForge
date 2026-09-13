@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -132,7 +133,7 @@ class ModelCenterDialog(QDialog, AsyncApiMixin):
 
     def _failed(self, action, error):
         self._set_busy(False)
-        self.status.setText(f"{action}失败：{error}")
+        self.status.setText(f"{action}失败：{format_api_error(error)}")
         QMessageBox.warning(self, action, error)
 
 
@@ -311,11 +312,11 @@ class DownloadDialog(QDialog, AsyncApiMixin):
 
     def _poll_failed(self, error):
         self._polling = False
-        self.status.setText(f"下载状态同步失败：{error}")
+        self.status.setText(f"下载状态同步失败：{format_api_error(error)}")
 
     def _failed(self, action, error):
         self._set_busy(False)
-        self.status.setText(f"{action}失败：{error}")
+        self.status.setText(f"{action}失败：{format_api_error(error)}")
         QMessageBox.warning(self, action, error)
 
     def closeEvent(self, event):

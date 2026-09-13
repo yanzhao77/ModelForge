@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
 from components.mf.primitives import MFPanel, MFSection, MFStatusBadge
+from i18n.ui_localizer import format_api_error
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -185,7 +186,7 @@ class SettingsPage(QWidget, AsyncApiMixin):
     def _download_source_failed(self, message: str) -> None:
         self.download_source_select.setEnabled(True)
         self.download_source_save.setEnabled(True)
-        self.download_source_status.setText(f"下载源设置不可用：{message}")
+        self.download_source_status.setText(f"下载源设置不可用：{format_api_error(message)}")
 
     def closeEvent(self, event):
         self.shutdown_async_api()

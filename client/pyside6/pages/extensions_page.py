@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
 from components.mf.primitives import install_empty_state
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -87,7 +88,14 @@ class ExtensionsPage(QWidget, AsyncApiMixin):
 
     def _refresh_failed(self, message: str) -> None:
         self.refresh_button.setEnabled(True)
-        self.detail.setText("无法加载扩展：管理员权限不足或服务不可用。" if "403" in str(message) else f"无法加载扩展：{message}")
+        # The worker reports a stable code, not an HTTP status, so classify by
+        # code (the old "403" substring check never matched and leaked the raw
+        # code into the page).
+        code = str(message).split("(", 1)[0].strip()
+        if code in {"RUNTIME_ADMIN_REQUIRED", "ADMIN_REQUIRED", "FORBIDDEN"}:
+            self.detail.setText("无法加载扩展：管理员权限不足。")
+            return
+        self.detail.setText(f"无法加载扩展：{format_api_error(message)}")
 
     def _loaded(self, data: list[dict]) -> None:
         self._plugins = data or []

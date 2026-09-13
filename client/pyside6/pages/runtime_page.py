@@ -6,6 +6,7 @@ import json
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QComboBox,
@@ -109,7 +110,7 @@ class RuntimePage(QWidget, AsyncApiMixin):
 
     def _refresh_failed(self, error):
         self._set_busy(False)
-        self.status.setText(f"同步运行时状态失败：{error}")
+        self.status.setText(f"同步运行时状态失败：{format_api_error(error)}")
         self.connection.set_state("RUNTIME UNAVAILABLE", "error")
         self.output.setPlainText("无法读取运行时状态。请检查后端连接后重试。")
 
@@ -139,7 +140,7 @@ class RuntimePage(QWidget, AsyncApiMixin):
 
     def _operation_failed(self, action, error):
         self._set_busy(False)
-        self.status.setText(f"{action}运行时失败：{error}")
+        self.status.setText(f"{action}运行时失败：{format_api_error(error)}")
         QMessageBox.warning(self, f"{action}运行时失败", error)
 
     def closeEvent(self, event):

@@ -5,6 +5,7 @@ from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -105,7 +106,7 @@ class DatasetPage(QWidget, AsyncApiMixin):
 
     def _show_load_error(self, error):
         self.registry_status.set_state("数据集不可用", "error")
-        self.hint.setText(f"加载失败: {error}")
+        self.hint.setText(f"加载失败: {format_api_error(error)}")
 
     def upload(self):
         path, _ = QFileDialog.getOpenFileName(self, "选择数据集", "", "数据集 (*.jsonl *.csv *.json *.txt)")

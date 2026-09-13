@@ -4,6 +4,7 @@ from api_client.client import ModelForgeClient
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFSection, MFStatusBadge
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -97,7 +98,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         return widget
 
     def refresh(self):
-        self._run_api(self.api.knowledge_documents, self._render_documents, lambda error: self.result_view.append(f"[加载文档失败] {error}"), request_key="knowledge.documents")
+        self._run_api(self.api.knowledge_documents, self._render_documents, lambda error: self.result_view.append(f"[加载文档失败] {format_api_error(error)}"), request_key="knowledge.documents")
 
     def _render_documents(self, docs):
         self.doc_table.setRowCount(len(docs))

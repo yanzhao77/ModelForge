@@ -5,6 +5,7 @@ import json
 
 from components.api_worker import AsyncApiMixin
 from components.mf.primitives import install_empty_state
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -116,7 +117,7 @@ class AgentWorkbenchPage(QWidget, AsyncApiMixin):
 
     def _refresh_failed(self, message: str) -> None:
         self.refresh_button.setEnabled(True)
-        self.detail.setPlainText(f"无法加载 Agent 工作台：{message}")
+        self.detail.setPlainText(f"无法加载 Agent 工作台：{format_api_error(message)}")
 
     def _loaded(self, data: dict) -> None:
         self._agents = data.get("agents") or []
@@ -158,7 +159,7 @@ class AgentWorkbenchPage(QWidget, AsyncApiMixin):
         self._run_api(
             lambda: self.api.agent_versions(agent["name"]),
             self._versions_loaded,
-            lambda message: self.detail.append(f"\n版本记录不可用：{message}"),
+            lambda message: self.detail.append(f"\n版本记录不可用：{format_api_error(message)}"),
             request_key="agent_workbench.versions",
         )
 

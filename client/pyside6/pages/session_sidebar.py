@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
 from components.mf.primitives import install_empty_state
+from i18n.ui_localizer import format_api_error
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -78,7 +79,7 @@ class SessionSidebar(QWidget, AsyncApiMixin):
 
     def _load_failed(self, error):
         self._set_loading(False)
-        self.status.setText(f"会话同步失败：{error}")
+        self.status.setText(f"会话同步失败：{format_api_error(error)}")
 
     def create_new_session(self):
         if self._loading:
@@ -155,5 +156,5 @@ class SessionSidebar(QWidget, AsyncApiMixin):
 
     def _action_failed(self, error):
         self._set_loading(False)
-        self.status.setText(f"会话操作失败：{error}")
+        self.status.setText(f"会话操作失败：{format_api_error(error)}")
         QMessageBox.warning(self, "会话操作失败", error)
