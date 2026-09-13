@@ -10,6 +10,7 @@ from core.security import get_current_user
 from fastapi import APIRouter, Depends, File, UploadFile
 from models.records import User
 from pydantic import BaseModel
+from services.inference_errors import classify_inference_exception
 from services.resource_lease import ResourceBusy, inference_lease, transient_hold
 from services.runtime_registry import get_runtime
 from sqlalchemy.orm import Session as DBSession
@@ -140,6 +141,11 @@ async def knowledge_answer(
         raise exc.to_problem() from exc
     except ValueError as exc:
         raise problem(422, "KNOWLEDGE_ANSWER_REJECTED", "Knowledge answer was rejected.", correlation=correlation_id()) from exc
+    except Exception as exc:
+        # A RAG answer runs inference, so an unreachable or failing provider
+        # must produce the same stable code as /chat instead of a bare 500.
+        classification = classify_inference_exception(exc)
+        raise classification.to_problem(correlation_id()) from exc
 
 
 @router.get("/stats")

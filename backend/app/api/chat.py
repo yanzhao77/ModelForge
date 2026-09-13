@@ -16,6 +16,10 @@ from fastapi.responses import StreamingResponse
 from models.records import User
 from pydantic import BaseModel, Field
 from services.chat_service import run_chat, stream_chat
+from services.inference_errors import (
+    InferenceErrorClassification,
+    classify_inference_exception,
+)
 from services.remote_provider_service import RemoteProviderError, RemoteProviderService
 from services.resource_lease import ResourceBusy, inference_lease, transient_hold
 from services.runtime_registry import get_runtime
@@ -42,49 +46,10 @@ def _provider(db: Session, user: User, provider_id: int | None) -> dict | None:
     return RemoteProviderService(db, settings.data_dir).resolve(user.id, provider_id)
 
 
-class _ChatErrorClassification:
-    """Shared exception classification for both streaming and non-streaming paths."""
-    def __init__(self, code: str, message: str, http_status: int, retryable: bool):
-        self.code = code
-        self.message = message
-        self.http_status = http_status
-        self.retryable = retryable
-
-    def to_problem(self, corr: str) -> HTTPException:
-        return problem(self.http_status, self.code, self.message, correlation=corr)
-
-    def to_stream_dict(self) -> dict:
-        return {"code": self.code, "message": self.message, "retryable": self.retryable}
-
-
-def _classify_chat_exception(exc: Exception) -> _ChatErrorClassification:
-    """Classify exception into stable error code. Single source of truth for both paths."""
-    if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
-        if status in {401, 403}:
-            return _ChatErrorClassification("AUTHENTICATION_FAILED", "远程服务拒绝认证。请检查 API Key 后重新验证。", 403, False)
-        if status == 429:
-            return _ChatErrorClassification("RATE_LIMITED", "远程服务正在限流。请稍后由用户手动重试。", 429, True)
-        if status in {404, 405, 501}:
-            return _ChatErrorClassification("PROTOCOL_UNSUPPORTED", "远程服务不支持当前协议。请切换兼容协议后重新验证。", 400, False)
-        if status >= 500:
-            return _ChatErrorClassification("PROVIDER_UNAVAILABLE", "远程服务暂时不可用。请稍后由用户手动重试。", 502, True)
-        return _ChatErrorClassification("PROVIDER_HTTP_ERROR", "远程服务返回了意外响应。请重新验证模型服务配置。", 502, False)
-    if isinstance(exc, httpx.TimeoutException):
-        return _ChatErrorClassification("REQUEST_TIMEOUT", "远程服务请求超时。请检查网络或稍后由用户手动重试。", 504, True)
-    if isinstance(exc, httpx.RequestError):
-        return _ChatErrorClassification("ENDPOINT_UNREACHABLE", "无法连接远程服务。请检查 Base URL 和网络连接。", 502, True)
-    if isinstance(exc, RemoteProviderError):
-        if getattr(exc, "code", None) == "TARGET_NOT_ALLOWED":
-            return _ChatErrorClassification("TARGET_NOT_ALLOWED", "远程服务目标不在允许的网络范围内。", 400, False)
-        return _ChatErrorClassification("PROVIDER_CONFIG_INVALID", "远程模型服务配置无效。请检查提供商设置。", 400, False)
-    if isinstance(exc, ProviderNetworkError):
-        return _ChatErrorClassification("TARGET_NOT_ALLOWED", "远程服务目标不在允许的网络范围内。", 400, False)
-    if isinstance(exc, ValueError):
-        return _ChatErrorClassification("REQUEST_INVALID", "请求参数无效。请检查输入后重试。", 400, False)
-    if isinstance(exc, PermissionError):
-        return _ChatErrorClassification("MODEL_ACCESS_DENIED", "无权访问所选模型。请联系管理员。", 403, False)
-    return _ChatErrorClassification("INFERENCE_FAILED", "推理请求失败。请稍后重试。", 502, False)
+# Single classifier shared with the RAG answer route; the aliases keep the
+# existing names (and the leakage test importing them) working.
+_ChatErrorClassification = InferenceErrorClassification
+_classify_chat_exception = classify_inference_exception
 
 
 @router.post("")
