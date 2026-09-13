@@ -141,6 +141,9 @@
   （`/chat`、`/chat/stream`、`/v1/chat/completions`、`/runtime/start`、`/runtime/chat`、
   `/knowledge/answer`）返回 `409 RUNTIME_BUSY`，训练入口返回 `409 TRAINING_BUSY`，
   响应消息中带占用者用户名；同一账户可重入。
+- **加载失败即释放占用**：`POST /api/v1/runtime/start` 只有在模型真正加载成功后才保留
+  推理占用；加载失败返回 `502 MODEL_LOAD_FAILED`、运行时不可用返回 `503 RUNTIME_UNAVAILABLE`，
+  两种情况都会立即释放占用，不会让其他账户长期收到 `409 RUNTIME_BUSY`。
 - **Agent Run**：执行期间持有推理占用；拿不到时该 Run 以 `RUNTIME_BUSY` 结束，
   `error` 字段为占用者提示，事件流中有对应的 `run.failed`。
 - **任务中心**：`POST /api/v1/tasks/{id}/cancel` 现在会把取消传递到执行器
@@ -154,7 +157,10 @@
   （下载 → PAUSED/CANCELLED，训练 → error，项目调用 → `PROCESS_RESTARTED`，
   Agent Run → `PROCESS_RESTARTED`）。
 - **新增稳定错误码**：`KNOWLEDGE_QUERY_REJECTED`、`KNOWLEDGE_ANSWER_REJECTED`、
-  `DATASET_NOT_FOUND`、`RUNTIME_BUSY`、`TRAINING_BUSY`、`PROCESS_RESTARTED`。
+  `DATASET_NOT_FOUND`、`RUNTIME_BUSY`、`TRAINING_BUSY`、`PROCESS_RESTARTED`、
+  `MODEL_LOAD_FAILED`、`RUNTIME_UNAVAILABLE`、`PLUGIN_EXECUTION_FAILED`。
+- **数据集错误不再回显内部文本**：解析失败时 `error`/`detail` 只含
+  `DATASET_PARSE_FAILED:<异常类型>`，`reason` 为固定提示，绝不包含服务器路径或原始异常正文。
 
 ## Run 状态机（spec 4）
 

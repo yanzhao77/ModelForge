@@ -129,11 +129,35 @@ docker rm -f modelforge
 
 ## 测试
 
+CI 用下面这套命令跑全量用例（含桌面 GUI）：
+
 ```bash
-pytest tests/ -q    # 1000 个非 GUI 用例通过、4 个按环境跳过（单元 + API 集成 + 数据集/训练/知识库 + Agent Runtime + Plugin）
+python -m venv .venv-gui
+.venv-gui/bin/pip install -r requirements.txt -r requirements-dev.txt -r requirements-gui.txt
+QT_QPA_PLATFORM=offscreen .venv-gui/bin/pytest tests/ -q
 ```
 
-> 另有 7 个桌面 GUI 测试文件需要可用的 PySide6 运行环境（本机 Anaconda 环境存在 DLL 冲突，由 CI 覆盖）。
+Windows 下路径与变量写法不同：
+
+```powershell
+python -m venv .venv-gui
+.\.venv-gui\Scripts\pip install -r requirements.txt -r requirements-dev.txt -r requirements-gui.txt
+$env:QT_QPA_PLATFORM="offscreen"; .\.venv-gui\Scripts\python -m pytest tests/ -q
+```
+
+全量包含 1015 个非 GUI 用例与 8 个桌面 GUI 文件（约 1030 条，4 条按环境跳过）。
+解释器没有 PySide6 时只能跑非 GUI 子集：
+
+```bash
+pytest tests/ -q \
+  --ignore=tests/test_chat_cursor.py --ignore=tests/test_desktop_resilience.py \
+  --ignore=tests/test_desktop_shutdown.py --ignore=tests/test_desktop_ui_remediation.py \
+  --ignore=tests/test_gui_async_worker.py --ignore=tests/test_i18n_runtime.py \
+  --ignore=tests/test_task_store_stream.py --ignore=tests/test_workspace_task_center_smoke.py
+```
+
+本机 Anaconda 基础环境存在 Qt DLL 冲突，桌面用例请在 `.venv-gui` 中运行
+（该目录已加入 `.gitignore`）。
 
 ## 目录结构
 
