@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app
 
 from services.runtimes.local_runtime import LocalRuntime  # noqa: E402
 
-BLOCKING_SECONDS = 0.6
+BLOCKING_SECONDS = 1.5
 
 
 @pytest.mark.asyncio

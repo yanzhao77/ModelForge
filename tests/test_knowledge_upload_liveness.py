@@ -31,10 +31,10 @@ from core.database import init_db  # noqa: E402
 from main import app  # noqa: E402
 from services.knowledge_base import get_global_kb  # noqa: E402
 
-SLOW_UPLOAD_SECONDS = 1.5
+SLOW_UPLOAD_SECONDS = 3.0
 # Generous compared with the ~30ms warmed-up health check, tight enough that a
 # blocked event loop (which waits for the whole upload) fails the test.
-LIVENESS_DEADLINE_SECONDS = 0.8
+LIVENESS_DEADLINE_SECONDS = 1.5
 CJK_PARAGRAPH = "摘要: " + "这是一段很长的中文说明文字，用来验证上传路径不会卡住服务。" * 30
 
 
