@@ -57,6 +57,24 @@ class ServiceUnavailableError(ApiClientError):
         self.args = (f"无法连接到服务或服务暂不可用 [{code}]{suffix}",)
 
 
+class ResponsePayload(dict):
+    """A JSON object that refuses to hand a wrongly shaped field to the UI.
+
+    Desktop pages call ``payload.get("level")`` / ``payload.get("tasks", [])``
+    from Qt slots. When the service answers with an unexpected shape the call
+    raised ``AttributeError`` or ``TypeError`` inside the slot, which PySide6
+    only prints: the page kept its previous state and the failure stayed
+    invisible. Validating against the default the caller asks for turns that
+    into a typed client error that the worker reports like any other failure.
+    """
+
+    def get(self, key, default=None):
+        value = super().get(key, default)
+        if value is not None and default is not None and not isinstance(value, type(default)):
+            raise ApiClientError(f"INVALID_RESPONSE_SHAPE:{key}")
+        return value
+
+
 class ModelForgeClient:
     """HTTP client for the ModelForge REST API with Bearer-token auth."""
 
@@ -116,7 +134,7 @@ class ModelForgeClient:
     # ---- models ----
 
     def list_models(self) -> list[dict]:
-        return self._get("/api/v1/models")
+        return self._get_list("/api/v1/models", "models")
 
     def model_readiness(self) -> dict:
         return self._get("/api/v1/models/readiness")
@@ -218,7 +236,9 @@ class ModelForgeClient:
         return self._delete(f"/api/v1/providers/{provider_id}")
 
     def scan_models(self, path: str | None = None) -> list[dict]:
-        return self._post("/api/v1/models/scan", json={"path": path or None})
+        return self._post_list(
+            "/api/v1/models/scan", "model_scan", json={"path": path or None}
+        )
 
     def install_model(self, name: str, provider: str, path: str, size: str = "") -> dict:
         return self._post("/api/v1/models/install", json={"name": name, "provider": provider, "path": path, "size": size})
@@ -230,7 +250,7 @@ class ModelForgeClient:
         params = {"q": query, "limit": limit}
         if author:
             params["author"] = author
-        return self._get("/api/v1/models/search", params=params)
+        return self._get_list("/api/v1/models/search", "model_search", params=params)
 
     def download_model(self, repo_id: str, filename: str | None = None) -> dict:
         return self._post("/api/v1/models/download", json={"repo_id": repo_id, "filename": filename})
@@ -303,7 +323,7 @@ class ModelForgeClient:
     # ---- sessions ----
 
     def list_sessions(self) -> list[dict]:
-        return self._get("/api/v1/sessions")
+        return self._get_list("/api/v1/sessions", "sessions")
 
     def create_session(self, title: str = "新对话") -> dict:
         return self._post("/api/v1/sessions", json={"title": title})
@@ -321,7 +341,9 @@ class ModelForgeClient:
         params = {}
         if limit:
             params["limit"] = limit
-        return self._get(f"/api/v1/sessions/{session_id}/messages", params=params)
+        return self._get_list(
+            f"/api/v1/sessions/{session_id}/messages", "messages", params=params
+        )
 
     def clear_messages(self, session_id: int) -> dict:
         return self._delete(f"/api/v1/sessions/{session_id}/messages")
@@ -333,13 +355,13 @@ class ModelForgeClient:
 
     def list_memories(self, memory_type: str | None = None) -> list[dict]:
         params = {"memory_type": memory_type} if memory_type else {}
-        return self._get("/api/v1/memories", params=params)
+        return self._get_list("/api/v1/memories", "memories", params=params)
 
     def create_memory(self, memory_type: str, key: str, value: str) -> dict:
         return self._post("/api/v1/memories", json={"memory_type": memory_type, "key": key, "value": value})
 
     def search_memories(self, q: str) -> list[dict]:
-        return self._get("/api/v1/memories/search", params={"q": q})
+        return self._get_list("/api/v1/memories/search", "memory_search", params={"q": q})
 
     # ---- automation schedules ----
 
@@ -527,7 +549,7 @@ class ModelForgeClient:
         return self._post("/api/v1/agent/create", json={"name": name, "model": model, "tools": tools})
 
     def list_agents(self) -> list[dict]:
-        return self._get("/api/v1/agent/list")
+        return self._get_list("/api/v1/agent/list", "agents")
 
     def delete_agent(self, name: str) -> Dict:
         return self._delete(f"/api/v1/agent/{name}")
@@ -564,7 +586,7 @@ class ModelForgeClient:
             params["agent_id"] = agent_id
         if status:
             params["status"] = status
-        return self._get("/api/v1/agent/runs", params=params)
+        return self._get_list("/api/v1/agent/runs", "agent_runs", params=params)
 
     def get_agent_run(self, run_id: str) -> dict:
         return self._get(f"/api/v1/agent/runs/{run_id}")
@@ -708,7 +730,7 @@ class ModelForgeClient:
                 return resp.json()
 
     def list_datasets(self) -> list[dict]:
-        return self._get("/api/v1/datasets")
+        return self._get_list("/api/v1/datasets", "datasets")
 
     def get_dataset(self, dataset_id: int) -> dict:
         return self._get(f"/api/v1/datasets/{dataset_id}")
@@ -732,7 +754,7 @@ class ModelForgeClient:
         return self._get(f"/api/v1/train/status/{task_id}")
 
     def train_tasks(self) -> list[dict]:
-        return self._get("/api/v1/train/tasks")
+        return self._get_list("/api/v1/train/tasks", "train_tasks")
 
     def train_stop(self, task_id: str, *, confirm: bool = False, request_id: str | None = None) -> dict:
         return self._post(f"/api/v1/train/stop/{task_id}", json={"confirm": confirm, "request_id": request_id})
@@ -763,13 +785,15 @@ class ModelForgeClient:
     # ---- knowledge ----
 
     def knowledge_documents(self) -> list[dict]:
-        return self._get("/api/v1/knowledge/documents")
+        return self._get_list("/api/v1/knowledge/documents", "knowledge_documents")
 
     def knowledge_delete(self, filename: str) -> dict:
         return self._delete(f"/api/v1/knowledge/documents/{filename}")
 
     def knowledge_chunks(self, filename: str) -> list[dict]:
-        return self._get(f"/api/v1/knowledge/documents/{filename}/chunks")
+        return self._get_list(
+            f"/api/v1/knowledge/documents/{filename}/chunks", "knowledge_chunks"
+        )
 
     def knowledge_answer(self, model: str, question: str, top_k: int = 3) -> dict:
         return self._post(
@@ -876,6 +900,22 @@ class ModelForgeClient:
     def _get(self, path: str, **kwargs) -> dict:
         return self._request_json("get", path, timeout=30.0, **kwargs)
 
+    def _get_list(self, path: str, endpoint: str, **kwargs) -> list[dict]:
+        """GET that must answer a JSON array, because the desktop iterates it."""
+        return self._expect_list(self._get(path, **kwargs), endpoint)
+
+    def _post_list(self, path: str, endpoint: str, **kwargs) -> list[dict]:
+        """POST that must answer a JSON array (scan/search style operations)."""
+        return self._expect_list(self._post(path, **kwargs), endpoint)
+
+    @staticmethod
+    def _expect_list(payload, endpoint: str) -> list[dict]:
+        if not isinstance(payload, list):
+            # Iterating an object payload silently walks its keys instead of the
+            # rows the page expects, so fail loudly: the worker reports it.
+            raise ApiClientError(f"INVALID_RESPONSE_SHAPE:{endpoint}")
+        return payload
+
     def _post(self, path: str, **kwargs) -> dict:
         return self._request_json("post", path, timeout=120.0, **kwargs)
 
@@ -894,7 +934,16 @@ class ModelForgeClient:
                 request = getattr(client, method)
                 response = request(f"{self.base_url}{path}", headers=self._headers(), **kwargs)
                 self._raise_for_status(response)
-                return response.json()
+                try:
+                    payload = response.json()
+                except ValueError as error:
+                    raise ApiClientError("INVALID_RESPONSE_BODY") from error
+                if not isinstance(payload, (dict, list)):
+                    raise ApiClientError(f"INVALID_RESPONSE_SHAPE:{path}")
+                # Some endpoints answer a bare array (models, sessions, …) and
+                # some an object; the typed client method decides which one is
+                # legal, see `_expect_list` / `ResponsePayload`.
+                return ResponsePayload(payload) if isinstance(payload, dict) else payload
         except ApiClientError:
             raise
         except httpx.HTTPError as error:
