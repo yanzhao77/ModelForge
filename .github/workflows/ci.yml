@@ -189,6 +189,10 @@ jobs:
       JWT_SECRET: ci-only-jwt-secret-that-is-at-least-thirty-two-characters
       POSTGRES_PASSWORD: ci-test-password
       MODELFORGE_ENV: production
+      # Production mode rejects the default http://localhost CORS origins at
+      # import time, which made every Alembic step in this job fail before it
+      # could run. The container smoke step below uses the same origin.
+      CORS_ALLOW_ORIGINS: https://console.example.test
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
