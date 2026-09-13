@@ -134,9 +134,16 @@ jobs:
           pytest -q \
             tests/test_model_readiness_service.py \
             tests/test_model_readiness_api.py \
+            tests/test_chat_cursor.py \
             tests/test_desktop_resilience.py \
+            tests/test_desktop_shutdown.py \
+            tests/test_desktop_ui_remediation.py \
+            tests/test_gui_async_worker.py \
             tests/test_workspace_task_center_smoke.py \
             tests/test_i18n_runtime.py \
+            tests/test_task_store_stream.py \
+            tests/test_desktop_payload_shape.py \
+            tests/test_desktop_process_exit.py \
             --cov=client/pyside6 --cov-report=xml:desktop-coverage.xml
       - name: Upload desktop coverage report
         uses: actions/upload-artifact@v4

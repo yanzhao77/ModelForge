@@ -838,7 +838,54 @@
 - 静态检查：`ruff check backend client tests scripts` 全绿；162 条路由鉴权依赖扫描无缺口。
 - 未执行：提交/推送、迁移、签名、标签与 Release。
 
+## 桌面 GUI 测试 bug 清册与收敛计划（2026-09-13）
+
+清册与任务计划见 `docs/DESKTOP_GUI_TEST_BUG_PLAN_2026-09-13.md`。
+
+### 修复轮记录（2026-09-13）
+
+- [x] 定性：正常退出 `0xC0000005` 来自窗口对象图在 `QApplication` 之后才被循环回收——`del`+`gc`、`deleteLater`+`sendPostedEvents(DeferredDelete)` 均仍崩，只有跳过收尾为 0；前置的主题/I18n/RecoveryManager 单独构造均退出 0。
+- [x] 修复：`main()` 改用 `_exit_process()`（flush 输出与日志 → `os._exit`），保留 `MODELFORGE_DEBUG_TEARDOWN=1` 调试通道。
+- [x] 回归资产：`reports/gui_exit_probe.py`（fast/slow/overrun/realclient）、`tests/test_desktop_process_exit.py`、`tests/test_desktop_payload_shape.py`、`reports/desktop_contract_stub.py`。
+- [x] 加固：渲染审计捕获槽内异常并加 15s 步进看门狗；客户端校验 payload 形状并把槽内异常转为 `CLIENT_RENDER_FAILED`；孤儿 worker 增加清理、诊断与退出日志。
+- [x] 验证：`ruff check backend client tests scripts reports` 与 `git diff --check` 通过；桌面相关 16 个文件 62 passed；退出码回归 4 passed；形状边界 9 passed；渲染审计 `ALL_CAPTURES_OK` + 退出码 0。
+- [ ] 跟进（可选）：把 `MainWindow` 排定的 `QTimer.singleShot(1800, _check_for_updates)` 绑定到窗口生命周期（关闭即取消），消除重负载下出界网络调用落进后续用例 mock 的顺序性抖动（`test_desktop_task_client` 曾出现一次 `StopIteration`；空载全量 1063 passed / 4 skipped 通过）。
+
+### P0
+
+- [x] T1：先定性再修复"正常退出 `0xC0000005`"（GUI-BUG-01），新增 `tests/test_desktop_process_exit.py` 子进程级退出码回归（无在途 / 慢在途 / 超宽限三条路径），修复方案二选一（退出前显式销毁窗口并 `gc.collect()`，或统一 `os._exit` 收尾）并挂进 CI。→ 定性结论：窗口对象图在 `QApplication` 之后回收；采用 `_exit_process()` 确定性退出（`MODELFORGE_DEBUG_TEARDOWN=1` 可保留正常收尾调试）。
+- [x] T2：独立验证 GUI-BUG-02 的修复（关闭路径 + 不关闭直接退出两条路径，慢请求对照），确认 `pending_api_workers()` 收敛。→ `gui_exit_probe.py` 的 slow/overrun 两种在途请求场景退出码均为 0，无 `fatal exception`。
+
+### P1
+
+- [x] T3：渲染审计脚本加固（GUI-BUG-03）：FakeApi 未定义接口改为显式报错、槽内异常计入失败、退出码可信。→ 新增契约桩 + 槽异常捕获 + 15s 步进看门狗；审计输出 `ALL_CAPTURES_OK`/`ENDPOINTS_TOUCHED 26`、退出码 0。
+- [x] T4：关键端点 payload 形状校验与错误可见（GUI-BUG-04），补 shape-mismatch 回归测试。→ 客户端 `ResponsePayload.get` 字段校验、13 个裸数组端点走 `_get_list`、投递边界把槽内异常转成 `CLIENT_RENDER_FAILED` 可见失败；`tests/test_desktop_payload_shape.py` 9 条通过。
+
+### P2
+
+- [x] T5：`desktop` CI 作业扩展到全部 GUI 文件并挂载退出码测试（GUI-BUG-05）。→ 作业覆盖 12 个文件（含 10 个 GUI 文件），README 同步 ignore 列表。
+- [x] T6：孤儿 worker 治理（GUI-BUG-07）：`_ORPHANED_WORKERS` 加上限、结构化日志与退出前 flush。→ 增加已结束条目清理、`orphaned_worker_report()`、超阈值告警与退出前 `log_pending_api_workers()`；退出路径统一 flush 后 `os._exit`。
+
 ## 验证日志
 
 - 2026-08-21：提交 `e413968` 已推送。GitHub Actions `ModelForge CI #22` 中新增 `desktop` 作业成功（51 秒）并生成 `desktop-coverage-xml`；主 `test` 作业在“完整测试覆盖”步骤失败，Docker 构建因依赖失败跳过。根因是审批事件已被写入协程取出但 `flush()` 未等待其完成；现已改为队列 `join()` 一致性边界，补充在途异步写入回归测试，并在本地通过 393 个测试、3 个环境跳过及依赖审计。GPU Smoke 仍因缺少匹配的自托管 NVIDIA Runner 而排队。
 - 2026-08-30：在本机（Windows 10 + Docker Desktop WSL2，engine 29.7.2）完成 2026-08-28 遗留的 Docker 端到端启动补验，结论通过：docker.io 不可直连，基础镜像 `python:3.10-slim`、`postgres:16-alpine` 经 `docker.m.daocloud.io` 拉取后重打标签，`modelforge:server` 构建成功；`docker-compose.server.yml` 全链 `postgres` healthy → `migrate` 退出码 0（alembic 版本 `0002_api_platform`）→ `volume-init` 退出码 0 → `app` healthy；`/healthz` 200，注册/登录（JWT）→ `/auth/me` → 会话创建与列表 → 模型列表均 200，直查 PostgreSQL 确认 `users`/`sessions` 落库，`/api/v2` 未认证请求被 401 拦截；首次启动因生产 CORS 校验拒绝 `http://` 源而崩溃属预期防护，改 HTTPS 源后正常。同日以 pin 依赖（pytest 9.1.1、SQLAlchemy 2.0.52，项目 `.venv`）完成 pytest 全量复核：**395 passed / 2 failed / 3 skipped，覆盖率 71.86%**，Ruff 通过；2 个失败均为 Windows 环境限制而非回归（`test_agent_file_access` 符号链接需特权 `WinError 1314`；`test_phase7` 无盘符绝对路径在 Windows pathlib 下不算 absolute，错误码降级为 `DIRECTORY_NOT_FOUND` 但仍 fail closed），CI ubuntu 不受影响。8 个桌面 GUI 测试文件因本机 PySide6 6.11.1 DLL 与 Anaconda Python 环境冲突未运行，由 CI ubuntu 覆盖；本机 lint 曾因遗留空 `api/` 目录（仅 `.pyc`）触发 I001，清理顶层空壳目录（`api/common/database/gui/pytorch` 及 `models/__pycache__`）并恢复结构契约要求的 `backend/app/plugins` 后通过（提交 `27f42b8`）。未执行签名、标签、Release 或任何 GitHub Release 操作；`models/user-*` 等测试残留目录已清理。
+- 2026-09-13：以独立 CPython 3.11.3 新建 `.venv-gui`（基座 `C:\data\python\Python311`，非 Anaconda），沿用 pin 依赖（PySide6 6.11.1 / fastapi 0.141.1 / pytest 9.1.1 / ruff 0.16.3），`pip check` 无冲突；对照旧 `.venv`（Anaconda 基座）`import PySide6.QtWidgets` 仍为 `ImportError: DLL load failed while importing QtWidgets`。实测：8 个桌面 GUI 文件 **18 passed**、退出码 0；`reports/render_pages_offscreen.py` 产出 33 张 PNG（`ALL_CAPTURES_OK`）但退出码 `0xC0000005`；真实 `main()` 入口在「无在途请求」「8 秒慢请求在途（宽限期内完成）」「真实 `ModelForgeClient` 无后端」三种场景下均为 `main()` 返回 0 后收尾 `0xC0000005`，改用 `os._exit(code)` 收尾后为 0（说明故障在解释器收尾而非业务逻辑）。测量干扰已确认：同一脚本耗时在 38s 至 125s 间波动，并行跑全量套件时按目的地放大约 6 倍，故耗时与退出码对照都须在同一时段的空载条件下进行。待办与验收标准见 `docs/DESKTOP_GUI_TEST_BUG_PLAN_2026-09-13.md`。
+
+## 第三轮后端复审与修复（2026-09-13，不含 GUI）
+
+> 范围：后端与服务层。桌面/GUI 缺陷由另一处并行处理，本轮未改动 `client/` 与 `reports/`。
+
+- [x] 核对基线：非 GUI 全量 1012 passed / 4 skipped、GUI 全量 1030 passed / 4 skipped、`ruff` 全绿，工作区与 `origin/master` 同步。
+- [x] P0-1：修复 `TextChunker.split` 死循环——段落最后一个空格落在重叠窗口之前时 `current` 原地不动。现每轮至少消费一个字符；`chunk_overlap >= chunk_size` 在构造时收敛；段落分隔符计入上限；纯空白 chunk 不入索引。
+- [x] P0-2：知识库上传改在 `asyncio.to_thread` 执行（解析/切块/向量化/提交），事件循环不再被单个上传冻结。
+- [x] P1-3：知识库单例不再把每个账户的正文与向量留在进程内——`_ensure_loaded` 只预热共享词表，内存索引仅服务本地（无会话）模式。
+- [x] P1-4：`KnowledgeBase.answer` 的同步检索改在线程池执行；`stats()` 新增 `vocab_capped` / `vocab_dropped_terms`。
+- [x] P1-5：词表触顶、提问零命中、词表预热失败均改为显式告警，不再静默降级。
+- [x] P1-6：`LocalRuntime.load/chat/stop` 在线程池执行，并用实例锁保证加载/卸载不会与生成并发改动模型。
+- [x] 新增回归：`tests/test_knowledge_chunking.py`、`tests/test_knowledge_upload_liveness.py`、`tests/test_knowledge_memory_boundary.py`、`tests/test_knowledge_vocab_cap.py`、`tests/test_local_runtime_offload.py`（18 passed）。
+- [x] 复现与验证：修复前 2.7KB 中文 md 上传后 `/healthz` 5s `ReadTimeout`、整进程冻结；修复后上传期间 `/healthz` 0.031s 返回 200；随机边界扫描 500 例无挂死/无超长/无空白 chunk。
+- [x] 静态检查：`ruff check backend client tests scripts`、`git diff --check` 全绿。
+- [x] 非 GUI 全量：1029 passed / 4 skipped / 5 failed；失败项为并行 GUI 工作新增的 `test_desktop_process_exit.py`（4 例，`.venv` 无 Qt DLL）与既有的负载敏感时序用例 `test_scheduler_phase9`（在干净 `HEAD` 的独立 worktree 中复现相同失败）。
+- [ ] 推送本轮后端提交并观察远端 CI（需用户确认后执行）。
+- [ ] 在负载空闲时段复跑 `tests/test_scheduler_phase9.py`，确认时序用例在空载下稳定通过。
