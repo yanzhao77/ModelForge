@@ -23,7 +23,7 @@ from components.recovery import RecoveryManager
 from components.task_center import TaskCenterDock
 from components.task_store import TaskStore
 from i18n import I18n
-from i18n.ui_localizer import localize_tree
+from i18n.ui_localizer import format_api_error, localize_tree
 from pages.activity_page import ActivityPage
 from pages.agent_page import AgentPage
 from pages.agent_workbench_page import AgentWorkbenchPage
@@ -476,7 +476,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
 
     def _update_check_failed(self, error: str, manual: bool) -> None:
         if manual:
-            QMessageBox.warning(self, "Check updates", error)
+            QMessageBox.warning(self, "Check updates", format_api_error(error))
 
     def _update_downloaded(self, path: Path) -> None:
         if (
@@ -492,8 +492,8 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _update_download_failed(self, error: str) -> None:
-        self.shell.set_status(f"●  UPDATE DOWNLOAD FAILED  ·  {error}")
-        QMessageBox.warning(self, "Update download", error)
+        self.shell.set_status(f"●  UPDATE DOWNLOAD FAILED  ·  {format_api_error(error)}")
+        QMessageBox.warning(self, "Update download", format_api_error(error))
 
     def closeEvent(self, event) -> None:
         self._update_check_timer.stop()

@@ -134,7 +134,7 @@ class ModelCenterDialog(QDialog, AsyncApiMixin):
     def _failed(self, action, error):
         self._set_busy(False)
         self.status.setText(f"{action}失败：{format_api_error(error)}")
-        QMessageBox.warning(self, action, error)
+        QMessageBox.warning(self, action, format_api_error(error))
 
 
 class DownloadDialog(QDialog, AsyncApiMixin):
@@ -317,7 +317,7 @@ class DownloadDialog(QDialog, AsyncApiMixin):
     def _failed(self, action, error):
         self._set_busy(False)
         self.status.setText(f"{action}失败：{format_api_error(error)}")
-        QMessageBox.warning(self, action, error)
+        QMessageBox.warning(self, action, format_api_error(error))
 
     def closeEvent(self, event):
         self._timer.stop()

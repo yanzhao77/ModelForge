@@ -141,7 +141,7 @@ class RuntimePage(QWidget, AsyncApiMixin):
     def _operation_failed(self, action, error):
         self._set_busy(False)
         self.status.setText(f"{action}运行时失败：{format_api_error(error)}")
-        QMessageBox.warning(self, f"{action}运行时失败", error)
+        QMessageBox.warning(self, f"{action}运行时失败", format_api_error(error))
 
     def closeEvent(self, event):
         self._timer.stop()

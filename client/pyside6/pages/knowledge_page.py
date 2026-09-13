@@ -115,7 +115,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         if not path:
             return
         self.result_view.append("[上传中...]")
-        self._run_api(lambda: self.api.knowledge_upload(path), self._on_uploaded, lambda error: QMessageBox.warning(self, "上传失败", error), request_key="knowledge.upload")
+        self._run_api(lambda: self.api.knowledge_upload(path), self._on_uploaded, lambda error: QMessageBox.warning(self, "上传失败", format_api_error(error)), request_key="knowledge.upload")
 
     def _on_uploaded(self, result):
         self.result_view.append(f"[上传] {result}")
@@ -130,12 +130,12 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         if not name:
             return
         if QMessageBox.question(self, "确认", f"删除文档 {name}？") == QMessageBox.Yes:
-            self._run_api(lambda: self.api.knowledge_delete(name), lambda _: self.refresh(), lambda error: QMessageBox.warning(self, "失败", error), request_key="knowledge.document.delete")
+            self._run_api(lambda: self.api.knowledge_delete(name), lambda _: self.refresh(), lambda error: QMessageBox.warning(self, "失败", format_api_error(error)), request_key="knowledge.document.delete")
 
     def show_chunks(self):
         name = self._selected_filename()
         if name:
-            self._run_api(lambda: self.api.knowledge_chunks(name), self._show_chunks, lambda error: QMessageBox.warning(self, "失败", error), request_key="knowledge.chunks")
+            self._run_api(lambda: self.api.knowledge_chunks(name), self._show_chunks, lambda error: QMessageBox.warning(self, "失败", format_api_error(error)), request_key="knowledge.chunks")
 
     def _show_chunks(self, chunks):
         self.result_view.clear()
@@ -147,7 +147,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         if not question:
             return
         operation = (lambda: self.api.knowledge_query(question, top_k=5)) if hasattr(self.api, "knowledge_query") else (lambda: self.api._post("/api/v1/knowledge/query", json={"question": question, "top_k": 5}))
-        self._run_api(operation, self._show_search, lambda error: QMessageBox.warning(self, "失败", error), request_key="knowledge.search")
+        self._run_api(operation, self._show_search, lambda error: QMessageBox.warning(self, "失败", format_api_error(error)), request_key="knowledge.search")
 
     def _show_search(self, result):
         self.result_view.clear()
@@ -160,7 +160,7 @@ class KnowledgePage(QWidget, AsyncApiMixin):
         if not question:
             return
         self.result_view.append("\n[生成中...]")
-        self._run_api(lambda: self.api.knowledge_answer(model, question, top_k=3), self._show_answer, lambda error: QMessageBox.warning(self, "失败", error), request_key="knowledge.answer")
+        self._run_api(lambda: self.api.knowledge_answer(model=model, question=question, top_k=3), self._show_answer, lambda error: QMessageBox.warning(self, "失败", format_api_error(error)), request_key="knowledge.answer")
 
     def _show_answer(self, result):
         self.result_view.clear()

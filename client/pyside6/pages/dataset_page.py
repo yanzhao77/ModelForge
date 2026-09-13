@@ -114,7 +114,7 @@ class DatasetPage(QWidget, AsyncApiMixin):
             return
         name = self.name_input.toPlainText().strip() or None
         self.hint.setText("上传中...")
-        self._run_api(lambda: self.api.upload_dataset(path, name), self._on_uploaded, lambda error: QMessageBox.warning(self, "上传失败", error))
+        self._run_api(lambda: self.api.upload_dataset(path, name), self._on_uploaded, lambda error: QMessageBox.warning(self, "上传失败", format_api_error(error)))
 
     def _on_uploaded(self, result):
         if result.get("status") == "error":
@@ -130,7 +130,7 @@ class DatasetPage(QWidget, AsyncApiMixin):
     def preview(self):
         dataset_id = self._selected_id()
         if dataset_id is not None:
-            self._run_api(lambda: self.api.get_dataset(dataset_id), self._show_preview, lambda error: QMessageBox.warning(self, "失败", error))
+            self._run_api(lambda: self.api.get_dataset(dataset_id), self._show_preview, lambda error: QMessageBox.warning(self, "失败", format_api_error(error)))
 
     def _show_preview(self, dataset):
         dialog = QDialog(self)
@@ -148,7 +148,7 @@ class DatasetPage(QWidget, AsyncApiMixin):
         if dataset_id is None:
             QMessageBox.warning(self, "提示", "请先选择一个数据集")
             return
-        self._run_api(lambda: self.api.validate_dataset(dataset_id), self._show_validation, lambda error: QMessageBox.warning(self, "预检失败", error))
+        self._run_api(lambda: self.api.validate_dataset(dataset_id), self._show_validation, lambda error: QMessageBox.warning(self, "预检失败", format_api_error(error)))
 
     def _show_validation(self, result):
         if result.get("ok"):
@@ -161,4 +161,4 @@ class DatasetPage(QWidget, AsyncApiMixin):
         if dataset_id is None:
             return
         if QMessageBox.question(self, "确认", "确定删除该数据集？") == QMessageBox.Yes:
-            self._run_api(lambda: self.api.delete_dataset(dataset_id), lambda _: self.refresh(), lambda error: QMessageBox.warning(self, "失败", error))
+            self._run_api(lambda: self.api.delete_dataset(dataset_id), lambda _: self.refresh(), lambda error: QMessageBox.warning(self, "失败", format_api_error(error)))

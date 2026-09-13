@@ -157,4 +157,4 @@ class SessionSidebar(QWidget, AsyncApiMixin):
     def _action_failed(self, error):
         self._set_loading(False)
         self.status.setText(f"会话操作失败：{format_api_error(error)}")
-        QMessageBox.warning(self, "会话操作失败", error)
+        QMessageBox.warning(self, "会话操作失败", format_api_error(error))

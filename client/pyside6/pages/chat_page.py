@@ -316,7 +316,7 @@ class ChatPage(QWidget, AsyncApiMixin):
         self._set_composer_enabled()
         if self.kb_check.isChecked():
             self._run_api(
-                lambda: self.api.knowledge_answer(model, text, top_k=3),
+                lambda: self.api.knowledge_answer(model=model, question=text, top_k=3),
                 self._show_kb_answer,
                 self._show_kb_failure,
                 request_key="knowledge-answer",
