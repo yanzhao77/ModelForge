@@ -75,6 +75,26 @@ class FakeApi:
     def list_agents(self):
         return []
 
+    def get_download_source(self):
+        return {"source": "official", "endpoint": "https://huggingface.co"}
+
+    def update_download_source(self, source: str):
+        endpoint = {
+            "hf_mirror": "https://hf-mirror.com",
+            "official": "https://huggingface.co",
+        }.get(source, "https://huggingface.co")
+        return {"source": source, "endpoint": endpoint}
+
+    def model_readiness(self):
+        # Mirrors the credential-safe snapshot shape from ModelReadinessService.
+        return {
+            "level": "SETUP_REQUIRED",
+            "recommended_action": "open_model_setup",
+            "blocking_reasons": [{"code": "NO_MODEL"}],
+            "targets": [],
+            "default_target": None,
+        }
+
     def __getattr__(self, _name):
         return lambda *args, **kwargs: []
 
