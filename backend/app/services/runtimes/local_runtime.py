@@ -1,5 +1,8 @@
 """Local inference runtime: transformers + GGUF (llama-cpp), ported from legacy model_generate."""
 
+import asyncio
+import threading
+
 from services.runtime import RuntimeEngine
 
 
@@ -15,6 +18,9 @@ class LocalRuntime(RuntimeEngine):
         self._model = None
         self._tokenizer = None
         self._is_gguf = False
+        # The inference lease already serialises the API paths; this lock keeps
+        # a load/stop from mutating the model while a worker thread generates.
+        self._lock = threading.Lock()
 
     @staticmethod
     def _is_gguf_model(path: str) -> bool:
@@ -26,7 +32,21 @@ class LocalRuntime(RuntimeEngine):
         return False
 
     async def load(self, model_name: str, **kwargs) -> dict:
-        """Load a local model (directory or .gguf file)."""
+        """Load a local model (directory or .gguf file).
+
+        Reading a multi-gigabyte checkpoint and moving it onto the device takes
+        minutes. It runs in a worker thread so health checks, task streams and
+        cancellation keep working while the model loads.
+        """
+        await asyncio.to_thread(self._locked, self._load_sync, model_name, **kwargs)
+        return {"status": "loaded", "model": model_name}
+
+    def _locked(self, func, *args, **kwargs):
+        """Run a model-mutating step in a worker thread under the instance lock."""
+        with self._lock:
+            return func(*args, **kwargs)
+
+    def _load_sync(self, model_name: str, **kwargs) -> None:
         path = self.model_path or model_name
         self._is_gguf = self._is_gguf_model(path)
         if self._is_gguf:
@@ -53,12 +73,20 @@ class LocalRuntime(RuntimeEngine):
                 torch_dtype=torch.float16 if device == "cuda" else torch.float32,
             ).to(device)
             self._model.eval()
-        return {"status": "loaded", "model": model_name}
 
     async def chat(self, model_name: str, messages: list, **kwargs) -> dict:
-        """Run a chat turn locally."""
+        """Run a chat turn locally, off the event loop.
+
+        Token generation is CPU/GPU bound and can run for minutes; performing it
+        inline used to freeze every other request in the process.
+        """
         if self._model is None:
             await self.load(model_name)
+        return await asyncio.to_thread(
+            self._locked, self._chat_sync, model_name, messages, **kwargs
+        )
+
+    def _chat_sync(self, model_name: str, messages: list, **kwargs) -> dict:
         prompt = self._build_prompt(messages)
         max_tokens = int(kwargs.get("max_new_tokens", 2048))
         temperature = float(kwargs.get("temperature", 0.7))
@@ -84,6 +112,10 @@ class LocalRuntime(RuntimeEngine):
         return {"model": model_name, "content": content, "raw": None}
 
     async def stop(self, model_name: str) -> dict:
+        await asyncio.to_thread(self._locked, self._stop_sync)
+        return {"status": "stopped", "model": model_name}
+
+    def _stop_sync(self) -> None:
         try:
             if self._model is not None:
                 if not self._is_gguf:
@@ -95,7 +127,6 @@ class LocalRuntime(RuntimeEngine):
                 self._tokenizer = None
         except Exception:
             pass
-        return {"status": "stopped", "model": model_name}
 
     @staticmethod
     def _build_prompt(messages: list) -> str:

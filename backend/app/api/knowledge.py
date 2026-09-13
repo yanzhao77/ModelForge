@@ -1,4 +1,5 @@
 """Knowledge Base API routes."""
+import asyncio
 import os
 import tempfile
 
@@ -68,7 +69,12 @@ async def knowledge_upload(
                 raise problem(413, "KNOWLEDGE_FILE_TOO_LARGE", "Knowledge file exceeds the configured size limit.", correlation=corr)
             tmp.write(chunk)
     try:
-        result = kb.upload(tmp_path, db=db, user_id=user.id, filename=file.filename)
+        # Parsing, chunking, embedding and the DB write are synchronous and can
+        # take seconds on a large document. Running them on the event loop froze
+        # every other request in the process for the whole upload.
+        result = await asyncio.to_thread(
+            kb.upload, tmp_path, db=db, user_id=user.id, filename=file.filename
+        )
         return result
     except ValueError as exc:
         raise problem(400, "KNOWLEDGE_UPLOAD_INVALID", "Knowledge upload was rejected.", correlation=corr) from exc
