@@ -13,6 +13,7 @@ from services.runtimes.adapters import (
     OLLAMA,
     REMOTE_OPENAI,
     TRANSFORMERS,
+    TRANSFORMERS_EMBEDDING,
     RuntimeAdapterSpec,
     adapter_catalog,
     get_adapter,
@@ -20,7 +21,7 @@ from services.runtimes.adapters import (
 
 #: Preference order used when a model does not declare one. GGUF is served by
 #: llama.cpp; Transformers checkpoints by transformers.
-_DEFAULT_PRIORITY: tuple[str, ...] = (LLAMA_CPP, TRANSFORMERS)
+_DEFAULT_PRIORITY: tuple[str, ...] = (LLAMA_CPP, TRANSFORMERS_EMBEDDING, TRANSFORMERS)
 
 
 class RuntimeResolver:
@@ -79,5 +80,6 @@ __all__ = [
     "OLLAMA",
     "REMOTE_OPENAI",
     "TRANSFORMERS",
+    "TRANSFORMERS_EMBEDDING",
     "RuntimeResolver",
 ]

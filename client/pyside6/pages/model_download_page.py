@@ -327,7 +327,7 @@ class _ModelDetailPanel(MFPanel):
 
     def _build(self) -> None:
         self.title = QLabel("模型详情")
-        self.title.setStyleSheet("font-size: 15px; font-weight: 650;")
+        self.title.setStyleSheet("font-size: 15px; font-weight: 600;")
         self.layout.addWidget(self.title)
         self.meta = QLabel("")
         self.meta.setProperty("role", "muted")

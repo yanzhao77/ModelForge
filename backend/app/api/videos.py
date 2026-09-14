@@ -5,14 +5,23 @@ import time
 
 from core.api_contracts import correlation_id
 from core.database import get_db
+from core.security import get_current_user
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import FileResponse, JSONResponse
+from models.records import User
 from pydantic import BaseModel, Field
-from services.local_api_service import LocalApiError, SCOPE_VIDEOS, authenticate_local_api_key, openai_error_payload
+from services.local_api_service import (
+    SCOPE_VIDEOS,
+    LocalApiError,
+    authenticate_local_api_key,
+    openai_error_payload,
+)
+from services.model_capability_registry import video_model_descriptors
 from services.video_generation_service import VideoServiceError, get_video_service
 from sqlalchemy.orm import Session as DBSession
 
 router = APIRouter(tags=["videos"])
+desktop_router = APIRouter(prefix="/videos", tags=["desktop-videos"])
 
 _MAX_PROMPT_CHARS = 4000
 
@@ -76,6 +85,10 @@ async def create_video(
     principal = _auth(db, authorization, correlation)
     if isinstance(principal, JSONResponse):
         return principal
+    return await _submit_video(req, principal.user_id, db, correlation, idempotency_key)
+
+
+async def _submit_video(req: VideoCreateRequest, user_id: int, db: DBSession, correlation: str, idempotency_key: str | None):
     if idempotency_key is not None and len(idempotency_key) > 128:
         return JSONResponse(
             _openai_error("REQUEST_INVALID", "Idempotency-Key is too long.", correlation),
@@ -85,7 +98,7 @@ async def create_video(
     try:
         job = await get_video_service().submit(
             db,
-            user_id=principal.user_id,
+            user_id=user_id,
             model_id=req.model,
             prompt=req.prompt,
             seconds=req.seconds,
@@ -112,7 +125,11 @@ def get_video(
     principal = _auth(db, authorization, correlation)
     if isinstance(principal, JSONResponse):
         return principal
-    job = get_video_service().get_for_user(db, video_id, principal.user_id)
+    return _get_video(video_id, principal.user_id, db, correlation)
+
+
+def _get_video(video_id: str, user_id: int, db: DBSession, correlation: str):
+    job = get_video_service().get_for_user(db, video_id, user_id)
     if job is None:
         return JSONResponse(_openai_error("VIDEO_JOB_NOT_FOUND", "Video job is unavailable.", correlation), status_code=404, headers=_headers(correlation))
     return JSONResponse(job.to_public_dict(), headers=_headers(correlation))
@@ -129,7 +146,11 @@ def cancel_video(
     principal = _auth(db, authorization, correlation)
     if isinstance(principal, JSONResponse):
         return principal
-    job = get_video_service().get_for_user(db, video_id, principal.user_id)
+    return _cancel_video(video_id, principal.user_id, db, correlation)
+
+
+def _cancel_video(video_id: str, user_id: int, db: DBSession, correlation: str):
+    job = get_video_service().get_for_user(db, video_id, user_id)
     if job is None:
         return JSONResponse(_openai_error("VIDEO_JOB_NOT_FOUND", "Video job is unavailable.", correlation), status_code=404, headers=_headers(correlation))
     try:
@@ -160,7 +181,11 @@ def get_video_content(
     principal = _auth(db, authorization, correlation)
     if isinstance(principal, JSONResponse):
         return principal
-    job = get_video_service().get_for_user(db, video_id, principal.user_id)
+    return _get_video_content(video_id, principal.user_id, db, correlation)
+
+
+def _get_video_content(video_id: str, user_id: int, db: DBSession, correlation: str):
+    job = get_video_service().get_for_user(db, video_id, user_id)
     if job is None:
         return JSONResponse(_openai_error("VIDEO_JOB_NOT_FOUND", "Video job is unavailable.", correlation), status_code=404, headers=_headers(correlation))
     try:
@@ -174,3 +199,49 @@ def get_video_content(
         "ETag": f'"{job.output_sha256 or int(time.time())}"',
     })
     return FileResponse(path, media_type="video/mp4", filename=filename, headers=headers)
+
+
+@desktop_router.get("/models")
+async def desktop_video_models(user: User = Depends(get_current_user), db: DBSession = Depends(get_db)):
+    return {"object": "list", "data": await video_model_descriptors(db, user.id)}
+
+
+@desktop_router.post("")
+async def desktop_create_video(
+    req: VideoCreateRequest,
+    user: User = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+    db: DBSession = Depends(get_db),
+):
+    return await _submit_video(req, user.id, db, (request_id or correlation_id())[:64], idempotency_key)
+
+
+@desktop_router.get("/{video_id}")
+def desktop_get_video(
+    video_id: str,
+    user: User = Depends(get_current_user),
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+    db: DBSession = Depends(get_db),
+):
+    return _get_video(video_id, user.id, db, (request_id or correlation_id())[:64])
+
+
+@desktop_router.post("/{video_id}/cancel")
+def desktop_cancel_video(
+    video_id: str,
+    user: User = Depends(get_current_user),
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+    db: DBSession = Depends(get_db),
+):
+    return _cancel_video(video_id, user.id, db, (request_id or correlation_id())[:64])
+
+
+@desktop_router.get("/{video_id}/content")
+def desktop_video_content(
+    video_id: str,
+    user: User = Depends(get_current_user),
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+    db: DBSession = Depends(get_db),
+):
+    return _get_video_content(video_id, user.id, db, (request_id or correlation_id())[:64])

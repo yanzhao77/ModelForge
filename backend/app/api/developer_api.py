@@ -16,22 +16,23 @@ from core.database import get_db
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from services.agent_run_service import AgentRunService
+from services.agent_service import AgentServiceError
+from services.embedding_service import embed_texts
 from services.local_api_service import (
-    LocalApiError,
-    LocalApiPrincipal,
-    LocalApiService,
     SCOPE_AGENTS,
     SCOPE_EMBEDDINGS,
     SCOPE_KNOWLEDGE,
     SCOPE_MODELS_READ,
     SCOPE_WORKFLOWS,
+    LocalApiError,
+    LocalApiPrincipal,
+    LocalApiService,
     authenticate_local_api_key,
     openai_error_payload,
 )
 from services.model_capabilities import ModelCapability
-from services.agent_run_service import AgentRunService
-from services.agent_service import AgentServiceError
-from services.embedding_service import embed_texts
+from services.model_runtime_manager import ModelRuntimeError, get_model_runtime_manager
 from services.workflow_service import WorkflowService, WorkflowServiceError
 from sqlalchemy.orm import Session as DBSession
 
@@ -78,7 +79,7 @@ def _auth(db: DBSession, authorization: str | None, scope: str) -> LocalApiPrinc
 
 
 @router.post("/v1/embeddings")
-def create_embeddings(
+async def create_embeddings(
     req: EmbeddingsRequest,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: DBSession = Depends(get_db),
@@ -101,7 +102,30 @@ def create_embeddings(
                 openai_error_payload(exc.code, exc.message, correlation_id()[:64], param=exc.param),
                 status_code=exc.status_code,
             )
-    result = embed_texts(db, principal.user_id, texts, model_id=model_id)
+    if model_id is not None:
+        runtime_status = get_model_runtime_manager().get_status(model_id)
+        if runtime_status.get("active"):
+            try:
+                result = await get_model_runtime_manager().embed(model_id, texts, user_id=principal.user_id, db=db)
+            except ModelRuntimeError as exc:
+                return JSONResponse(
+                    openai_error_payload(exc.code, exc.message, correlation_id()[:64], param="model"),
+                    status_code=exc.http_status,
+                )
+        else:
+            result = embed_texts(db, principal.user_id, texts, model_id=model_id)
+            if (result.get("embedding") or {}).get("fallback"):
+                return JSONResponse(
+                    openai_error_payload(
+                        "EMBEDDING_BACKEND_UNAVAILABLE",
+                        "The requested embedding model is not currently available for local inference.",
+                        correlation_id()[:64],
+                        param="model",
+                    ),
+                    status_code=503,
+                )
+    else:
+        result = embed_texts(db, principal.user_id, texts, model_id=model_id)
     tokens = sum(len(text.split()) for text in texts)
     return {
         "object": "list",

@@ -37,6 +37,7 @@ GGUF_MODEL = {
     "status": "ready",
     "ready": True,
     "capabilities": ["CHAT", "INFERENCE"],
+    "supported_runtimes": ["llama_cpp"],
     "runtime_status": "loaded",
 }
 
@@ -52,6 +53,7 @@ BASE_MODEL = {
     "status": "ready",
     "ready": True,
     "capabilities": ["CHAT", "INFERENCE", "TRAINING", "LORA"],
+    "supported_runtimes": ["transformers"],
     "runtime_status": "idle",
 }
 
@@ -83,6 +85,17 @@ class FakeApi:
     def set_model_default(self, model_id):
         self.calls.append(("default", model_id))
         return {"model_id": model_id}
+
+    def detect_local_model(self, path):
+        self.calls.append(("detect-local", path))
+        return {}
+
+    def register_local_model(self, path, **kwargs):
+        self.calls.append(("register-local", path, kwargs))
+        return {"model": dict(BASE_MODEL), "loaded": None}
+
+    def model_operations(self, model_id):
+        return {"model_id": model_id, "operations": [{"id": "chat", "available": True, "endpoints": ["/v1/chat/completions"]}], "api_examples": {"chat": "curl chat"}}
 
     def model_runtime(self, model_id):
         if model_id == GGUF_MODEL["id"]:
@@ -143,6 +156,7 @@ def test_model_center_shows_capabilities_and_load_action(qt_app):
         idle_buttons = _buttons(cards[1])
         assert "卸载" in loaded_buttons and "加载" in idle_buttons
         idle_buttons["加载"].click()
+        assert "加载本地模型" in _buttons(page.downloaded)
 
     assert api.calls == [("load", BASE_MODEL["id"])]
     page.close()
@@ -162,6 +176,29 @@ def test_chat_page_model_selector_uses_the_registry(qt_app):
         assert page._chat_ready() is True
         assert page.send_btn.isEnabled() is True
 
+    page.shutdown_stream()
+
+
+def test_chat_page_maps_attachment_mime_types_to_structured_parts(qt_app):
+    api = FakeApi()
+    with patch.object(ChatPage, "_run_api", _synchronous_run_api):
+        page = ChatPage(api)
+        page.attachments = [
+            {"id": "att_image", "mime_type": "image/png", "display_name": "image.png"},
+            {"id": "att_audio", "mime_type": "audio/wav", "display_name": "audio.wav"},
+            {"id": "att_video", "mime_type": "video/mp4", "display_name": "video.mp4"},
+            {"id": "att_text", "mime_type": "text/plain", "display_name": "notes.txt"},
+        ]
+        payload = page._turn_payload("hello", "mock", provider_id=None)
+
+    parts = payload["message"]["parts"]
+    assert parts == [
+        {"type": "text", "text": "hello"},
+        {"type": "image", "attachment_id": "att_image", "detail": "auto"},
+        {"type": "audio", "attachment_id": "att_audio", "processing": "asr"},
+        {"type": "video", "attachment_id": "att_video", "processing": "frames_asr"},
+        {"type": "file", "attachment_id": "att_text", "processing": "extract_text"},
+    ]
     page.shutdown_stream()
 
 

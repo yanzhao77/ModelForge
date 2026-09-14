@@ -54,6 +54,32 @@ COGVIDEOX_2B_PROFILE = VideoProfile(
 )
 
 
+WAN21_MPS_SMOKE_PROFILE = VideoProfile(
+    profile_id="wan21-t2v-1.3b-mps-smoke-5f-256x256",
+    seconds=1,
+    fps=4,
+    width=256,
+    height=256,
+    frames=5,
+    default_steps=2,
+    min_steps=1,
+    max_steps=8,
+)
+
+
+WAN21_MPS_SHORT_PROFILE = VideoProfile(
+    profile_id="wan21-t2v-1.3b-mps-short-9f-320x192",
+    seconds=2,
+    fps=4,
+    width=320,
+    height=192,
+    frames=9,
+    default_steps=4,
+    min_steps=1,
+    max_steps=12,
+)
+
+
 @dataclass(frozen=True)
 class VideoModelSpec:
     model_id: str
@@ -64,7 +90,11 @@ class VideoModelSpec:
     profiles: tuple[VideoProfile, ...] = (COGVIDEOX_2B_PROFILE,)
     experimental: bool = True
     readiness: str = "unavailable"
+    readiness_code: str | None = None
     readiness_reason: str | None = None
+    local_model_id: int | None = None
+    local_path: str | None = None
+    owner_user_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -72,6 +102,7 @@ class ResolvedVideoGenerationRequest:
     model_id: str
     runtime_name: str
     profile_id: str
+    prompt: str
     prompt_sha256: str
     seconds: int
     fps: int
@@ -80,6 +111,7 @@ class ResolvedVideoGenerationRequest:
     frames: int
     num_inference_steps: int
     seed: int | None
+    local_path: str | None = None
 
     @property
     def size(self) -> str:
@@ -101,6 +133,8 @@ class ResolvedVideoGenerationRequest:
             "runtime_name": self.runtime_name,
             "profile_id": self.profile_id,
             "prompt_sha256": self.prompt_sha256,
+            "prompt_stored": True,
+            "local_path_attached": bool(self.local_path),
             "contract": VIDEO_CONTRACT_VERSION,
         })
         return data
@@ -187,6 +221,7 @@ def resolve_video_request(
         model_id=model.model_id,
         runtime_name=model.runtime_name,
         profile_id=profile.profile_id,
+        prompt=prompt,
         prompt_sha256=prompt_hash(prompt),
         seconds=profile.seconds,
         fps=profile.fps,
@@ -195,6 +230,7 @@ def resolve_video_request(
         frames=profile.frames,
         num_inference_steps=steps,
         seed=seed,
+        local_path=model.local_path,
     )
 
 
@@ -213,6 +249,8 @@ class FakeVideoRuntime:
 
     async def probe(self, model: VideoModelSpec) -> VideoRuntimeProbe:
         del model
+        if os.getenv("MODELFORGE_ENABLE_FAKE_VIDEO_RUNTIME") != "1":
+            return VideoRuntimeProbe(False, "VIDEO_FAKE_RUNTIME_DISABLED", "Fake video runtime is disabled outside tests.", {"download_required": False})
         return VideoRuntimeProbe(True, "READY", "Fake video runtime is available.", {"download_required": False})
 
     async def load(self, model: VideoModelSpec) -> RuntimeLoadResult:

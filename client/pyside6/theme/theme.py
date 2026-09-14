@@ -68,8 +68,13 @@ def application_stylesheet(p: dict) -> str:
 
 
 def apply_theme(app):
+    from PySide6.QtGui import QFont
+
     from .theme_manager import ThemeManager
 
+    font = app.font()
+    font.setFamily("Helvetica Neue")
+    app.setFont(font)
     manager = ThemeManager(app)
     manager.apply()
     return manager

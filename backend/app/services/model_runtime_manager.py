@@ -269,18 +269,27 @@ class ModelRuntimeManager:
                 # Idempotent re-load: hand back the already loaded instance.
                 # Requesting a *different* adapter falls through and reloads.
                 return existing
-            if runtime_id is None:
-                # No adapter can serve this asset: report it honestly instead of
-                # loading it with an engine that cannot read the weights.
-                raise ModelRuntimeError(
-                    "MODEL_FORMAT_UNSUPPORTED",
-                    "该模型格式没有可用的运行时适配器。",
-                    {
-                        "model_id": record.id,
-                        "format": record.format,
-                        "supported_runtimes": record.supported_runtime_list(),
-                    },
-                )
+        if runtime_id is None:
+            # No adapter can serve this asset: report it honestly instead of
+            # loading it with an engine that cannot read the weights.
+            raise ModelRuntimeError(
+                "MODEL_FORMAT_UNSUPPORTED",
+                "该模型格式没有可用的运行时适配器。",
+                {
+                    "model_id": record.id,
+                    "format": record.format,
+                    "supported_runtimes": record.supported_runtime_list(),
+                },
+            )
+        adapter = RuntimeResolver.adapter(runtime_id)
+        if self._factory is _default_runtime_factory and adapter is not None and not adapter.dependency_available():
+            missing = list(adapter.requires_dependency)
+            raise ModelRuntimeError(
+                "RUNTIME_DEPENDENCY_MISSING",
+                "缺少本地运行时依赖，无法加载该模型。",
+                {"model_id": record.id, "runtime": runtime_id, "missing_dependencies": missing},
+                http_status=503,
+            )
 
         await self._make_room(record, user_id, priority=priority)
 
@@ -528,6 +537,38 @@ class ModelRuntimeManager:
         finally:
             self._release_request(instance)
 
+    async def embed(
+        self,
+        model_id: int,
+        texts: list[str],
+        *,
+        user_id: int | None = None,
+        db=None,
+        runtime: str | None = None,
+        ensure_loaded: bool = True,
+    ) -> dict:
+        instance, engine = await self._acquire(model_id, user_id, db, ensure_loaded, runtime)
+        embed_fn = getattr(engine, "embed", None)
+        try:
+            if embed_fn is None:
+                raise ModelRuntimeError(
+                    "MODEL_OPERATION_UNSUPPORTED",
+                    "该模型的运行时不支持向量计算。",
+                    {"model_id": model_id, "runtime": instance.runtime_id},
+                    http_status=422,
+                )
+            vectors = await embed_fn(instance.model_path, texts)
+        finally:
+            self._release_request(instance)
+        return {
+            "vectors": vectors,
+            "dimensions": len(vectors[0]) if vectors else 0,
+            "count": len(vectors),
+            "model_id": instance.model_id,
+            "model": instance.model_name,
+            "embedding": {"provider": instance.runtime_id or instance.runtime_type, "fallback": False},
+        }
+
     async def _acquire(self, model_id, user_id, db, ensure_loaded, runtime=None):
         with self._state_lock:
             instance = self._instances.get(int(model_id))
@@ -578,7 +619,11 @@ class ModelRuntimeManager:
             try:
                 record = registry.require(model_id, user_id)
                 registry.require_ready(record)
-                registry.require_capability(record, ModelCapability.INFERENCE.value)
+                if not (
+                    registry.supports(record, ModelCapability.INFERENCE.value)
+                    or registry.supports(record, ModelCapability.EMBEDDING.value)
+                ):
+                    registry.require_capability(record, ModelCapability.INFERENCE.value)
                 model_path = registry.resolve_path(record)
             except ModelRegistryError as exc:
                 raise ModelRuntimeError(

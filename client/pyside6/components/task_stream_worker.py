@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 
+from components.api_worker import is_authentication_error_text, safe_api_error_text
 from PySide6.QtCore import QThread, Signal
 
 
@@ -73,10 +74,14 @@ class TaskStreamWorker(QThread):
                     delay = 1.0
                     continue
                 raise RuntimeError("任务事件流意外结束")
-            except Exception:
+            except Exception as exc:
                 if self.isInterruptionRequested():
                     return
-                self.stream_state.emit(False, "TASK_SSE_DISCONNECTED")
+                error = safe_api_error_text(exc)
+                self.stream_state.emit(
+                    False,
+                    error if is_authentication_error_text(error) else "TASK_SSE_DISCONNECTED",
+                )
                 deadline = time.monotonic() + delay
                 while not self.isInterruptionRequested() and time.monotonic() < deadline:
                     time.sleep(0.1)

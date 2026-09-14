@@ -14,6 +14,7 @@ from services.agent_tools import (
     tool_command_execute,
     tool_file_read,
     tool_knowledge_search,
+    tool_sandbox_execute_python,
     tool_web_search,
 )
 
@@ -104,6 +105,17 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         }, ["command"]),
         permissions=[PermissionLevel.EXECUTE], timeout=60.0,
         aliases=["command_execute"],
+    ))
+    registry.register(FunctionTool(
+        "sandbox.execute",
+        "Execute Python code inside the configured isolated sandbox provider",
+        tool_sandbox_execute_python,
+        _schema({
+            "code": {"type": "string", "description": "Python source code to execute inside the sandbox"},
+            "timeout_seconds": {"type": "integer", "description": "Timeout seconds", "default": 10},
+        }, ["code"]),
+        permissions=[PermissionLevel.EXECUTE], timeout=60.0,
+        aliases=["sandbox_execute"],
     ))
     registry.register(FunctionTool(
         "web.search",

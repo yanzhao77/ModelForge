@@ -241,6 +241,20 @@ class AgentPage(QWidget, AsyncApiMixin):
         self._timer.timeout.connect(lambda: self.refresh_runs(silent=True))
         self._timer.start(2000)
 
+    def suspend_for_authentication(self) -> None:
+        self._timer.stop()
+        self.invalidate_api_requests()
+        self._agents_loading = False
+        self._runs_loading = False
+        self._set_agent_busy(False)
+        self._set_run_busy(False)
+
+    def resume_after_authentication(self) -> None:
+        if not self._timer.isActive():
+            self._timer.start(2000)
+        self.refresh_agents()
+        self.refresh_runs()
+
     def _set_agent_busy(self, busy: bool):
         self.create_btn.setEnabled(not busy and self._model_ready)
         self.delete_btn.setEnabled(not busy)

@@ -72,8 +72,11 @@ class RecoveryManager:
             index = state.get("active_tab")
             if tabs is not None and isinstance(index, int) and 0 <= index < tabs.count():
                 tabs.setCurrentIndex(index)
-        if state.get("task_center_visible"):
-            window.task_center.show()
+        # ``task_center_visible`` is a legacy dock-state flag. The task center
+        # is now a normal stacked page; calling ``show()`` on it after another
+        # page is selected makes it float over the active page.
+        if not isinstance(destination, str) and state.get("task_center_visible") and hasattr(window, "_navigate_to"):
+            window._navigate_to("tasks")
         return state
 
     def install_exception_hook(self) -> None:

@@ -13,7 +13,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from theme.icons import icon
-from theme.metrics import PAGE_MARGIN, PAGE_MARGIN_NARROW, SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_WIDTH, TOPBAR_HEIGHT
+from theme.metrics import (
+    PAGE_MARGIN,
+    PAGE_MARGIN_NARROW,
+    SIDEBAR_COLLAPSED_WIDTH,
+    SIDEBAR_WIDTH,
+    TOPBAR_HEIGHT,
+)
 
 
 class NavigationRail(QFrame):
@@ -37,7 +43,7 @@ class NavigationRail(QFrame):
         self.layout.setContentsMargins(12, 16, 12, 14)
         self.layout.setSpacing(3)
         self.brand = QLabel("ModelForge")
-        self.brand.setStyleSheet("font-size: 16px; font-weight: 650;")
+        self.brand.setStyleSheet("font-size: 16px; font-weight: 600;")
         self.layout.addWidget(self.brand)
         self.toggle = QPushButton(self.translator.t("shell.nav.collapse", "收起导航"))
         self.toggle.setObjectName("NavigationToggle")
@@ -137,6 +143,11 @@ class TopContext(QFrame):
         t = translator.t if translator is not None else (lambda _key, default=None: default or _key)
         self.status.set_state(t("shell.service.connected" if online else "shell.service.unavailable", "服务已连接" if online else "服务不可用"), "online" if online else "error")
         self.identity.setText(identity or t("shell.workspace.connected" if online else "shell.workspace.check_service", "已连接工作区" if online else "请检查本地服务"))
+
+    def set_authentication_required(self, translator=None) -> None:
+        t = translator.t if translator is not None else (lambda _key, default=None: default or _key)
+        self.identity.setText(t("status.login_required", "需要登录"))
+        self.status.set_state(t("shell.session.expired", "会话已失效"), "error")
 
 
 class AppShell(QWidget):

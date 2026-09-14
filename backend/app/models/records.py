@@ -71,6 +71,13 @@ class Message(Base):
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False, index=True)
     role = Column(String(20), nullable=False)  # user / assistant / system
     content = Column(Text, nullable=False)
+    schema_version = Column(Integer, nullable=False, default=1)
+    parts_json = Column(Text, nullable=True)
+    status = Column(String(32), nullable=False, default="completed", index=True)
+    turn_id = Column(String(64), nullable=True, index=True)
+    parent_message_id = Column(Integer, nullable=True, index=True)
+    is_pinned = Column(Boolean, nullable=False, default=False, index=True)
+    pinned_at = Column(DateTime, nullable=True)
     token_count = Column(Integer, default=0)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -82,8 +89,274 @@ class Message(Base):
             "session_id": self.session_id,
             "role": self.role,
             "content": self.content,
+            "schema_version": self.schema_version,
+            "parts": _parse_json_value(self.parts_json),
+            "status": self.status,
+            "turn_id": self.turn_id,
+            "parent_message_id": self.parent_message_id,
+            "is_pinned": bool(self.is_pinned),
+            "pinned_at": self.pinned_at.isoformat() if self.pinned_at else None,
             "token_count": self.token_count,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+        }
+
+
+class AttachmentRecord(Base):
+    """User-owned managed input or output file metadata."""
+
+    __tablename__ = "attachments"
+    __table_args__ = (
+        Index("ix_attachments_user_state", "user_id", "state"),
+        Index("ix_attachments_user_created", "user_id", "created_at"),
+    )
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    display_name = Column(String(512), nullable=False)
+    storage_key = Column(String(1024), nullable=False)
+    sha256 = Column(String(64), nullable=False, index=True)
+    mime_type = Column(String(128), nullable=False)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    state = Column(String(32), nullable=False, default="READY", index=True)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
+
+    def metadata_dict(self) -> dict:
+        return _parse_json_object(self.metadata_json)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "display_name": self.display_name,
+            "mime_type": self.mime_type,
+            "size_bytes": self.size_bytes,
+            "sha256": self.sha256,
+            "state": self.state,
+            "metadata": self.metadata_dict(),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class AttachmentDerivativeRecord(Base):
+    """Derived previews or extracted text for one attachment."""
+
+    __tablename__ = "attachment_derivatives"
+    __table_args__ = (
+        Index("ix_attachment_derivatives_source_kind", "source_attachment_id", "kind"),
+    )
+
+    id = Column(String(64), primary_key=True)
+    source_attachment_id = Column(String(64), ForeignKey("attachments.id"), nullable=False, index=True)
+    kind = Column(String(64), nullable=False)
+    processor_version = Column(String(64), nullable=False, default="builtin-v1")
+    selection_json = Column(Text, nullable=True)
+    storage_key = Column(String(1024), nullable=True)
+    state = Column(String(32), nullable=False, default="SUCCEEDED", index=True)
+    metadata_json = Column(Text, nullable=True)
+    error_code = Column(String(96), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "attachment_id": self.source_attachment_id,
+            "kind": self.kind,
+            "processor_version": self.processor_version,
+            "selection": _parse_json_value(self.selection_json),
+            "state": self.state,
+            "metadata": _parse_json_object(self.metadata_json),
+            "error_code": self.error_code,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class MessageAttachment(Base):
+    """Explicit message-to-attachment authorization edge."""
+
+    __tablename__ = "message_attachments"
+    __table_args__ = (
+        UniqueConstraint("message_id", "attachment_id", name="uq_message_attachment"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False, index=True)
+    attachment_id = Column(String(64), ForeignKey("attachments.id"), nullable=False, index=True)
+    scope = Column(String(32), nullable=False, default="message")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class ChatTurnRecord(Base):
+    """Persistent lifecycle record for a structured chat request."""
+
+    __tablename__ = "chat_turns"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_chat_turn_user_idempotency"),
+        Index("ix_chat_turns_session_status", "session_id", "status"),
+    )
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True, index=True)
+    idempotency_key = Column(String(160), nullable=False)
+    request_hash = Column(String(64), nullable=False)
+    status = Column(String(32), nullable=False, default="QUEUED", index=True)
+    mode = Column(String(32), nullable=False, default="chat")
+    user_message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    context_manifest_json = Column(Text, nullable=True)
+    capability_snapshot_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "idempotency_key": self.idempotency_key,
+            "request_hash": self.request_hash,
+            "status": self.status,
+            "mode": self.mode,
+            "user_message_id": self.user_message_id,
+            "context_manifest": _parse_json_object(self.context_manifest_json),
+            "capability_snapshot": _parse_json_object(self.capability_snapshot_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
+
+
+class ChatAttemptRecord(Base):
+    """One execution attempt for a chat turn."""
+
+    __tablename__ = "chat_attempts"
+    __table_args__ = (
+        UniqueConstraint("turn_id", "attempt_no", name="uq_chat_attempt_turn_no"),
+    )
+
+    id = Column(String(64), primary_key=True)
+    turn_id = Column(String(64), ForeignKey("chat_turns.id"), nullable=False, index=True)
+    attempt_no = Column(Integer, nullable=False, default=1)
+    output_message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    run_id = Column(String(64), nullable=True, index=True)
+    job_id = Column(String(64), nullable=True, index=True)
+    status = Column(String(32), nullable=False, default="QUEUED", index=True)
+    usage_json = Column(Text, nullable=True)
+    error_code = Column(String(96), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "turn_id": self.turn_id,
+            "attempt_no": self.attempt_no,
+            "output_message_id": self.output_message_id,
+            "run_id": self.run_id,
+            "job_id": self.job_id,
+            "status": self.status,
+            "usage": _parse_json_object(self.usage_json),
+            "error_code": self.error_code,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
+
+
+class ChatEventRecord(Base):
+    """Replayable event emitted by a chat turn."""
+
+    __tablename__ = "chat_events"
+    __table_args__ = (
+        UniqueConstraint("turn_id", "sequence", name="uq_chat_event_turn_sequence"),
+        UniqueConstraint("turn_id", "event_key", name="uq_chat_event_turn_key"),
+    )
+
+    id = Column(String(64), primary_key=True)
+    turn_id = Column(String(64), ForeignKey("chat_turns.id"), nullable=False, index=True)
+    attempt_id = Column(String(64), ForeignKey("chat_attempts.id"), nullable=True, index=True)
+    sequence = Column(Integer, nullable=False)
+    event_key = Column(String(160), nullable=False)
+    type = Column(String(96), nullable=False)
+    payload_json = Column(Text, nullable=False, default="{}")
+    correlation_id = Column(String(96), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": 1,
+            "event_id": self.id,
+            "turn_id": self.turn_id,
+            "attempt_id": self.attempt_id,
+            "sequence": self.sequence,
+            "type": self.type,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "correlation_id": self.correlation_id,
+            "payload": _parse_json_object(self.payload_json),
+        }
+
+
+class ArtifactRecord(Base):
+    """Versioned generated result visible in a chat session."""
+
+    __tablename__ = "artifacts"
+    __table_args__ = (Index("ix_artifacts_session_created", "session_id", "created_at"),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=True, index=True)
+    name = Column(String(512), nullable=False)
+    artifact_type = Column(String(64), nullable=False, default="file")
+    producer_ref = Column(String(128), nullable=True)
+    current_version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "message_id": self.message_id,
+            "name": self.name,
+            "type": self.artifact_type,
+            "producer_ref": self.producer_ref,
+            "current_version": self.current_version,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ArtifactVersionRecord(Base):
+    """Immutable artifact version bound to stored bytes."""
+
+    __tablename__ = "artifact_versions"
+    __table_args__ = (
+        UniqueConstraint("artifact_id", "version", name="uq_artifact_version"),
+    )
+
+    id = Column(String(64), primary_key=True)
+    artifact_id = Column(String(64), ForeignKey("artifacts.id"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    attachment_id = Column(String(64), ForeignKey("attachments.id"), nullable=False, index=True)
+    parent_version = Column(Integer, nullable=True)
+    sha256 = Column(String(64), nullable=False)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "artifact_id": self.artifact_id,
+            "version": self.version,
+            "attachment_id": self.attachment_id,
+            "parent_version": self.parent_version,
+            "sha256": self.sha256,
+            "size_bytes": self.size_bytes,
+            "metadata": _parse_json_object(self.metadata_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
 

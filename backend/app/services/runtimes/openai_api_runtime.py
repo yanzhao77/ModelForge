@@ -48,6 +48,51 @@ class OpenAIRuntime(RuntimeEngine):
                     text.append(content["text"])
         return "".join(text)
 
+    @staticmethod
+    def _protocol_messages(protocol: str, messages: list[dict]) -> list[dict]:
+        """Map ModelForge rich content lists onto each OpenAI-compatible protocol.
+
+        Plain-string messages are intentionally returned unchanged so existing
+        text-only providers keep receiving the same request shape.
+        """
+        converted: list[dict] = []
+        for message in messages:
+            content = message.get("content")
+            if not isinstance(content, list):
+                converted.append(message)
+                continue
+            mapped = [OpenAIRuntime._protocol_content_part(protocol, part) for part in content]
+            converted.append({**message, "content": [part for part in mapped if part is not None]})
+        return converted
+
+    @staticmethod
+    def _protocol_content_part(protocol: str, part: Any) -> dict | None:
+        if not isinstance(part, dict):
+            return None
+        part_type = part.get("type")
+        text = part.get("text")
+        image_url = part.get("image_url")
+        if isinstance(image_url, dict):
+            image_url = image_url.get("url")
+        image_url = image_url or part.get("url")
+        if protocol == "responses":
+            if part_type in {"text", "input_text"} and isinstance(text, str):
+                return {"type": "input_text", "text": text}
+            if part_type in {"image_url", "input_image"} and isinstance(image_url, str):
+                payload = {"type": "input_image", "image_url": image_url}
+                if part.get("detail") in {"low", "high", "auto"}:
+                    payload["detail"] = part["detail"]
+                return payload
+        else:
+            if part_type in {"text", "input_text"} and isinstance(text, str):
+                return {"type": "text", "text": text}
+            if part_type in {"image_url", "input_image"} and isinstance(image_url, str):
+                payload = {"type": "image_url", "image_url": {"url": image_url}}
+                if part.get("detail") in {"low", "high", "auto"}:
+                    payload["image_url"]["detail"] = part["detail"]
+                return payload
+        return None
+
     async def load(self, model_name: str, **kwargs) -> dict:
         return {"status": "ready", "model": self._model(model_name), "remote": True}
 
@@ -69,6 +114,7 @@ class OpenAIRuntime(RuntimeEngine):
 
     async def _chat_protocol(self, protocol: str, model: str, messages: list[dict], **kwargs) -> dict:
         self._validate_target()
+        messages = self._protocol_messages(protocol, messages)
         if protocol == "responses":
             payload: dict[str, Any] = {"model": model, "input": messages, "stream": False}
             if kwargs.get("temperature") is not None:
@@ -104,6 +150,7 @@ class OpenAIRuntime(RuntimeEngine):
 
     async def _stream_protocol(self, protocol: str, model: str, messages: list[dict], **kwargs) -> AsyncIterator[str]:
         self._validate_target()
+        messages = self._protocol_messages(protocol, messages)
         payload: dict[str, Any]
         if protocol == "responses":
             payload = {"model": model, "input": messages, "stream": True}

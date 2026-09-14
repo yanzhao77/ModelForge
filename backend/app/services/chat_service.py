@@ -67,6 +67,23 @@ def _runtime_manager():
 
 async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None, model_id: int | None = None, runtime_id: str | None = None) -> dict:
     session, full_messages, user_message = _context(db, user, session_id, messages)
+    result = await complete_chat(
+        db,
+        runtime,
+        model,
+        full_messages,
+        user=user,
+        provider=provider,
+        model_id=model_id,
+        runtime_id=runtime_id,
+    )
+    response = result.get("content", "")
+    _persist(db, session, user_message, response)
+    return {"response": response, "session_id": session.id if session else None, **result}
+
+
+async def complete_chat(db: DBSession, runtime: RuntimeRegistry, model: str, full_messages: list[dict], user: User | None = None, provider: dict | None = None, model_id: int | None = None, runtime_id: str | None = None) -> dict:
+    """Execute chat against the selected runtime without writing messages."""
     started = time.monotonic()
     try:
         if provider is None and model_id is not None:
@@ -81,9 +98,7 @@ async def run_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages
         ModelMetricRecorder.record(user_id=user.id if user else None, model=model, remote=provider is not None, latency_ms=(time.monotonic() - started) * 1000, success=False, error=exc)
         raise
     ModelMetricRecorder.record(user_id=user.id if user else None, model=model, remote=provider is not None, latency_ms=(time.monotonic() - started) * 1000, success=True, token_usage=result.get("usage") or result.get("token_usage"))
-    response = result.get("content", "")
-    _persist(db, session, user_message, response)
-    return {"response": response, "session_id": session.id if session else None, **result}
+    return result
 
 
 async def stream_chat(db: DBSession, runtime: RuntimeRegistry, model: str, messages: list[dict], user: User | None = None, session_id: int | None = None, provider: dict | None = None, model_id: int | None = None, runtime_id: str | None = None) -> AsyncIterator[dict]:

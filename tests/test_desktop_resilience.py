@@ -5,6 +5,7 @@ import pytest
 
 pytestmark = pytest.mark.desktop
 
+import json
 import os
 import sys
 
@@ -47,3 +48,33 @@ def test_recovery_detects_unclean_exit_and_preserves_crash_summary(tmp_path):
     assert "simulated desktop failure" in restarted.latest_crash_summary()
     restarted.mark_clean_exit()
     assert not restarted.lock_path.exists()
+
+
+def test_recovery_does_not_show_task_center_over_restored_page(tmp_path):
+    recovery = RecoveryManager(data_dir=tmp_path)
+    recovery.state_path.write_text(
+        json.dumps({"active_page": "videos", "task_center_visible": True}),
+        encoding="utf-8",
+    )
+
+    class TaskCenter:
+        shown = False
+
+        def show(self):
+            self.shown = True
+
+    class Window:
+        task_center = TaskCenter()
+
+        def __init__(self):
+            self.destinations = []
+
+        def _navigate_to(self, destination):
+            self.destinations.append(destination)
+
+    window = Window()
+    restored = recovery.restore_window_state(window)
+
+    assert restored["active_page"] == "videos"
+    assert window.destinations == ["videos"]
+    assert window.task_center.shown is False

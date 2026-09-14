@@ -25,6 +25,7 @@ from services.model_capabilities import ModelCapability
 from services.model_registry import ModelRegistry
 from services.model_resolver import ModelResolver
 from services.model_runtime_manager import get_model_runtime_manager
+from services.runtimes.adapters import ADAPTERS
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -437,10 +438,16 @@ def _api_capabilities_for_caps(caps: list[str]) -> list[str]:
         result.append("embeddings")
     if ModelCapability.VISION.value in caps:
         result.append("image-understanding")
-    if ModelCapability.AUDIO.value in caps:
-        result.append("audio")
+    if ModelCapability.AUDIO.value in caps or ModelCapability.ASR.value in caps:
+        result.append("audio-transcription")
+    if ModelCapability.TTS.value in caps:
+        result.append("audio-speech")
     if ModelCapability.IMAGE.value in caps:
         result.append("image-generation")
+    if ModelCapability.RERANKER.value in caps:
+        result.append("rerank")
+    if ModelCapability.VIDEO.value in caps:
+        result.append("video-generation")
     return sorted(set(result))
 
 
@@ -450,26 +457,50 @@ def _endpoints_for_caps(caps: list[str]) -> list[str]:
         endpoints.extend(["/v1/chat/completions", "/v1/responses"])
     if ModelCapability.EMBEDDING.value in caps:
         endpoints.append("/v1/embeddings")
-    if ModelCapability.AUDIO.value in caps:
+    if ModelCapability.AUDIO.value in caps or ModelCapability.ASR.value in caps:
         endpoints.append("/v1/audio/transcriptions")
     if ModelCapability.IMAGE.value in caps:
         endpoints.append("/v1/images/generations")
+    if ModelCapability.RERANKER.value in caps:
+        endpoints.append("/api/v1/models/{model_id}/operations/rerank")
+    if ModelCapability.VIDEO.value in caps:
+        endpoints.extend(["/v1/videos", "/api/v1/videos"])
     return endpoints
 
 
 def _compatibility_for_record(record: ModelRecord, caps: list[str], loaded: bool) -> dict:
     runtimes = record.supported_runtime_list()
-    supported = bool(runtimes or record.preferred_runtime or (record.format or "").lower() in {"gguf", "ggml", "safetensors", "transformers", "pytorch"})
+    video_only = ModelCapability.VIDEO.value in caps and not bool(set(caps) & {ModelCapability.CHAT.value, ModelCapability.INFERENCE.value, ModelCapability.EMBEDDING.value})
+    supported = bool(runtimes or record.preferred_runtime or (record.format or "").lower() in {"gguf", "ggml", "safetensors", "transformers", "pytorch"} or video_only)
     reasons: list[str] = []
     if not supported:
         reasons.append("No local runtime adapter is registered for this model format.")
-    if ModelCapability.EMBEDDING.value in caps and not loaded:
-        reasons.append("Embedding requests use the configured embedding backend until this model is explicitly supported.")
+    missing_runtime_deps: list[str] = []
+    for runtime_id in runtimes:
+        adapter = ADAPTERS.get(runtime_id)
+        if adapter is not None and not adapter.dependency_available():
+            missing_runtime_deps.extend(adapter.requires_dependency)
+    if missing_runtime_deps:
+        reasons.append("Missing runtime dependencies: " + ", ".join(sorted(set(missing_runtime_deps))))
+    unsupported_caps = set(caps) - {ModelCapability.CHAT.value, ModelCapability.INFERENCE.value, ModelCapability.EMBEDDING.value, ModelCapability.TRAINING.value, ModelCapability.LORA.value, ModelCapability.VIDEO.value}
+    if unsupported_caps:
+        reasons.append("Runtime support is not implemented for: " + ", ".join(sorted(unsupported_caps)))
+    metadata = record.metadata_dict()
+    local_import = metadata.get("local_import") if isinstance(metadata, dict) else None
+    load_validation = local_import.get("load_validation") if isinstance(local_import, dict) else None
+    load_failed = isinstance(load_validation, dict) and load_validation.get("status") == "failed"
+    video_runnable = bool(isinstance(local_import, dict) and local_import.get("runnable") and not load_failed)
+    if video_only and not video_runnable:
+        validation_message = (load_validation or {}).get("message") if isinstance(load_validation, dict) else None
+        reasons.extend(str(item) for item in ([validation_message] if validation_message else ((local_import or {}).get("unavailable_reasons") or ["Video runtime is not ready."])))
+    runnable = supported and not missing_runtime_deps and bool(set(caps) & {ModelCapability.CHAT.value, ModelCapability.INFERENCE.value, ModelCapability.EMBEDDING.value})
+    if video_only:
+        runnable = video_runnable
     return {
         "downloadable": True,
-        "runnable": supported and bool(set(caps) & {ModelCapability.CHAT.value, ModelCapability.INFERENCE.value, ModelCapability.EMBEDDING.value}),
+        "runnable": runnable,
         "loaded": loaded,
-        "state": "loaded" if loaded else ("supported" if supported else "download_only"),
+        "state": "loaded" if loaded else ("supported" if supported and not missing_runtime_deps else "unavailable" if supported else "download_only"),
         "reasons": reasons,
     }
 

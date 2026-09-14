@@ -26,6 +26,7 @@ from services.runtimes.adapters import (  # noqa: E402
     OLLAMA,
     REMOTE_OPENAI,
     TRANSFORMERS,
+    TRANSFORMERS_EMBEDDING,
 )
 
 
@@ -63,7 +64,13 @@ def session(tmp_path, monkeypatch):
 def test_catalog_exposes_the_documented_adapters():
     catalog = {adapter.id: adapter for adapter in RuntimeResolver.catalog()}
 
-    assert set(catalog) == {LLAMA_CPP, TRANSFORMERS, OLLAMA, REMOTE_OPENAI}
+    assert set(catalog) == {
+        LLAMA_CPP,
+        TRANSFORMERS,
+        TRANSFORMERS_EMBEDDING,
+        OLLAMA,
+        REMOTE_OPENAI,
+    }
     assert catalog[LLAMA_CPP].capabilities == frozenset({"CHAT", "INFERENCE"})
     assert "EMBEDDING" in catalog[REMOTE_OPENAI].capabilities
     assert catalog[REMOTE_OPENAI].local is False
@@ -191,7 +198,13 @@ def test_runtimes_api_reports_inventory_and_health(tmp_path, monkeypatch):
         listing = client.get("/api/v1/runtimes", headers=headers)
         assert listing.status_code == 200, listing.text
         runtimes = {item["id"]: item for item in listing.json()["runtimes"]}
-        assert set(runtimes) == {LLAMA_CPP, TRANSFORMERS, OLLAMA, REMOTE_OPENAI}
+        assert set(runtimes) == {
+            LLAMA_CPP,
+            TRANSFORMERS,
+            TRANSFORMERS_EMBEDDING,
+            OLLAMA,
+            REMOTE_OPENAI,
+        }
         assert runtimes[LLAMA_CPP]["model_count"] == 1
         assert runtimes[TRANSFORMERS]["model_count"] == 0
 

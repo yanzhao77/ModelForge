@@ -11,6 +11,7 @@ _LONG_STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=12.0, write=30.0, pool=3
 # SSE bodies stay open for as long as the job runs, but a dead endpoint must
 # not hold the request (and its worker thread) forever.
 _OPEN_STREAM_TIMEOUT = httpx.Timeout(None, connect=10.0, write=30.0, pool=30.0)
+_TOKEN_UNSET = object()
 
 
 def _is_cancelled(cancel_event: Callable[[], bool] | None) -> bool:
@@ -93,13 +94,14 @@ class ModelForgeClient:
     def has_token(self) -> bool:
         return bool(self._token)
 
-    def _headers(self) -> dict:
+    def _headers(self, token=_TOKEN_UNSET) -> dict:
         # No Content-Type here: httpx sets `application/json` for `json=` bodies
         # and `multipart/form-data` for `files=`. Forcing JSON made every upload
         # arrive without a `file` part, so the service answered 422.
         headers: dict[str, str] = {}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+        token = self._token if token is _TOKEN_UNSET else token
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
     # ---- server info ----
@@ -213,6 +215,42 @@ class ModelForgeClient:
 
     def clear_default_model(self) -> dict:
         return self._delete("/api/v1/models/default")
+
+    def detect_local_model(self, path: str) -> dict:
+        """Inspect a local model path without registering it."""
+        return self._post("/api/v1/models/local/detect", json={"path": path})
+
+    def register_local_model(
+        self,
+        path: str,
+        *,
+        name: str | None = None,
+        display_name: str | None = None,
+        capabilities: list[str] | None = None,
+        preferred_runtime: str | None = None,
+        load: bool = False,
+        context_length: int | None = None,
+        gpu_layers: int | None = None,
+        threads: int | None = None,
+    ) -> dict:
+        payload = {
+            "path": path,
+            "load": load,
+            "name": name,
+            "display_name": display_name,
+            "capabilities": capabilities,
+            "preferred_runtime": preferred_runtime,
+            "context_length": context_length,
+            "gpu_layers": gpu_layers,
+            "threads": threads,
+        }
+        return self._post(
+            "/api/v1/models/local/register",
+            json={key: value for key, value in payload.items() if value is not None},
+        )
+
+    def model_operations(self, model_id: int) -> dict:
+        return self._get(f"/api/v1/models/{model_id}/operations")
 
     # ---- project API control plane (JWT-authenticated desktop management) ----
 
@@ -471,6 +509,9 @@ class ModelForgeClient:
     def list_openai_models(self) -> list[dict]:
         return self._get("/v1/models").get("data", [])
 
+    def list_video_models(self) -> list[dict]:
+        return self._get("/api/v1/videos/models").get("data", [])
+
     def create_video(
         self,
         *,
@@ -489,19 +530,20 @@ class ModelForgeClient:
         if seed is not None:
             payload["seed"] = seed
         headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
-        return self._post("/v1/videos", json=payload, headers=headers)
+        return self._post("/api/v1/videos", json=payload, headers=headers)
 
     def get_video(self, video_id: str) -> dict:
-        return self._get(f"/v1/videos/{video_id}")
+        return self._get(f"/api/v1/videos/{video_id}")
 
     def cancel_video(self, video_id: str) -> dict:
-        return self._post(f"/v1/videos/{video_id}/cancel", json={})
+        return self._post(f"/api/v1/videos/{video_id}/cancel", json={})
 
     def download_video_content(self, video_id: str) -> bytes:
         try:
             with httpx.Client(timeout=120.0) as client:
-                response = client.get(f"{self.base_url}/v1/videos/{video_id}/content", headers=self._headers())
-                self._raise_for_status(response)
+                request_token = self._token
+                response = client.get(f"{self.base_url}/api/v1/videos/{video_id}/content", headers=self._headers(request_token))
+                self._raise_for_status(response, request_token)
                 return response.content
         except ApiClientError:
             raise
@@ -527,13 +569,14 @@ class ModelForgeClient:
         cancel_event: Callable[[], bool] | None = None,
     ) -> Iterator[dict]:
         """Yield chat SSE events with heartbeat-backed cooperative cancellation."""
+        request_token = self._token
         with httpx.Client(timeout=_CHAT_STREAM_TIMEOUT) as client, client.stream(
             "POST",
             f"{self.base_url}/api/v1/chat/stream",
             json={"model": model, "messages": messages, "session_id": session_id, "provider_id": provider_id, "model_id": model_id},
-            headers=self._headers(),
+            headers=self._headers(request_token),
         ) as resp:
-            self._raise_for_status(resp)
+            self._raise_for_status(resp, request_token)
             for line in resp.iter_lines():
                 if _is_cancelled(cancel_event):
                     return
@@ -547,6 +590,100 @@ class ModelForgeClient:
                 yield event
                 if event.get("type") in ("done", "error"):
                     return
+
+    # ---- multimodal chat foundation ----
+
+    def upload_attachment(self, path: str) -> dict:
+        request_token = self._token
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                with open(path, "rb") as handle:
+                    response = client.post(
+                        f"{self.base_url}/api/v1/attachments",
+                        headers=self._headers(request_token),
+                        files={"file": (os.path.basename(path), handle)},
+                    )
+                self._raise_for_status(response, request_token)
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise ApiClientError("INVALID_RESPONSE_SHAPE:attachments")
+                return ResponsePayload(payload)
+        except ApiClientError:
+            raise
+        except OSError as error:
+            raise ValidationError("ATTACHMENT_FILE_UNREADABLE") from error
+        except httpx.HTTPError as error:
+            raise ServiceUnavailableError("SERVICE_UNAVAILABLE") from error
+
+    def attachment_preview(self, attachment_id: str) -> dict:
+        return self._get(f"/api/v1/attachments/{attachment_id}/preview")
+
+    def download_attachment_derivative_content(self, attachment_id: str, derivative_id: str) -> bytes:
+        request_token = self._token
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                response = client.get(
+                    f"{self.base_url}/api/v1/attachments/{attachment_id}/derivatives/{derivative_id}/content",
+                    headers=self._headers(request_token),
+                )
+                self._raise_for_status(response, request_token)
+                return response.content
+        except ApiClientError:
+            raise
+        except httpx.HTTPError as error:
+            raise ServiceUnavailableError("SERVICE_UNAVAILABLE") from error
+
+    def delete_attachment(self, attachment_id: str) -> dict:
+        return self._delete(f"/api/v1/attachments/{attachment_id}")
+
+    def cleanup_deleted_attachments(self, limit: int = 100) -> dict:
+        return self._post("/api/v1/attachments/cleanup-deleted", params={"limit": limit})
+
+    def chat_capabilities(self, model_id: int | None = None, provider_id: int | None = None) -> dict:
+        params = {key: value for key, value in {"model_id": model_id, "provider_id": provider_id}.items() if value is not None}
+        return self._get("/api/v1/chat/capabilities", params=params or None)
+
+    def chat_preflight(self, payload: dict) -> dict:
+        return self._post("/api/v1/chat/preflight", json=payload)
+
+    def create_chat_turn(self, payload: dict) -> dict:
+        return self._post("/api/v1/chat/turns", json=payload)
+
+    def get_chat_turn(self, turn_id: str) -> dict:
+        return self._get(f"/api/v1/chat/turns/{turn_id}")
+
+    def chat_turn_events(self, turn_id: str, after_sequence: int = 0) -> dict:
+        return self._get(f"/api/v1/chat/turns/{turn_id}/events", params={"after_sequence": after_sequence})
+
+    def cancel_chat_turn(self, turn_id: str) -> dict:
+        return self._post(f"/api/v1/chat/turns/{turn_id}/cancel", json={})
+
+    def retry_chat_turn(self, turn_id: str, payload: dict) -> dict:
+        return self._post(f"/api/v1/chat/turns/{turn_id}/retry", json=payload)
+
+    def sandbox_status(self) -> dict:
+        return self._get("/api/v1/sandbox/status")
+
+    def list_session_attachments(self, session_id: int) -> list[dict]:
+        return self._get_list(f"/api/v1/sessions/{session_id}/attachments", "session_attachments")
+
+    def list_session_artifacts(self, session_id: int) -> list[dict]:
+        return self._get_list(f"/api/v1/sessions/{session_id}/artifacts", "session_artifacts")
+
+    def export_session(self, session_id: int) -> dict:
+        return self._get(f"/api/v1/sessions/{session_id}/export")
+
+    def session_storage_usage(self, session_id: int) -> dict:
+        return self._get(f"/api/v1/sessions/{session_id}/storage")
+
+    def list_chat_artifact_versions(self, artifact_id: str) -> list[dict]:
+        return self._get(f"/api/v1/artifacts/{artifact_id}/versions")
+
+    def create_chat_artifact_version(self, artifact_id: str, *, expected_version: int, content: str, mime_type: str = "text/plain") -> dict:
+        return self._post(
+            f"/api/v1/artifacts/{artifact_id}/versions",
+            json={"expected_version": expected_version, "content": content, "mime_type": mime_type},
+        )
 
     # ---- sessions ----
 
@@ -572,6 +709,16 @@ class ModelForgeClient:
         return self._get_list(
             f"/api/v1/sessions/{session_id}/messages", "messages", params=params
         )
+
+    def search_messages(self, session_id: int, query: str = "", *, pinned_only: bool = False, limit: int = 50) -> list[dict]:
+        return self._get_list(
+            f"/api/v1/sessions/{session_id}/messages/search",
+            "messages_search",
+            params={"q": query, "pinned_only": pinned_only, "limit": limit},
+        )
+
+    def set_message_pinned(self, session_id: int, message_id: int, pinned: bool) -> dict:
+        return self._patch(f"/api/v1/sessions/{session_id}/messages/{message_id}/pin", json={"pinned": pinned})
 
     def clear_messages(self, session_id: int) -> dict:
         return self._delete(f"/api/v1/sessions/{session_id}/messages")
@@ -786,15 +933,16 @@ class ModelForgeClient:
         return self._post(f"/api/v1/agent/{name}/chat", json={"message": message})
 
     def knowledge_upload(self, filepath: str) -> dict:
+        request_token = self._token
         with open(filepath, "rb") as f:
             # os.path.basename: on Windows `split("/")` kept the whole path as
             # the upload filename.
             files = {"file": (os.path.basename(filepath), f, "application/octet-stream")}
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
-                    f"{self.base_url}/api/v1/knowledge/upload", files=files, headers=self._headers()
+                    f"{self.base_url}/api/v1/knowledge/upload", files=files, headers=self._headers(request_token)
                 )
-                self._raise_for_status(resp)
+                self._raise_for_status(resp, request_token)
                 return resp.json()
 
     def knowledge_query(self, question: str, top_k: int = 5) -> dict:
@@ -923,7 +1071,8 @@ class ModelForgeClient:
     ) -> Iterator[dict]:
         """Yield Agent Run SSE events with cursor replay and cooperative cancellation."""
         cursor = max(0, after_sequence)
-        headers = self._headers()
+        request_token = self._token
+        headers = self._headers(request_token)
         headers["Last-Event-ID"] = str(cursor)
         with httpx.Client(timeout=_LONG_STREAM_TIMEOUT) as client, client.stream(
             "GET",
@@ -931,7 +1080,7 @@ class ModelForgeClient:
             params={"after_sequence": cursor},
             headers=headers,
         ) as resp:
-            self._raise_for_status(resp)
+            self._raise_for_status(resp, request_token)
             event: dict[str, str] = {}
             data_lines: list[str] = []
 
@@ -1028,15 +1177,16 @@ class ModelForgeClient:
     # ---- datasets ----
 
     def upload_dataset(self, filepath: str, name: str | None = None) -> dict:
+        request_token = self._token
         with open(filepath, "rb") as f:
             files = {"file": (os.path.basename(filepath), f, "application/octet-stream")}
             data = {"name": name} if name else None
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
                     f"{self.base_url}/api/v1/datasets/upload",
-                    files=files, data=data, headers=self._headers(),
+                    files=files, data=data, headers=self._headers(request_token),
                 )
-                self._raise_for_status(resp)
+                self._raise_for_status(resp, request_token)
                 return resp.json()
 
     def list_datasets(self) -> list[dict]:
@@ -1074,12 +1224,13 @@ class ModelForgeClient:
 
     def train_stream(self, task_id: str) -> Iterator[dict]:
         """Yield training SSE events: {type: log|progress|done, data: ...}."""
+        request_token = self._token
         with httpx.Client(timeout=_OPEN_STREAM_TIMEOUT) as client, client.stream(
             "GET",
             f"{self.base_url}/api/v1/train/stream/{task_id}",
-            headers=self._headers(),
+            headers=self._headers(request_token),
         ) as resp:
-            self._raise_for_status(resp)
+            self._raise_for_status(resp, request_token)
             for line in resp.iter_lines():
                 line = line.strip()
                 if not line.startswith("data: "):
@@ -1147,14 +1298,15 @@ class ModelForgeClient:
     ):
         """Yield task SSE events with durable cursor replay and cooperative cancellation."""
         cursor = max(0, after_id)
-        headers = self._headers()
+        request_token = self._token
+        headers = self._headers(request_token)
         headers["Last-Event-ID"] = str(cursor)
         with httpx.Client(timeout=_LONG_STREAM_TIMEOUT) as client:
             with client.stream(
                 "GET", f"{self.base_url}/api/v1/tasks/stream",
                 headers=headers, params={"after_id": cursor},
             ) as response:
-                self._raise_for_status(response)
+                self._raise_for_status(response, request_token)
                 event: dict = {}
                 for line in response.iter_lines():
                     if _is_cancelled(cancel_event):
@@ -1175,7 +1327,7 @@ class ModelForgeClient:
                     key, _, value = line.partition(":")
                     event[key] = value.lstrip()
 
-    def _raise_for_status(self, response) -> None:
+    def _raise_for_status(self, response, request_token=_TOKEN_UNSET) -> None:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as error:
@@ -1202,8 +1354,18 @@ class ModelForgeClient:
             if correlation:
                 correlation = "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in correlation)[:128] or None
             if status == 401:
-                self.set_token(None)
-                self.username = None
+                # API keys authenticate a separate surface, not the desktop session.
+                if code.startswith("API_KEY_"):
+                    raise ApiClientError(code, correlation) from error
+                if request_token is _TOKEN_UNSET:
+                    self.set_token(None)
+                    self.username = None
+                else:
+                    if self._token != request_token:
+                        raise ApiClientError("STALE_AUTHENTICATION_RESPONSE", correlation) from error
+                    if self._token == request_token:
+                        self.set_token(None)
+                        self.username = None
                 raise AuthenticationError(code or "AUTHENTICATION_REQUIRED", correlation) from error
             if status == 403:
                 raise AuthorizationError(code or "AUTHORIZATION_DENIED", correlation) from error
@@ -1250,7 +1412,8 @@ class ModelForgeClient:
         try:
             with httpx.Client(timeout=timeout) as client:
                 url = f"{self.base_url}{path}"
-                headers = self._headers()
+                request_token = self._token
+                headers = self._headers(request_token)
                 extra_headers = kwargs.pop("headers", None)
                 if extra_headers:
                     headers.update({key: value for key, value in extra_headers.items() if value is not None})
@@ -1264,7 +1427,7 @@ class ModelForgeClient:
                     response = getattr(client, method)(
                         url, headers=headers, **kwargs
                     )
-                self._raise_for_status(response)
+                self._raise_for_status(response, request_token)
                 try:
                     payload = response.json()
                 except ValueError as error:

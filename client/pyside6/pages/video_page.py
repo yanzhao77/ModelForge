@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 
 class VideoPage(QWidget, AsyncApiMixin):
-    """Text-to-video page backed by the /v1/videos API."""
+    """Text-to-video page backed by the authenticated desktop video API."""
 
     def __init__(self, api, parent=None):
         QWidget.__init__(self, parent)
@@ -31,6 +31,7 @@ class VideoPage(QWidget, AsyncApiMixin):
         self._current_job: dict | None = None
         self._video_bytes: bytes | None = None
         self._busy = False
+        self._current_profile: dict | None = None
         self._init_ui()
         self._poll = QTimer(self)
         self._poll.timeout.connect(self._poll_job)
@@ -39,7 +40,7 @@ class VideoPage(QWidget, AsyncApiMixin):
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
-        header.addWidget(MFSection("视频生成", "CogVideoX / Local Video"))
+        header.addWidget(MFSection("视频生成", "Local text-to-video"))
         header.addStretch(1)
         self.state = MFStatusBadge("未提交", "warning")
         header.addWidget(self.state)
@@ -66,9 +67,9 @@ class VideoPage(QWidget, AsyncApiMixin):
         controls.addWidget(self.seed)
         layout.addLayout(controls)
 
-        profile = QLabel("Profile: 6s · 8 FPS · 720x480 · 49 frames")
-        profile.setProperty("role", "muted")
-        layout.addWidget(profile)
+        self.profile = QLabel("Profile: 未选择")
+        self.profile.setProperty("role", "muted")
+        layout.addWidget(self.profile)
 
         self.prompt = QTextEdit()
         self.prompt.setPlaceholderText("输入视频提示词。提示词不会显示在任务中心或公开视频响应中。")
@@ -97,6 +98,7 @@ class VideoPage(QWidget, AsyncApiMixin):
         self.output.setReadOnly(True)
         self.output.setPlaceholderText("作业状态会显示在这里。")
         layout.addWidget(self.output, 1)
+        self.model_combo.currentIndexChanged.connect(self._model_changed)
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = bool(busy)
@@ -108,7 +110,7 @@ class VideoPage(QWidget, AsyncApiMixin):
             return
         self._set_busy(True)
         self.status.setText("正在同步视频模型…")
-        self._run_api(self.api.list_openai_models, self._models_loaded, self._operation_failed, request_key="video.models")
+        self._run_api(self.api.list_video_models, self._models_loaded, self._operation_failed, request_key="video.models")
 
     def _models_loaded(self, models: list[dict]) -> None:
         self._set_busy(False)
@@ -122,13 +124,36 @@ class VideoPage(QWidget, AsyncApiMixin):
                 unavailable += 1
                 continue
             label = f"{model.get('id')} · {meta.get('readiness', 'unknown')}"
-            self.model_combo.addItem(label, model.get("id"))
+            self.model_combo.addItem(label, model)
         self.status.setText(f"已同步 {self.model_combo.count()} 个可用视频模型；{unavailable} 个尚未就绪。")
+        self._model_changed()
         self.generate_btn.setEnabled(self.model_combo.count() > 0)
         self.state.set_state("模型已同步", "online" if self.model_combo.count() else "warning")
 
-    def generate(self) -> None:
+    def _model_changed(self) -> None:
         model = self.model_combo.currentData()
+        meta = (model or {}).get("modelforge") if isinstance(model, dict) else {}
+        profiles = (meta or {}).get("profiles") or []
+        profile = profiles[0] if profiles else None
+        self._current_profile = profile
+        if not profile:
+            self.profile.setText("Profile: 未选择")
+            return
+        self.profile.setText(
+            "Profile: {seconds}s · {fps} FPS · {size} · {frames} frames".format(
+                seconds=profile.get("seconds"),
+                fps=profile.get("fps"),
+                size=profile.get("size"),
+                frames=profile.get("frames"),
+            )
+        )
+        self.steps.setRange(int(profile.get("min_steps") or 1), int(profile.get("max_steps") or 50))
+        self.steps.setValue(int(profile.get("default_steps") or self.steps.value()))
+
+    def generate(self) -> None:
+        selected = self.model_combo.currentData()
+        model = selected.get("id") if isinstance(selected, dict) else selected
+        profile = self._current_profile or {}
         prompt = self.prompt.toPlainText().strip()
         if not model:
             QMessageBox.information(self, "视频生成", "没有可用的视频模型。")
@@ -146,9 +171,9 @@ class VideoPage(QWidget, AsyncApiMixin):
             lambda: self.api.create_video(
                 model=model,
                 prompt=prompt,
-                seconds=6,
-                fps=8,
-                size="720x480",
+                seconds=int(profile.get("seconds") or 1),
+                fps=int(profile.get("fps") or 4),
+                size=str(profile.get("size") or "256x256"),
                 num_inference_steps=self.steps.value(),
                 seed=seed,
                 idempotency_key=key,

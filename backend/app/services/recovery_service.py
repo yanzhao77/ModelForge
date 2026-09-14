@@ -40,6 +40,7 @@ class RecoveryService:
             ("downloads", self._recover_downloads),
             ("training", self._recover_training),
             ("agent_runs", self._recover_agent_runs),
+            ("chat_turns", self._recover_chat_turns),
             ("workflow_runs", self._recover_workflow_runs),
             ("api_invocations", self._recover_api_invocations),
             ("runtime", self._recover_runtime),
@@ -113,6 +114,12 @@ class RecoveryService:
         if runtime is None:
             return {"skipped": "AGENT_RUNTIME_UNAVAILABLE"}
         return {"settled": runtime.reconcile_orphaned_runs()}
+
+    def _recover_chat_turns(self) -> dict:
+        from services.chat_turn_service import ChatTurnService
+
+        with SessionLocal() as session:
+            return ChatTurnService().reconcile_orphaned_turns(session)
 
     def _recover_workflow_runs(self) -> dict:
         """A workflow run's executor only exists in memory."""

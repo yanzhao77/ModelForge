@@ -12,6 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, "client", "pyside6"))
 
 from api_client.client import (
+    ApiClientError,
     AuthenticationError,
     AuthorizationError,
     ModelForgeClient,
@@ -36,6 +37,49 @@ def test_unauthorized_response_clears_in_memory_session(mock_get):
 
     assert not client.has_token()
     assert client.username is None
+
+
+def test_stale_unauthorized_response_does_not_clear_new_session():
+    client = ModelForgeClient("http://qa.local")
+    client.set_token("fresh-token")
+    client.username = "qa-user"
+
+    with pytest.raises(ApiClientError, match="STALE_AUTHENTICATION_RESPONSE"):
+        client._raise_for_status(response(401, "token expired"), request_token="stale-token")
+
+    assert client.has_token()
+    assert client.username == "qa-user"
+
+
+def test_stale_unauthenticated_response_does_not_clear_new_session():
+    client = ModelForgeClient("http://qa.local")
+    client.set_token("fresh-token")
+    client.username = "qa-user"
+
+    with pytest.raises(ApiClientError, match="STALE_AUTHENTICATION_RESPONSE"):
+        client._raise_for_status(response(401, "token missing"), request_token=None)
+
+    assert client.has_token()
+    assert client.username == "qa-user"
+
+
+@pytest.mark.parametrize("code", ["API_KEY_REQUIRED", "API_KEY_INVALID", "API_KEY_REVOKED", "API_KEY_EXPIRED"])
+def test_api_key_failure_does_not_invalidate_desktop_login(code):
+    client = ModelForgeClient("http://qa.local")
+    client.set_token("desktop-token")
+    client.username = "qa-user"
+    failed = httpx.Response(
+        401,
+        json={"error": {"code": code, "message": "Invalid API key"}},
+        request=httpx.Request("GET", "http://qa.local/v1/models"),
+    )
+
+    with pytest.raises(ApiClientError, match=code) as error:
+        client._raise_for_status(failed, request_token="desktop-token")
+
+    assert not isinstance(error.value, AuthenticationError)
+    assert client.has_token()
+    assert client.username == "qa-user"
 
 
 @patch("api_client.client.httpx.Client.post")

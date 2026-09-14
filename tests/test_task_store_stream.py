@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(ROOT, "client", "pyside6"))
 
 from components.task_store import TaskStore
 from components.task_stream_worker import normalize_task_event
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtWidgets import QApplication
 
 
 class FakeApi:
@@ -28,7 +28,7 @@ def task(task_id="task-1", status="RUNNING", version=1):
 
 
 def test_task_store_applies_cursor_events_idempotently_and_rebuilds_summary():
-    app = QCoreApplication.instance() or QCoreApplication([])
+    app = QApplication.instance() or QApplication([])
     store = TaskStore(FakeApi())
     store.last_event_id = 10
 
@@ -71,7 +71,7 @@ def test_task_stream_event_rejects_missing_cursor_or_payload():
 
 
 def test_task_store_applies_batch_retry_result_and_emits_summary():
-    app = QCoreApplication.instance() or QCoreApplication([])
+    app = QApplication.instance() or QApplication([])
     store = TaskStore(FakeApi())
     store.refresh = lambda: None
     received = []
@@ -83,6 +83,34 @@ def test_task_store_applies_batch_retry_result_and_emits_summary():
     store._apply_batch_retry(result)
     assert store.tasks["retry-task-1"]["status"] == "QUEUED"
     assert received == [result]
+    app.processEvents()
+
+
+def test_task_store_authentication_error_stops_polling_and_emits_signal():
+    app = QApplication.instance() or QApplication([])
+    store = TaskStore(FakeApi())
+    received = []
+    store.authentication_required.connect(received.append)
+    store._timer.start(15000)
+
+    store._apply_error("HTTP_401 (request_id: qa)")
+
+    assert received == ["HTTP_401 (request_id: qa)"]
+    assert store._timer.isActive() is False
+    app.processEvents()
+
+
+def test_task_store_stream_authentication_error_emits_signal():
+    app = QApplication.instance() or QApplication([])
+    store = TaskStore(FakeApi())
+    received = []
+    store.authentication_required.connect(received.append)
+    store._timer.start(15000)
+
+    store._stream_state(False, "AUTHENTICATION_REQUIRED")
+
+    assert received == ["AUTHENTICATION_REQUIRED"]
+    assert store._timer.isActive() is False
     app.processEvents()
 
 

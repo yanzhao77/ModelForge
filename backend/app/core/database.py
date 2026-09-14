@@ -224,4 +224,40 @@ _MIGRATIONS = (
         ),
         (),
     ),
+    (
+        "0008_multimodal_chat_foundation",
+        (
+            ("messages", "schema_version", "INTEGER NOT NULL DEFAULT 1"),
+            ("messages", "parts_json", "TEXT"),
+            ("messages", "status", "VARCHAR(32) NOT NULL DEFAULT 'completed'"),
+            ("messages", "turn_id", "VARCHAR(64)"),
+            ("messages", "parent_message_id", "INTEGER"),
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS ix_messages_status ON messages(status)",
+            "CREATE INDEX IF NOT EXISTS ix_messages_turn_id ON messages(turn_id)",
+            "CREATE INDEX IF NOT EXISTS ix_messages_parent_message_id ON messages(parent_message_id)",
+            "CREATE INDEX IF NOT EXISTS ix_attachments_user_state ON attachments(user_id, state)",
+            "CREATE INDEX IF NOT EXISTS ix_attachments_user_created ON attachments(user_id, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_attachment_derivatives_source_kind ON attachment_derivatives(source_attachment_id, kind)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_message_attachment ON message_attachments(message_id, attachment_id)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_turn_user_idempotency ON chat_turns(user_id, idempotency_key)",
+            "CREATE INDEX IF NOT EXISTS ix_chat_turns_session_status ON chat_turns(session_id, status)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_attempt_turn_no ON chat_attempts(turn_id, attempt_no)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_event_turn_sequence ON chat_events(turn_id, sequence)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_event_turn_key ON chat_events(turn_id, event_key)",
+            "CREATE INDEX IF NOT EXISTS ix_artifacts_session_created ON artifacts(session_id, created_at)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_artifact_version ON artifact_versions(artifact_id, version)",
+        ),
+    ),
+    (
+        "0009_chat_message_pin_search",
+        (
+            ("messages", "is_pinned", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("messages", "pinned_at", "DATETIME"),
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS ix_messages_is_pinned ON messages(is_pinned)",
+        ),
+    ),
 )

@@ -37,7 +37,7 @@ from services.local_api_service import (
     openai_error_payload,
 )
 from services.model_capabilities import ModelCapability
-from services.model_capability_registry import probed_video_models
+from services.model_capability_registry import video_model_descriptors
 from services.model_runtime_manager import get_model_runtime_manager
 from services.resource_lease import ResourceBusy, inference_lease
 from services.runtime_registry import get_runtime
@@ -608,34 +608,7 @@ async def list_openai_models(
     if isinstance(principal, JSONResponse):
         return principal
     data = LocalApiService(db).list_model_descriptors(principal.user_id)
-    for model in await probed_video_models():
-        data.append(
-            {
-                "id": model.model_id,
-                "object": "model",
-                "owned_by": "local",
-                "modelforge": {
-                    "contract": "modelforge.video.v1",
-                    "capabilities": ["video_generation"],
-                    "readiness": model.readiness,
-                    "readiness_reason": model.readiness_reason,
-                    "runtime": model.runtime_name,
-                    "upstream_id": model.upstream_id,
-                    "experimental": model.experimental,
-                    "profiles": [
-                        {
-                            "id": profile.profile_id,
-                            "seconds": profile.seconds,
-                            "fps": profile.fps,
-                            "size": profile.size,
-                            "frames": profile.frames,
-                            "default_steps": profile.default_steps,
-                        }
-                        for profile in model.profiles
-                    ],
-                },
-            }
-        )
+    data.extend(await video_model_descriptors(db, principal.user_id))
     if not data:
         # Preserve the historical placeholder so an empty install still answers
         # with a valid OpenAI model list.
@@ -764,7 +737,10 @@ async def audio_transcriptions(
     if isinstance(principal, JSONResponse):
         return principal
     try:
-        LocalApiService(db).require_model(principal.user_id, model, capability=ModelCapability.AUDIO.value)
+        try:
+            LocalApiService(db).require_model(principal.user_id, model, capability=ModelCapability.ASR.value)
+        except LocalApiError:
+            LocalApiService(db).require_model(principal.user_id, model, capability=ModelCapability.AUDIO.value)
     except LocalApiError as exc:
         return JSONResponse(openai_error_payload(exc.code, exc.message, correlation, param=exc.param), status_code=exc.status_code, headers={"X-Request-ID": correlation, "X-Correlation-ID": correlation})
     return JSONResponse(

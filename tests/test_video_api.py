@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 import uuid
 
@@ -11,12 +12,95 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend", "app"))
 from main import app
+from services.model_capability_registry import (
+    get_capability_registry,
+    set_capability_registry,
+)
+from services.video_runtime import (
+    RuntimeLoadResult,
+    RuntimeStopResult,
+    VideoGenerationResult,
+    VideoRuntimeError,
+    VideoRuntimeProbe,
+    file_sha256,
+)
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setenv("MODELFORGE_ENABLE_FAKE_VIDEO_RUNTIME", "1")
+    set_capability_registry(None)
     with TestClient(app) as test_client:
         yield test_client
+    set_capability_registry(None)
+
+
+def write_wan_snapshot(root):
+    root.mkdir(parents=True)
+    (root / "model_index.json").write_text(
+        '{"_class_name":"WanPipeline","scheduler":["diffusers","UniPCMultistepScheduler"],"text_encoder":["transformers","UMT5EncoderModel"],"tokenizer":["transformers","T5TokenizerFast"],"transformer":["diffusers","WanTransformer3DModel"],"vae":["diffusers","AutoencoderKLWan"]}',
+        encoding="utf-8",
+    )
+    for child in ("scheduler", "text_encoder", "tokenizer", "transformer", "vae"):
+        (root / child).mkdir()
+    (root / "scheduler" / "scheduler_config.json").write_text("{}", encoding="utf-8")
+    (root / "text_encoder" / "config.json").write_text('{"architectures":["UMT5EncoderModel"]}', encoding="utf-8")
+    (root / "tokenizer" / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    (root / "tokenizer" / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (root / "transformer" / "config.json").write_text('{"_class_name":"WanTransformer3DModel"}', encoding="utf-8")
+    (root / "transformer" / "diffusion_pytorch_model.safetensors.index.json").write_text('{"weight_map":{"x":"diffusion_pytorch_model-00001-of-00001.safetensors"}}', encoding="utf-8")
+    (root / "transformer" / "diffusion_pytorch_model-00001-of-00001.safetensors").write_bytes(b"x")
+    (root / "text_encoder" / "model.safetensors.index.json").write_text('{"weight_map":{"x":"model-00001-of-00001.safetensors"}}', encoding="utf-8")
+    (root / "text_encoder" / "model-00001-of-00001.safetensors").write_bytes(b"x")
+    (root / "vae" / "config.json").write_text('{"_class_name":"AutoencoderKLWan"}', encoding="utf-8")
+    (root / "vae" / "diffusion_pytorch_model.safetensors").write_bytes(b"x")
+
+
+class CapturingWanRuntime:
+    runtime_name = "wan-diffusers"
+
+    def __init__(self):
+        self.prompts = []
+
+    async def probe(self, model):
+        return VideoRuntimeProbe(True, "READY", "mock wan ready", {"path": model.local_path})
+
+    async def load(self, model):
+        return RuntimeLoadResult("loadable", model.model_id, self.runtime_name)
+
+    async def generate(self, request, *, progress, cancellation, output_path):
+        assert cancellation() is False
+        self.prompts.append(request.prompt)
+        await progress("inference", 50, request.num_inference_steps)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"mock-mp4:" + request.prompt.encode("utf-8"))
+        await progress("complete", 100, request.num_inference_steps)
+        return VideoGenerationResult(output_path, file_sha256(output_path), output_path.stat().st_size, 1000)
+
+    async def unload(self, model_id):
+        return RuntimeStopResult("stopped", model_id, self.runtime_name)
+
+    async def shutdown(self):
+        return None
+
+
+class CancelableWanRuntime(CapturingWanRuntime):
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.cancel_seen = threading.Event()
+
+    async def generate(self, request, *, progress, cancellation, output_path):
+        self.prompts.append(request.prompt)
+        self.started.set()
+        await progress("inference", 10, request.num_inference_steps)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if cancellation():
+                self.cancel_seen.set()
+                raise VideoRuntimeError("VIDEO_CANCELLED", "Video generation was cancelled.")
+            time.sleep(0.02)
+        raise VideoRuntimeError("VIDEO_TEST_TIMEOUT", "Cancellation did not arrive in time.")
 
 
 def auth(client: TestClient, prefix: str) -> dict[str, str]:
@@ -69,6 +153,59 @@ def test_video_routes_require_authentication(client):
     assert client.get("/v1/videos/video_missing").status_code == 401
     assert client.get("/v1/videos/video_missing/content").status_code == 401
     assert client.post("/v1/videos/video_missing/cancel").status_code == 401
+
+
+def test_fake_video_is_not_registered_without_explicit_enable(monkeypatch):
+    monkeypatch.delenv("MODELFORGE_ENABLE_FAKE_VIDEO_RUNTIME", raising=False)
+    set_capability_registry(None)
+    try:
+        model_ids = {model.model_id for model in get_capability_registry().video_models()}
+        assert "fake-video" not in model_ids
+    finally:
+        set_capability_registry(None)
+
+
+def test_desktop_video_models_accept_login_without_an_api_key(client):
+    headers = auth(client, "desktopmodels")
+    response = client.get("/api/v1/videos/models", headers=headers)
+    assert response.status_code == 200, response.text
+    fake = next(item for item in response.json()["data"] if item["id"] == "fake-video")
+    assert fake["modelforge"]["capabilities"] == ["video_generation"]
+    assert fake["modelforge"]["readiness"] == "ready"
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+    assert client.get("/v1/models", headers=headers).status_code == 401
+    assert client.post("/v1/videos", json=video_payload(), headers=headers).status_code == 401
+
+
+def test_desktop_video_routes_require_login(client):
+    assert client.get("/api/v1/videos/models").status_code == 401
+    assert client.post("/api/v1/videos", json=video_payload()).status_code == 401
+    assert client.get("/api/v1/videos/video_missing").status_code == 401
+    assert client.get("/api/v1/videos/video_missing/content").status_code == 401
+    assert client.post("/api/v1/videos/video_missing/cancel").status_code == 401
+
+
+def test_desktop_video_lifecycle_and_user_isolation(client):
+    headers = auth(client, "desktopvideo")
+    other = auth(client, "desktopother")
+    response = client.post("/api/v1/videos", json=video_payload(), headers=headers)
+    assert response.status_code == 202, response.text
+    path = f"/api/v1/videos/{response.json()['id']}"
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        status = client.get(path, headers=headers)
+        assert status.status_code == 200, status.text
+        if status.json()["status"] == "completed":
+            break
+        time.sleep(0.05)
+    assert status.json()["status"] == "completed"
+    content = client.get(f"{path}/content", headers=headers)
+    assert content.status_code == 200, content.text
+    assert b"ModelForge fake video" in content.content
+    assert client.get(path, headers=other).status_code == 404
+    assert client.get(f"{path}/content", headers=other).status_code == 404
+    assert client.post(f"{path}/cancel", headers=other).status_code == 404
+    assert client.post(f"{path}/cancel", headers=headers).status_code == 200
 
 
 def test_models_lists_video_capabilities(client):
@@ -137,3 +274,50 @@ def test_video_jobs_are_user_isolated(client):
     created = client.post("/v1/videos", json=video_payload(), headers=alice).json()
     assert client.get(f"/v1/videos/{created['id']}", headers=bob).status_code == 404
     assert client.get(f"/v1/videos/{created['id']}/content", headers=bob).status_code == 404
+
+
+def test_local_wan_video_model_uses_full_prompt_in_runtime(client, tmp_path):
+    jwt_headers = auth(client, "localwan")
+    headers = api_auth(client, jwt_headers)
+    snapshot = tmp_path / "neutral-name"
+    write_wan_snapshot(snapshot)
+    registered = client.post("/api/v1/models/local/register", json={"path": str(snapshot)}, headers=jwt_headers)
+    assert registered.status_code == 200, registered.text
+    model_id = registered.json()["model"]["id"]
+    runtime = CapturingWanRuntime()
+    registry = get_capability_registry()
+    registry.register_video_runtime(runtime)
+    try:
+        payload = video_payload(model=f"local:{model_id}", prompt="complete prompt reaches runtime", seconds=1, fps=4, size="256x256", num_inference_steps=1)
+        created = client.post("/v1/videos", json=payload, headers=headers)
+        assert created.status_code == 202, created.text
+        complete = wait_for_status(client, headers, created.json()["id"], "completed")
+        assert complete["resolved"]["frames"] == 5
+        assert runtime.prompts == ["complete prompt reaches runtime"]
+    finally:
+        set_capability_registry(None)
+
+
+def test_local_wan_video_job_can_be_cancelled_while_running(client, tmp_path):
+    jwt_headers = auth(client, "localwancancel")
+    headers = api_auth(client, jwt_headers)
+    snapshot = tmp_path / "neutral-cancel-name"
+    write_wan_snapshot(snapshot)
+    registered = client.post("/api/v1/models/local/register", json={"path": str(snapshot)}, headers=jwt_headers)
+    assert registered.status_code == 200, registered.text
+    model_id = registered.json()["model"]["id"]
+    runtime = CancelableWanRuntime()
+    registry = get_capability_registry()
+    registry.register_video_runtime(runtime)
+    try:
+        payload = video_payload(model=f"local:{model_id}", prompt="cancel this complete prompt", seconds=1, fps=4, size="256x256", num_inference_steps=1)
+        created = client.post("/v1/videos", json=payload, headers=headers)
+        assert created.status_code == 202, created.text
+        assert runtime.started.wait(timeout=2)
+        cancelled = client.post(f"/v1/videos/{created.json()['id']}/cancel", headers=headers)
+        assert cancelled.status_code == 200, cancelled.text
+        final = wait_for_status(client, headers, created.json()["id"], "cancelled", timeout=6)
+        assert final["status"] == "cancelled"
+        assert runtime.cancel_seen.is_set()
+    finally:
+        set_capability_registry(None)

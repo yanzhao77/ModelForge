@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 LLAMA_CPP = "llama_cpp"
 TRANSFORMERS = "transformers"
+TRANSFORMERS_EMBEDDING = "transformers_embedding"
 OLLAMA = "ollama"
 REMOTE_OPENAI = "remote_openai"
 
@@ -60,6 +61,19 @@ def _is_transformers_container(record) -> bool:
     return candidate.is_dir() and (candidate / "config.json").exists()
 
 
+def _has_capability(record, capability: str) -> bool:
+    values = getattr(record, "capability_list", lambda: [])() or []
+    return capability.upper() in {str(item).upper() for item in values}
+
+
+def _is_transformers_generation_container(record) -> bool:
+    return _is_transformers_container(record) and not _has_capability(record, "EMBEDDING")
+
+
+def _is_transformers_embedding_container(record) -> bool:
+    return _is_transformers_container(record) and _has_capability(record, "EMBEDDING")
+
+
 @dataclass(frozen=True)
 class RuntimeAdapterSpec:
     """Static description of one inference backend."""
@@ -82,6 +96,9 @@ class RuntimeAdapterSpec:
     def dependency_available(self) -> bool:
         return all(_dependency_available(module) for module in self.requires_dependency)
 
+    def missing_dependencies(self) -> list[str]:
+        return [module for module in self.requires_dependency if not _dependency_available(module)]
+
     def build_engine(self, record, model_path: str) -> Any:
         if self.create_engine is None:
             raise NotImplementedError(f"runtime {self.id} does not create a local engine")
@@ -98,6 +115,12 @@ def _transformers_engine(record, model_path: str) -> Any:  # noqa: ARG001 - adap
     from services.runtimes.local_runtime import LocalRuntime
 
     return LocalRuntime(model_path=model_path)
+
+
+def _transformers_embedding_engine(record, model_path: str) -> Any:  # noqa: ARG001 - adapter contract
+    from services.runtimes.embedding_runtime import EmbeddingRuntime
+
+    return EmbeddingRuntime(model_path=model_path)
 
 
 def _ollama_engine(record, model_path: str) -> Any:  # noqa: ARG001 - adapter contract
@@ -125,8 +148,18 @@ TRANSFORMERS_ADAPTER = RuntimeAdapterSpec(
     description="Hugging Face checkpoints served in-process by transformers.",
     # A GGUF file cannot be read by transformers, so it is *not* supported here:
     # unsupported combinations must be reported, never attempted.
-    supports=_is_transformers_container,
+    supports=_is_transformers_generation_container,
     create_engine=_transformers_engine,
+)
+
+TRANSFORMERS_EMBEDDING_ADAPTER = RuntimeAdapterSpec(
+    id=TRANSFORMERS_EMBEDDING,
+    label="transformers-embedding",
+    capabilities=frozenset({"EMBEDDING"}),
+    requires_dependency=("transformers", "torch"),
+    description="Hugging Face encoder checkpoints served in-process by transformers.",
+    supports=_is_transformers_embedding_container,
+    create_engine=_transformers_embedding_engine,
 )
 
 OLLAMA_ADAPTER = RuntimeAdapterSpec(
@@ -150,6 +183,7 @@ REMOTE_OPENAI_ADAPTER = RuntimeAdapterSpec(
 ADAPTERS: dict[str, RuntimeAdapterSpec] = {
     LLAMA_CPP: LLAMA_CPP_ADAPTER,
     TRANSFORMERS: TRANSFORMERS_ADAPTER,
+    TRANSFORMERS_EMBEDDING: TRANSFORMERS_EMBEDDING_ADAPTER,
     OLLAMA: OLLAMA_ADAPTER,
     REMOTE_OPENAI: REMOTE_OPENAI_ADAPTER,
 }

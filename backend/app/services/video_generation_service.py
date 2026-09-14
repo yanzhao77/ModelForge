@@ -14,7 +14,11 @@ from typing import Any
 from core.config import settings
 from core.database import SessionLocal
 from models.records import TaskRecord, VideoJob
-from services.model_capability_registry import get_capability_registry
+from services.model_capability_registry import (
+    get_capability_registry,
+    resolve_video_model,
+)
+from services.remote_provider_service import ProviderCipher
 from services.task_realtime import task_outbox_publisher
 from services.task_service import TaskConflict, TaskService
 from services.video_runtime import (
@@ -45,6 +49,20 @@ def _dump(value: Any) -> str:
 
 def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _prompt_cipher() -> ProviderCipher:
+    return ProviderCipher(str(settings.data_dir))
+
+
+def _encrypt_prompt(prompt: str) -> str:
+    return _prompt_cipher().encrypt(prompt)
+
+
+def _decrypt_prompt(ciphertext: str | None) -> str | None:
+    if not ciphertext:
+        return None
+    return _prompt_cipher().decrypt(ciphertext)
 
 
 def _public_id() -> str:
@@ -91,9 +109,11 @@ class VideoGenerationService:
         correlation_id: str,
     ) -> VideoJob:
         registry = get_capability_registry()
-        model = registry.video_model(model_id)
+        model = resolve_video_model(db, user_id, model_id)
         if model is None:
             raise VideoServiceError("VIDEO_MODEL_NOT_FOUND", "Video model is unavailable.", status_code=404)
+        if model.readiness == "unavailable" and model.readiness_code == "VIDEO_LOAD_VALIDATION_FAILED":
+            raise VideoServiceError("VIDEO_MODEL_NOT_READY", model.readiness_reason or "Video model is not ready.", status_code=409)
         runtime = registry.video_runtime(model)
         probe = await runtime.probe(model)
         if not probe.available:
@@ -157,6 +177,7 @@ class VideoGenerationService:
             phase="accepted",
             request_json=_dump({k: v for k, v in request_for_hash.items() if k != "prompt_sha256"}),
             resolved_request_json=_dump(resolved.public_dict()),
+            prompt_ciphertext=_encrypt_prompt(prompt),
             idempotency_key_hash=idempotency_hash,
             request_hash=request_hash,
             seed=seed,
@@ -317,16 +338,25 @@ class VideoQueueCoordinator:
             if job is None:
                 return
             registry = get_capability_registry()
-            model = registry.video_model(job.model_id)
+            model = resolve_video_model(db, job.user_id, job.model_id)
             if model is None:
                 self._fail(db, job, "VIDEO_MODEL_NOT_FOUND", "Video model is unavailable.")
                 return
             runtime = registry.video_runtime(model)
+            try:
+                prompt = _decrypt_prompt(job.prompt_ciphertext)
+            except Exception:
+                self._fail(db, job, "VIDEO_PROMPT_UNAVAILABLE", "Stored video prompt could not be decrypted.")
+                return
+            if not prompt:
+                self._fail(db, job, "VIDEO_PROMPT_UNAVAILABLE", "Stored video prompt is unavailable for this job.")
+                return
             resolved = ResolvedVideoGenerationRequest(
                 model_id=job.model_id,
                 runtime_name=job.runtime_name,
                 profile_id=job.profile_id,
-                prompt_sha256="",
+                prompt=prompt,
+                prompt_sha256=_hash_text(prompt),
                 seconds=int(round(job.frames / job.fps)),
                 fps=job.fps,
                 width=job.width,
@@ -334,6 +364,7 @@ class VideoQueueCoordinator:
                 frames=job.frames,
                 num_inference_steps=job.steps,
                 seed=job.seed,
+                local_path=model.local_path,
             )
             relpath = _safe_relative_output(job.public_id)
             final_path = resolve_artifact_path(relpath)

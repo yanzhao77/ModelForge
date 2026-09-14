@@ -11,6 +11,8 @@ from pathlib import Path
 from api_client.client import ModelForgeClient
 from components.api_worker import (
     AsyncApiMixin,
+    api_events,
+    is_authentication_error_text,
     log_pending_api_workers,
     wait_for_api_workers,
 )
@@ -100,6 +102,8 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self._service_online = False
         self._service_identity = ""
         self._service_account = ""
+        self._auth_dialog_open = False
+        self._authentication_required = False
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION} · 本地 AI 工作区")
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.resize(1440, 900)
@@ -115,6 +119,9 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         )
         self.task_store.stream_changed.connect(self._show_task_stream_status)
         self.task_store.changed.connect(self._show_download_footer)
+        self.task_store.authentication_required.connect(self._handle_authentication_required)
+        api_events.authentication_required.connect(self._handle_authentication_required)
+        self._api_auth_signal_connected = True
         self._init_ui()
         restored = self.recovery.restore_window_state(self)
         self.task_store.start()
@@ -375,10 +382,83 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         )
 
     def _show_service_error(self, error: str) -> None:
+        if MainWindow._is_authentication_error(error):
+            MainWindow._handle_authentication_required(self, error)
+            return
         self._service_online = False
         self._service_identity = self.translator.t("shell.service.disconnected", "本地服务未连接")
         self.shell.topbar.set_system(False, self._service_identity, self.translator)
         self.shell.set_status(self.translator.t("footer.service_error", "无法连接服务：{error}").format(error=error))
+
+    def _handle_authentication_required(self, error: str) -> None:
+        first_auth_failure = not getattr(self, "_authentication_required", False)
+        self._authentication_required = True
+        self._service_online = False
+        self._service_identity = self.translator.t("status.login_required", "需要登录")
+        self._service_account = ""
+        suspend = getattr(self, "_suspend_authenticated_activity", None)
+        if callable(suspend):
+            suspend()
+        if getattr(self, "active_destination", "overview") != "overview":
+            self._navigate_to("overview")
+        self.shell.topbar.set_authentication_required(self.translator)
+        self.shell.set_status(
+            self.translator.t("footer.session_expired", "会话已失效，请重新登录。"),
+            tooltip=format_api_error(error),
+        )
+        if first_auth_failure and not self._auth_dialog_open:
+            QTimer.singleShot(0, self._prompt_for_reauthentication)
+
+    def _prompt_for_reauthentication(self) -> None:
+        if self._auth_dialog_open:
+            return
+        self._auth_dialog_open = True
+        try:
+            dialog = LoginDialog(self.api, self)
+            if dialog.exec_() != LoginDialog.Accepted:
+                self.shell.set_status(self.translator.t("footer.session_expired", "会话已失效，请重新登录。"))
+                return
+            self._authentication_required = False
+            self._resume_authenticated_activity()
+            self.task_store.start()
+            self.readiness_store.invalidate()
+            self.readiness_store.refresh(force=True)
+            self._load_status()
+        finally:
+            self._auth_dialog_open = False
+
+    @staticmethod
+    def _is_authentication_error(error: str) -> bool:
+        return is_authentication_error_text(error)
+
+    def _suspend_authenticated_activity(self) -> None:
+        if hasattr(self, "task_store"):
+            self.task_store.pause_for_authentication()
+        if hasattr(self, "readiness_store"):
+            self.readiness_store.invalidate()
+        for widget in self._auth_managed_widgets():
+            if hasattr(widget, "invalidate_api_requests"):
+                widget.invalidate_api_requests()
+            if hasattr(widget, "suspend_for_authentication"):
+                widget.suspend_for_authentication()
+
+    def _resume_authenticated_activity(self) -> None:
+        for widget in self._auth_managed_widgets():
+            if hasattr(widget, "resume_after_authentication"):
+                widget.resume_after_authentication()
+
+    def _auth_managed_widgets(self) -> list[QWidget]:
+        pages = getattr(self, "_pages", {})
+        seen: set[int] = set()
+        widgets: list[QWidget] = []
+        for page in dict.fromkeys(pages.values()):
+            for widget in [page, *page.findChildren(QWidget)]:
+                marker = id(widget)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                widgets.append(widget)
+        return widgets
 
     def _show_task_stream_status(self, online: bool, error: str) -> None:
         if online:
@@ -541,6 +621,12 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         QMessageBox.warning(self, "Update download", format_api_error(error))
 
     def closeEvent(self, event) -> None:
+        if getattr(self, "_api_auth_signal_connected", False):
+            self._api_auth_signal_connected = False
+            try:
+                api_events.authentication_required.disconnect(self._handle_authentication_required)
+            except (RuntimeError, TypeError):
+                pass
         self._update_check_timer.stop()
         self.readiness_store.shutdown()
         self.recovery.save_window_state(self)

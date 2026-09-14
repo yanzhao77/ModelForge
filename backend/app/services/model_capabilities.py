@@ -32,6 +32,11 @@ class ModelCapability(str, Enum):
     LORA = "LORA"
     AUDIO = "AUDIO"
     IMAGE = "IMAGE"
+    MULTIMODAL = "MULTIMODAL"
+    RERANKER = "RERANKER"
+    ASR = "ASR"
+    TTS = "TTS"
+    VIDEO = "VIDEO"
 
 
 class CapabilityFilter:

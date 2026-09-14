@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.DS_Store
 
 # C extensions
 *.so
@@ -126,6 +127,7 @@ celerybeat.pid
 
 # ModelForge runtime data
 data/
+backend/app/data/
 logs/
 .venv
 .venv-gui/
@@ -184,5 +186,6 @@ release-artifacts/
 # Local model downloads, generated outputs, and one-off UI validation artifacts.
 models/
 outputs/
+video_*.mp4
 .ui_validate.py
 ui_validate_*.png

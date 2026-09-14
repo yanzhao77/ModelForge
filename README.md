@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Tests](https://img.shields.io/badge/tests-866%20passed-brightgreen)
-![API](https://img.shields.io/badge/API-203%20paths%2F245%20ops-important)
+![API](https://img.shields.io/badge/API-285%20paths%2F343%20ops-important)
 ![Desktop](https://img.shields.io/badge/Desktop-0.1.3--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
@@ -100,7 +100,7 @@ curl http://localhost:8000/healthz   # {"status":"ok"}
 docker rm -f modelforge
 ```
 
-## API 概览（203 paths / 245 operations；业务前缀 /api/v1）
+## API 概览（285 paths / 343 operations；业务前缀 /api/v1）
 
 | 模块 | 端点 |
 |------|------|

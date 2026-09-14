@@ -5,6 +5,8 @@ from core.security import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from models.records import User
 from pydantic import BaseModel
+from services.artifact_service import ArtifactService
+from services.attachment_service import AttachmentService
 from services.session_service import SessionService
 from sqlalchemy.orm import Session as DBSession
 
@@ -23,6 +25,10 @@ class SessionUpdate(BaseModel):
 class MessageCreate(BaseModel):
     role: str
     content: str
+
+
+class MessagePinUpdate(BaseModel):
+    pinned: bool
 
 
 def _session_or_404(db, session_id, user_id):
@@ -103,6 +109,75 @@ def list_messages(
     _session_or_404(db, session_id, user.id)
     messages = SessionService.get_session_messages(db, session_id, limit, offset)
     return [m.to_dict() for m in messages]
+
+
+@router.get("/{session_id}/messages/search")
+def search_messages(
+    session_id: int,
+    q: str = "",
+    limit: int = 50,
+    pinned_only: bool = False,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _session_or_404(db, session_id, user.id)
+    messages = SessionService.search_session_messages(db, session_id, q, limit=limit, pinned_only=pinned_only)
+    return [m.to_dict() for m in messages]
+
+
+@router.patch("/{session_id}/messages/{message_id}/pin")
+def update_message_pin(
+    session_id: int,
+    message_id: int,
+    req: MessagePinUpdate,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _session_or_404(db, session_id, user.id)
+    message = SessionService.set_message_pinned(db, session_id, message_id, req.pinned)
+    if message is None:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    return message.to_dict()
+
+
+@router.get("/{session_id}/attachments")
+def list_session_attachments(
+    session_id: int,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _session_or_404(db, session_id, user.id)
+    return [item.to_dict() for item in AttachmentService().list_for_session(db, user.id, session_id)]
+
+
+@router.get("/{session_id}/artifacts")
+def list_session_artifacts(
+    session_id: int,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _session_or_404(db, session_id, user.id)
+    return [item.to_dict() for item in ArtifactService().list_for_session(db, user.id, session_id)]
+
+
+@router.get("/{session_id}/export")
+def export_session(
+    session_id: int,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _session_or_404(db, session_id, user.id)
+    return SessionService.export_session(db, session_id, user.id)
+
+
+@router.get("/{session_id}/storage")
+def session_storage_usage(
+    session_id: int,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _session_or_404(db, session_id, user.id)
+    return SessionService.storage_usage(db, session_id, user.id)
 
 
 @router.post("/{session_id}/messages")

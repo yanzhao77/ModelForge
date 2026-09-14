@@ -240,6 +240,54 @@ class TestResponsesText:
         assert OpenAIRuntime._responses_text(payload) == ""
 
 
+class TestProtocolMessages:
+    def test_plain_text_messages_are_unchanged(self):
+        messages = [{"role": "user", "content": "hi"}]
+        assert OpenAIRuntime._protocol_messages("responses", messages) == messages
+
+    def test_responses_multimodal_content_is_converted(self):
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}, "detail": "low"},
+                ],
+            }
+        ]
+        converted = OpenAIRuntime._protocol_messages("responses", messages)
+        assert converted == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "describe"},
+                    {"type": "input_image", "image_url": "data:image/png;base64,AAAA", "detail": "low"},
+                ],
+            }
+        ]
+
+    def test_chat_completions_multimodal_content_is_converted(self):
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "describe"},
+                    {"type": "input_image", "image_url": "data:image/png;base64,AAAA"},
+                ],
+            }
+        ]
+        converted = OpenAIRuntime._protocol_messages("chat_completions", messages)
+        assert converted == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                ],
+            }
+        ]
+
+
 # ---------------------------------------------------------------------------
 # load / stop
 # ---------------------------------------------------------------------------

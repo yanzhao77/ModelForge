@@ -15,6 +15,11 @@ from pathlib import Path
 
 from core.api_contracts import problem
 from models.records import ModelRecord, UserModelPreference
+from services.local_model_importer import (
+    ExternalModelPathAuthorizer,
+    LocalModelDetector,
+    LocalModelImportError,
+)
 from services.model_capabilities import (
     READY_STATUSES,
     TRANSIENT_STATUSES,
@@ -109,6 +114,11 @@ class ModelRegistry:
         if source:
             query = query.filter(ModelRecord.provider == source)
         records = query.order_by(ModelRecord.name).all()
+        repaired = False
+        for record in records:
+            repaired = self.repair_detected_local_record(record, commit=False) or repaired
+        if repaired:
+            self.db.commit()
         if not capability:
             return records
         wanted = str(capability).strip().upper()
@@ -255,11 +265,21 @@ class ModelRegistry:
         try:
             resolved = self.manager._contained_model_path(record.path)
         except ValueError as exc:
-            raise ModelRegistryError(
-                "MODEL_PATH_INVALID",
-                "模型路径不在允许的模型目录内。",
-                {"model_id": record.id},
-            ) from exc
+            resolved = Path(str(record.path)).expanduser().resolve()
+            metadata = record.metadata_dict()
+            local_import = metadata.get("local_import") if isinstance(metadata, dict) else None
+            authorized_path = (local_import or {}).get("authorized_path") if isinstance(local_import, dict) else None
+            if (
+                record.provider != "local_external"
+                or not authorized_path
+                or str(resolved) != str(authorized_path)
+                or not ExternalModelPathAuthorizer().is_authorized(record.user_id, resolved)
+            ):
+                raise ModelRegistryError(
+                    "MODEL_PATH_INVALID",
+                    "模型路径不在允许的模型目录内，或未通过本地模型授权登记。",
+                    {"model_id": record.id},
+                ) from exc
         if not resolved.exists():
             raise ModelRegistryError(
                 "MODEL_NOT_READY",
@@ -270,6 +290,7 @@ class ModelRegistry:
 
     def refresh(self, record: ModelRecord, *, commit: bool = False, detect: bool = True) -> ModelRecord:
         """Normalise format/capabilities/size and settle the lifecycle status."""
+        self.repair_detected_local_record(record, commit=False)
         record.format = normalize_format(record.format, record.path)
         if not record.capability_list():
             record.set_capabilities(
@@ -308,6 +329,74 @@ class ModelRegistry:
         if commit:
             self.db.commit()
         return record
+
+    def repair_detected_local_record(self, record: ModelRecord, *, commit: bool = False) -> bool:
+        """Idempotently refresh local-import metadata and capabilities.
+
+        This fixes records created by older detector rules while preserving the
+        row id, path authorization, display name, aliases, and user settings.
+        """
+        if record.provider != "local_external" or not record.path:
+            return False
+        try:
+            detection = LocalModelDetector().detect(record.path).payload
+        except (LocalModelImportError, OSError):
+            return False
+        changed = False
+        detected_caps = [str(item).upper() for item in detection.get("capabilities") or []]
+        if detected_caps and record.capability_list() != detected_caps:
+            record.set_capabilities(detected_caps)
+            changed = True
+        detected_format = detection.get("format")
+        if detected_format and record.format != detected_format:
+            record.format = detected_format
+            changed = True
+        runtime_ids = detection.get("supported_runtimes") or []
+        if record.supported_runtime_list() != [str(item).lower() for item in runtime_ids]:
+            record.set_supported_runtimes(runtime_ids)
+            changed = True
+        preferred = detection.get("preferred_runtime")
+        if preferred != record.preferred_runtime:
+            record.preferred_runtime = preferred
+            changed = True
+        import copy as _copy
+
+        metadata = record.metadata_dict()
+        before = _copy.deepcopy(metadata)
+        metadata.update(detection.get("metadata") or {})
+        local_import = metadata.get("local_import") if isinstance(metadata.get("local_import"), dict) else {}
+        local_import.update(
+            {
+                "authorized_path": str(Path(record.path).expanduser().resolve()),
+                "detector": "local-diffusers-wan-v1",
+                "evidence": detection.get("evidence") or [],
+                "warnings": detection.get("warnings") or [],
+                "uncertain": detection.get("uncertain") or [],
+                "task_categories": detection.get("task_categories") or [],
+                "runnable": bool(detection.get("runnable")),
+                "unavailable_reasons": detection.get("unavailable_reasons") or [],
+                "runtime_options": detection.get("runtime_options") or [],
+                "is_adapter": bool(detection.get("is_adapter")),
+                "base_model_hint": detection.get("base_model_hint"),
+            }
+        )
+        metadata["local_import"] = local_import
+        if detection.get("architecture"):
+            metadata["architecture"] = detection.get("architecture")
+        if metadata != before:
+            record.set_metadata(metadata)
+            changed = True
+        if detection.get("size") and record.size != detection.get("size"):
+            record.size = detection.get("size")
+            changed = True
+        if detection.get("size_bytes") and record.size_bytes != detection.get("size_bytes"):
+            record.size_bytes = detection.get("size_bytes")
+            changed = True
+        if changed:
+            record.updated_time = datetime.datetime.utcnow()
+            if commit:
+                self.db.commit()
+        return changed
 
     def refresh_capabilities(self, record: ModelRecord, *, commit: bool = False) -> list[str]:
         record.set_capabilities(
@@ -379,6 +468,86 @@ class ModelRegistry:
             # "installed" so the model center can explain the state, while
             # ``is_ready`` keeps it out of the usable set until the file lands.
             record.status = "installed"
+        if commit:
+            self.db.commit()
+        return record
+
+    def register_detected_local(
+        self,
+        *,
+        detection: dict,
+        user_id: int | None,
+        name: str | None = None,
+        display_name: str | None = None,
+        capabilities: list[str] | None = None,
+        preferred_runtime: str | None = None,
+        load_after_register: bool = False,
+        commit: bool = True,
+    ) -> ModelRecord:
+        """Register a user-selected local asset without copying or moving it."""
+        real_path = ExternalModelPathAuthorizer().authorize(user_id, detection.get("real_path") or detection.get("path"))
+        model_name = (name or detection.get("name") or Path(real_path).stem).strip()
+        if not model_name:
+            model_name = Path(real_path).stem or Path(real_path).name
+        query = self.db.query(ModelRecord).filter(ModelRecord.path == real_path)
+        if user_id is not None:
+            query = query.filter(
+                or_(ModelRecord.user_id == user_id, ModelRecord.user_id.is_(None))
+            )
+        record = query.first()
+        if record is None:
+            record = ModelRecord(
+                name=model_name,
+                provider="local_external",
+                path=real_path,
+                user_id=user_id,
+                status="ready",
+                format=detection.get("format"),
+                size=detection.get("size") or "",
+                size_bytes=detection.get("size_bytes") or None,
+            )
+            self.db.add(record)
+        else:
+            record.name = model_name
+            record.provider = "local_external"
+            record.path = real_path
+            record.status = "ready"
+            record.format = detection.get("format") or record.format
+            record.size = detection.get("size") or record.size
+            record.size_bytes = detection.get("size_bytes") or record.size_bytes
+        record.display_name = display_name or detection.get("display_name") or record.display_name
+        effective_capabilities = capabilities or detection.get("capabilities") or []
+        if effective_capabilities:
+            record.set_capabilities(effective_capabilities)
+        record.set_supported_runtimes(detection.get("supported_runtimes") or [])
+        if preferred_runtime:
+            record.preferred_runtime = str(preferred_runtime).strip().lower()
+        elif detection.get("preferred_runtime"):
+            record.preferred_runtime = str(detection.get("preferred_runtime")).strip().lower()
+        metadata = record.metadata_dict()
+        metadata.update(detection.get("metadata") or {})
+        metadata["local_import"] = {
+            "authorized_path": real_path,
+            "registered_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "load_after_register": bool(load_after_register),
+            "evidence": detection.get("evidence") or [],
+            "warnings": detection.get("warnings") or [],
+            "uncertain": detection.get("uncertain") or [],
+            "task_categories": detection.get("task_categories") or [],
+            "runnable": bool(detection.get("runnable")),
+            "unavailable_reasons": detection.get("unavailable_reasons") or [],
+            "runtime_options": detection.get("runtime_options") or [],
+            "is_adapter": bool(detection.get("is_adapter")),
+            "base_model_hint": detection.get("base_model_hint"),
+        }
+        if detection.get("architecture"):
+            metadata.setdefault("architecture", detection.get("architecture"))
+        record.set_metadata(metadata)
+        self.refresh(record, commit=False, detect=False)
+        if capabilities:
+            record.set_capabilities(capabilities)
+        if detection.get("supported_runtimes"):
+            record.set_supported_runtimes(detection.get("supported_runtimes") or [])
         if commit:
             self.db.commit()
         return record
@@ -466,8 +635,10 @@ class ModelRegistry:
             )
         updated = 0
         for record in query.all():
-            self.refresh_capabilities(record, commit=False)
-            updated += 1
+            before = record.capability_list()
+            self.refresh(record, commit=False)
+            if record.capability_list() != before:
+                updated += 1
         if updated:
             self.db.commit()
         return updated
@@ -476,6 +647,12 @@ class ModelRegistry:
         """Persist a user's preferred default local model."""
         record = self.require(model_id, user_id)
         self.require_ready(record)
+        if not (self.supports(record, ModelCapability.CHAT.value) or self.supports(record, ModelCapability.INFERENCE.value)):
+            raise ModelRegistryError(
+                "MODEL_DEFAULT_UNSUPPORTED",
+                "该模型不支持聊天或文本生成，不能设为默认对话模型。",
+                {"model_id": record.id, "capabilities": self.capabilities(record)},
+            )
         preference = self.db.get(UserModelPreference, user_id)
         if preference is None:
             preference = UserModelPreference(user_id=user_id)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import struct
 import sys
 import uuid
 
@@ -37,6 +38,25 @@ class FakeEngine:
         return {"status": "stopped", "model": model_name}
 
 
+def _gguf_bytes(architecture: str = "llama", context_length: int = 4096) -> bytes:
+    payload = bytearray(b"GGUF")
+    payload += struct.pack("<I", 3)
+    payload += struct.pack("<Q", 0)
+    payload += struct.pack("<Q", 2)
+    for key, value in (
+        ("general.architecture", architecture),
+        (f"{architecture}.context_length", context_length),
+    ):
+        encoded = key.encode("utf-8")
+        payload += struct.pack("<Q", len(encoded)) + encoded
+        if isinstance(value, str):
+            raw = value.encode("utf-8")
+            payload += struct.pack("<I", 8) + struct.pack("<Q", len(raw)) + raw
+        else:
+            payload += struct.pack("<I", 4) + struct.pack("<I", value)
+    return bytes(payload)
+
+
 def _auth(client: TestClient) -> tuple[dict, str]:
     username = f"runtime{uuid.uuid4().hex[:10]}"
     client.post(
@@ -56,6 +76,7 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setenv("MODEL_PATH", str(models))
     monkeypatch.setenv("MODEL_DIR", str(models))
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(settings, "data_dir", str(tmp_path / "data"))
     monkeypatch.setattr(
         runtime_module,
         "model_runtime_manager",
@@ -133,6 +154,53 @@ def test_load_status_and_unload_lifecycle(api):
     assert unloaded.status_code == 200
     assert unloaded.json()["unloaded"] is True
     assert client.get(f"/api/v1/models/{model_id}/runtime", headers=headers).json()["active"] is False
+
+
+def test_local_import_http_flow_registers_loads_reports_operations_and_unloads(api):
+    client, headers = api["client"], api["headers"]
+    external = api["models"].parent / "外部 模型" / "route gguf.gguf"
+    external.parent.mkdir(parents=True)
+    external.write_bytes(_gguf_bytes("qwen2", 8192))
+
+    detected = client.post(
+        "/api/v1/models/local/detect",
+        json={"path": str(external)},
+        headers=headers,
+    )
+    assert detected.status_code == 200, detected.text
+    detection = detected.json()
+    assert detection["format"] == "gguf"
+    assert detection["architecture"] == "qwen2"
+    assert detection["capabilities"] == ["CHAT", "INFERENCE"]
+
+    registered = client.post(
+        "/api/v1/models/local/register",
+        json={
+            "path": str(external),
+            "name": "external-qwen2",
+            "capabilities": ["CHAT", "INFERENCE"],
+            "preferred_runtime": "llama_cpp",
+            "load": True,
+            "context_length": 2048,
+        },
+        headers=headers,
+    )
+    assert registered.status_code == 200, registered.text
+    payload = registered.json()
+    model_id = payload["model"]["id"]
+    assert payload["loaded"]["ok"] is True
+    assert payload["model"]["provider"] == "local_external"
+    assert payload["model"]["metadata"]["local_import"]["authorized_path"] == str(external.resolve())
+
+    operations = client.get(f"/api/v1/models/{model_id}/operations", headers=headers)
+    assert operations.status_code == 200, operations.text
+    chat_op = next(item for item in operations.json()["operations"] if item["id"] == "chat")
+    assert chat_op["available"] is True
+    assert "/v1/chat/completions" in chat_op["endpoints"]
+
+    unloaded = client.post(f"/api/v1/models/{model_id}/unload", headers=headers)
+    assert unloaded.status_code == 200, unloaded.text
+    assert unloaded.json()["unloaded"] is True
 
 
 def test_load_unknown_model_is_a_stable_problem(api):

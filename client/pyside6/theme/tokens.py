@@ -1,8 +1,8 @@
 """Shared semantic tokens for the restrained macOS-style ModelForge UI."""
 from __future__ import annotations
 
-FONT_UI = "SF Pro Text, PingFang SC, Hiragino Sans, Segoe UI, Microsoft YaHei, Yu Gothic, Noto Sans, Arial, sans-serif"
-FONT_MONO = "SF Mono, Menlo, Cascadia Mono, JetBrains Mono, Noto Sans Mono CJK SC, monospace"
+FONT_UI = "Helvetica Neue, PingFang SC, Hiragino Sans, Segoe UI, Microsoft YaHei, Yu Gothic, Noto Sans, Arial, sans-serif"
+FONT_MONO = "Menlo, Monaco, Cascadia Mono, JetBrains Mono, Noto Sans Mono CJK SC, monospace"
 SIDEBAR_WIDTH = 216
 TOPBAR_HEIGHT = 52
 MIN_WINDOW_WIDTH = 1024

@@ -15,8 +15,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QTabBar,
-    QTabWidget,
     QTableWidget,
+    QTabWidget,
     QTextEdit,
     QWidget,
 )
@@ -169,6 +169,27 @@ _TEXT = {
     "生命周期诊断": ("生命周期诊断", "Lifecycle Diagnostics", "ライフサイクル診断"),
     "只读生命周期/保留诊断": ("只读生命周期/保留诊断", "Read-Only Lifecycle/Retention Diagnostics", "読み取り専用のライフサイクル・保持診断"),
     "查看运行时": ("查看运行时", "View Runtime", "ランタイムを表示"), "管理服务": ("管理服务", "Manage Provider", "プロバイダーを管理"),
+    "加载本地模型": ("加载本地模型", "Load Local Model", "ローカルモデルを読み込む"),
+    "选择模型目录或文件，也可直接粘贴本机路径": ("选择模型目录或文件，也可直接粘贴本机路径", "Choose a model folder or file, or paste a local path", "モデルのフォルダまたはファイルを選択するか、ローカルパスを貼り付けます"),
+    "目录…": ("目录…", "Folder…", "フォルダ…"), "文件…": ("文件…", "File…", "ファイル…"),
+    "检测模型": ("检测模型", "Detect Model", "モデルを検出"),
+    "模型名称（默认使用目录或文件名）": ("模型名称（默认使用目录或文件名）", "Model name (defaults to folder or file name)", "モデル名（既定ではフォルダ名またはファイル名）"),
+    "推理后端:": ("推理后端:", "Runtime:", "ランタイム:"),
+    "自动选择": ("自动选择", "Auto", "自動"),
+    "仅登记，不加载到运行时": ("仅登记，不加载到运行时", "Register only; do not load into runtime", "登録のみ。ランタイムには読み込まない"),
+    "上下文长度（适用时）": ("上下文长度（适用时）", "Context length (when applicable)", "コンテキスト長（該当する場合）"),
+    "GPU 层数（GGUF）": ("GPU 层数（GGUF）", "GPU layers (GGUF)", "GPU レイヤー数（GGUF）"),
+    "线程数（GGUF）": ("线程数（GGUF）", "Threads (GGUF)", "スレッド数（GGUF）"),
+    "检测结果、依据和不确定项会显示在这里。": ("检测结果、依据和不确定项会显示在这里。", "Detection results, evidence, and uncertainties appear here.", "検出結果、根拠、不確定項目がここに表示されます。"),
+    "登记": ("登记", "Register", "登録"), "关闭": ("关闭", "Close", "閉じる"),
+    "默认引用原始文件，不复制、移动、修改或删除模型。": ("默认引用原始文件，不复制、移动、修改或删除模型。", "By default the original files are referenced, not copied, moved, modified, or deleted.", "既定では元ファイルを参照し、コピー、移動、変更、削除は行いません。"),
+    "文本对话": ("文本对话", "Chat", "テキスト対話"), "文本生成": ("文本生成", "Text Generation", "テキスト生成"),
+    "多模态理解": ("多模态理解", "Multimodal Understanding", "マルチモーダル理解"), "向量计算": ("向量计算", "Embeddings", "ベクトル計算"),
+    "重排序": ("重排序", "Rerank", "再ランキング"), "图像生成": ("图像生成", "Image Generation", "画像生成"),
+    "语音识别": ("语音识别", "Speech Recognition", "音声認識"), "语音合成": ("语音合成", "Speech Synthesis", "音声合成"),
+    "视频生成": ("视频生成", "Video Generation", "動画生成"),
+    "API 示例": ("API 示例", "API Examples", "API 例"), "查看示例": ("查看示例", "View Examples", "例を見る"),
+    "模型 API 与操作": ("模型 API 与操作", "Model API and Operations", "モデル API と操作"),
     "正在检查模型": ("正在检查模型", "Checking Models", "モデルを確認中"), "在此统一管理本地模型和远程 OpenAI 兼容模型服务。": ("在此统一管理本地模型和远程 OpenAI 兼容模型服务。", "Manage local models and remote OpenAI-compatible providers in one place.", "ローカルモデルとリモート OpenAI 互換プロバイダーをここで一元管理します。"),
     "尚未添加模型": ("尚未添加模型", "No Models Added", "モデルが追加されていません"), "添加本地模型或配置远程服务后，即可开始对话。": ("添加本地模型或配置远程服务后，即可开始对话。", "Add a local model or configure a remote provider to start chatting.", "ローカルモデルを追加するかリモートプロバイダーを設定すると会話を開始できます。"),
     "知识工作区": ("知识工作区", "Knowledge Workspace", "ナレッジワークスペース"), "文档索引": ("文档索引", "Document Index", "ドキュメント索引"), "添加文档": ("添加文档", "Add Document", "ドキュメントを追加"), "查看分块": ("查看分块", "View Chunks", "チャンクを表示"), "删除文档": ("删除文档", "Delete Document", "ドキュメントを削除"),
@@ -178,6 +199,7 @@ _TEXT = {
     "选择已加载扩展查看详情。": ("选择已加载扩展查看详情。", "Select a loaded extension to view details.", "読み込み済みの拡張機能を選択して詳細を確認します。"), "尚无已加载扩展。此页面不会自动发现、加载或安装扩展。": ("尚无已加载扩展。此页面不会自动发现、加载或安装扩展。", "No extensions are loaded. This page never discovers, loads, or installs extensions automatically.", "読み込み済みの拡張機能はありません。この画面で自動検出、読み込み、インストールは行われません。"),
     "请求未完成（{code}）。": ("请求未完成（{code}）。", "The request did not complete ({code}).", "要求は完了しませんでした（{code}）。"),
     "请求未完成（{code}）。关联标识：{correlation}": ("请求未完成（{code}）。关联标识：{correlation}", "The request did not complete ({code}). Correlation ID: {correlation}", "要求は完了しませんでした（{code}）。相関 ID：{correlation}"),
+    "会话已失效，请重新登录。": ("会话已失效，请重新登录。", "Session expired. Sign in again.", "セッションの有効期限が切れました。再度サインインしてください。"),
     "执行意图预览（只读）": ("执行意图预览（只读）", "Execution Intent Preview (Read-Only)", "実行意図プレビュー（読み取り専用）"),
     "预览动作：{action}｜对象：{object_type}｜风险：{risk_tier}｜目标：{target_count}": ("预览动作：{action}｜对象：{object_type}｜风险：{risk_tier}｜目标：{target_count}", "Preview action: {action} | Object: {object_type} | Risk: {risk_tier} | Targets: {target_count}", "プレビュー操作：{action}｜対象：{object_type}｜リスク：{risk_tier}｜対象数：{target_count}"),
     "版本绑定状态：{state}": ("版本绑定状态：{state}", "Version binding: {state}", "バージョンバインド：{state}"),
@@ -302,6 +324,12 @@ _EXCLUSIVE_RESOURCE_HINTS = {
     "TRAINING_BUSY": "另一个账号正在训练，请等对方结束后再试。",
 }
 
+_AUTHENTICATION_HINTS = {
+    "HTTP_401": "会话已失效，请重新登录。",
+    "AUTHENTICATION_REQUIRED": "会话已失效，请重新登录。",
+    "AUTHENTICATION_FAILED": "会话已失效，请重新登录。",
+}
+
 
 def format_api_error(error) -> str:
     """Render only stable worker/API error codes at user-interface boundaries."""
@@ -317,7 +345,7 @@ def format_api_error(error) -> str:
         ):
             code = candidate
     code = code or "OPERATION_FAILED"
-    hint = _EXCLUSIVE_RESOURCE_HINTS.get(code)
+    hint = _EXCLUSIVE_RESOURCE_HINTS.get(code) or _AUTHENTICATION_HINTS.get(code)
     if hint:
         return format_text("{message}（{code}）", message=format_text(hint), code=code)
     if correlation:

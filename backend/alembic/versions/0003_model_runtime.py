@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision = "0003_model_runtime"
 down_revision = "0002_api_platform"
@@ -33,14 +34,21 @@ UPDATE models
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("models") as batch:
-        batch.add_column(sa.Column("display_name", sa.String(length=255), nullable=True))
-        batch.add_column(sa.Column("size_bytes", sa.Integer(), nullable=True))
-        batch.add_column(sa.Column("capabilities", sa.Text(), nullable=True))
-        batch.add_column(sa.Column("model_metadata", sa.Text(), nullable=True))
-        batch.add_column(sa.Column("base_model_id", sa.Integer(), nullable=True))
-        batch.add_column(sa.Column("parent_model_id", sa.Integer(), nullable=True))
-        batch.add_column(sa.Column("updated_time", sa.DateTime(), nullable=True))
+    existing_columns = {column["name"] for column in inspect(op.get_bind()).get_columns("models")}
+    additions = [
+        ("display_name", sa.Column("display_name", sa.String(length=255), nullable=True)),
+        ("size_bytes", sa.Column("size_bytes", sa.Integer(), nullable=True)),
+        ("capabilities", sa.Column("capabilities", sa.Text(), nullable=True)),
+        ("model_metadata", sa.Column("model_metadata", sa.Text(), nullable=True)),
+        ("base_model_id", sa.Column("base_model_id", sa.Integer(), nullable=True)),
+        ("parent_model_id", sa.Column("parent_model_id", sa.Integer(), nullable=True)),
+        ("updated_time", sa.Column("updated_time", sa.DateTime(), nullable=True)),
+    ]
+    missing = [column for name, column in additions if name not in existing_columns]
+    if missing:
+        with op.batch_alter_table("models") as batch:
+            for column in missing:
+                batch.add_column(column)
     op.create_index("ix_models_status", "models", ["status"], if_not_exists=True)
     op.create_index("ix_models_base_model_id", "models", ["base_model_id"], if_not_exists=True)
     op.execute(_CAPABILITY_BACKFILL)

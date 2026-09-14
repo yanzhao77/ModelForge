@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QObject, QThread, Signal
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,23 @@ def safe_api_error_text(exc: Exception) -> str:
         suffix = f" (request_id: {correlation})" if isinstance(correlation, str) and correlation else ""
         return f"{code}{suffix}"
     return "CLIENT_REQUEST_FAILED"
+
+
+def is_authentication_error_text(error: str) -> bool:
+    code = str(error or "").split("(", 1)[0].strip().upper()
+    return code in {"HTTP_401", "AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED"}
+
+
+def is_stale_authentication_response(error: str) -> bool:
+    code = str(error or "").split("(", 1)[0].strip().upper()
+    return code == "STALE_AUTHENTICATION_RESPONSE"
+
+
+class ApiEventBus(QObject):
+    authentication_required = Signal(str)
+
+
+api_events = ApiEventBus()
 
 
 class ApiWorker(QThread):
@@ -191,6 +208,15 @@ class AsyncApiMixin:
             if state["suppressed"]:
                 return
             if request_key is not None and state["generation"].get(request_key) != generation:
+                return
+            if is_failure and is_stale_authentication_response(str(payload)):
+                return
+            if is_failure and is_authentication_error_text(str(payload)):
+                handler = getattr(self, "_handle_api_authentication_required", None)
+                if callable(handler):
+                    handler(str(payload))
+                else:
+                    api_events.authentication_required.emit(str(payload))
                 return
             try:
                 callback(payload)

@@ -12,6 +12,7 @@ from core.agent_file_access import (
     resolve_readable_agent_file,
 )
 from core.config import settings
+from services.sandbox_provider import SandboxProviderService
 
 
 def _context_user_id(context: Any | None) -> int | None:
@@ -95,6 +96,18 @@ def tool_command_execute(command: str, timeout: int = 30) -> str:
     except Exception as exc:
         return f"Error executing command: {exc}"
 
+
+def tool_sandbox_execute_python(code: str, timeout_seconds: int = 10) -> str:
+    """Run Python code in the configured isolated sandbox provider."""
+    result = SandboxProviderService().execute_python(code, timeout_seconds=timeout_seconds)
+    return json_dumps_sandbox_result(result)
+
+
+def json_dumps_sandbox_result(result: dict) -> str:
+    import json
+
+    return json.dumps(result, ensure_ascii=False, sort_keys=True)
+
 def tool_web_search(query: str) -> str:
     """Search the web (DuckDuckGo) and return formatted results."""
     from services.searcher import cached_search, format_search_context
@@ -144,6 +157,7 @@ AGENT_TOOLS = {
     "file_read": tool_file_read,
     "code_search": tool_code_search,
     "command_execute": tool_command_execute,
+    "sandbox_execute": tool_sandbox_execute_python,
     "web_search": tool_web_search,
     "knowledge_search": tool_knowledge_search,
 }

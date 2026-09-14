@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from components.api_worker import AsyncApiMixin
+from components.api_worker import AsyncApiMixin, is_authentication_error_text
 from components.task_stream_worker import TaskStreamWorker
 from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 
@@ -15,6 +15,7 @@ class TaskStore(QObject, AsyncApiMixin):
     connection_changed = Signal(bool, str)
     stream_changed = Signal(bool, str)
     batch_retried = Signal(object)
+    authentication_required = Signal(str)
 
     def __init__(self, api, parent=None):
         QObject.__init__(self, parent)
@@ -46,6 +47,13 @@ class TaskStore(QObject, AsyncApiMixin):
             stream.requestInterruption()
             stream.wait(3000)
         self.shutdown_async_api()
+
+    def pause_for_authentication(self) -> None:
+        self._timer.stop()
+        self.invalidate_api_requests()
+        if self._stream and self._stream.isRunning():
+            self._stream.requestInterruption()
+
     def active_tasks(self):
         terminal = {"SUCCEEDED", "FAILED", "CANCELLED", "PARTIAL"}
         return [task for task in self.tasks.values() if task.get("status") not in terminal]
@@ -80,6 +88,18 @@ class TaskStore(QObject, AsyncApiMixin):
         self._refreshing = False
         self.connection_changed.emit(False, error)
         self.changed.emit()
+        if self._is_authentication_error(error):
+            self._timer.stop()
+            if self._stream and self._stream.isRunning():
+                self._stream.requestInterruption()
+            self.authentication_required.emit(error)
+
+    @staticmethod
+    def _is_authentication_error(error: str) -> bool:
+        return is_authentication_error_text(error)
+
+    def _handle_api_authentication_required(self, error: str) -> None:
+        self._apply_error(error)
 
     def _ensure_stream(self):
         if self._stream and self._stream.isRunning():
@@ -93,6 +113,11 @@ class TaskStore(QObject, AsyncApiMixin):
     def _stream_state(self, online, error):
         self._stream_online = online
         self.stream_changed.emit(online, error)
+        if not online and self._is_authentication_error(error):
+            self._timer.stop()
+            if self._stream and self._stream.isRunning():
+                self._stream.requestInterruption()
+            self.authentication_required.emit(error)
 
     def _handle_stream_resync(self, payload: dict):
         """Refresh from the persisted, user-scoped snapshot after a stream boundary."""

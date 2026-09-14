@@ -9,6 +9,7 @@ from components.example_library import open_examples
 from components.mf.primitives import MFEmptyState, MFPageHeader, MFPanel, MFStatusBadge
 from components.provider_dialog import RemoteProviderDialog
 from i18n.ui_localizer import current, format_api_error, localize_tree, text
+from pages.model_dialogs import LocalModelImportDialog
 from pages.model_download_page import ModelDownloadPage, ModelDownloadTasksPage
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -43,7 +44,7 @@ class ModelCard(MFPanel):
         "discovered": ("已发现", "warning"),
     }
 
-    def __init__(self, model: dict, on_chat, on_runtime, on_load=None, on_unload=None, on_default=None, parent=None):
+    def __init__(self, model: dict, on_chat, on_runtime, on_load=None, on_unload=None, on_default=None, on_details=None, parent=None):
         super().__init__(parent)
         name = model.get("display_name") or model.get("name") or model.get("model_id") or "未命名模型"
         runtime_status = str(model.get("runtime_status") or "idle")
@@ -77,13 +78,37 @@ class ModelCard(MFPanel):
         self.layout.addWidget(caps)
 
         actions = QHBoxLayout()
-        chat = QPushButton("开始对话")
-        chat.clicked.connect(lambda: on_chat())
-        chat.setEnabled(bool(model.get("ready")))
-        actions.addWidget(chat)
+        cap_set = {str(item).upper() for item in capabilities}
+        can_chat = bool(cap_set & {"CHAT", "INFERENCE", "VISION"})
+        if can_chat:
+            chat = QPushButton("开始对话")
+            chat.clicked.connect(lambda: on_chat())
+            chat.setEnabled(bool(model.get("ready")))
+            actions.addWidget(chat)
+        for cap, label in (
+            ("EMBEDDING", "向量计算"),
+            ("RERANKER", "重排序"),
+            ("IMAGE", "图像生成"),
+            ("ASR", "语音识别"),
+            ("TTS", "语音合成"),
+            ("VIDEO", "视频生成"),
+        ):
+            if cap in cap_set:
+                op = QPushButton(label)
+                op.clicked.connect(lambda _checked=False, cb=on_details: cb and cb())
+                actions.addWidget(op)
         runtime = QPushButton("查看运行时")
         runtime.clicked.connect(lambda: on_runtime())
         actions.addWidget(runtime)
+        if on_details is not None:
+            details = QPushButton("API 示例")
+            details.clicked.connect(lambda: on_details())
+            actions.addWidget(details)
+        metadata = model.get("metadata") or {}
+        local_import = metadata.get("local_import") if isinstance(metadata, dict) else None
+        runnable = True if local_import is None else bool(local_import.get("runnable"))
+        can_runtime_load_cap = bool(cap_set & {"CHAT", "INFERENCE", "EMBEDDING"})
+        can_load = bool(model.get("ready")) and runnable and can_runtime_load_cap and bool(model.get("supported_runtimes"))
         if runtime_status == "loaded":
             unload = QPushButton("卸载")
             unload.clicked.connect(lambda: on_unload and on_unload())
@@ -91,6 +116,7 @@ class ModelCard(MFPanel):
         else:
             load = QPushButton("加载")
             load.clicked.connect(lambda: on_load and on_load())
+            load.setEnabled(can_load)
             actions.addWidget(load)
         if on_default is not None:
             default = QPushButton("设为默认")
@@ -195,6 +221,10 @@ class DownloadedModelsPage(QWidget, AsyncApiMixin):
         remote.clicked.connect(self._manage_providers)
         remote.setVisible(mode in {"all", "remote"})
         header.addWidget(remote)
+        self.import_local_btn = QPushButton("加载本地模型")
+        self.import_local_btn.clicked.connect(self._import_local_model)
+        self.import_local_btn.setVisible(mode in {"all", "local"})
+        header.addWidget(self.import_local_btn)
         root.addLayout(header)
 
         description_text = "管理已下载模型、本地模型目录和远程 OpenAI 兼容模型服务。"
@@ -278,6 +308,7 @@ class DownloadedModelsPage(QWidget, AsyncApiMixin):
                 on_load=lambda ref=model_ref: self._load_model(ref),
                 on_unload=lambda ref=model_ref: self._unload_model(ref),
                 on_default=lambda ref=model_ref: self._set_default(ref),
+                on_details=lambda ref=model_ref: self._show_model_operations(ref),
             )
             self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
 
@@ -330,6 +361,44 @@ class DownloadedModelsPage(QWidget, AsyncApiMixin):
             self._operation_failed,
             request_key="models.default",
         )
+
+    def _import_local_model(self) -> None:
+        dialog = LocalModelImportDialog(self.api, self)
+        if dialog.exec():
+            self._operation_done("本地模型已登记")
+
+    def _show_model_operations(self, model: dict) -> None:
+        model_id = model.get("model_id") or model.get("id")
+        if model_id is None:
+            return
+        self._run_api(
+            lambda: self.api.model_operations(model_id),
+            self._render_model_operations,
+            self._operation_failed,
+            request_key=f"models.operations.{model_id}",
+        )
+
+    def _render_model_operations(self, payload: dict) -> None:
+        operations = payload.get("operations") or []
+        examples = payload.get("api_examples") or {}
+        lines = [f"model_id: {payload.get('model_id')}"]
+        for operation in operations:
+            state = "可用" if operation.get("available") else "不可用"
+            reason = operation.get("unavailable_reason")
+            lines.append(f"\n{operation.get('id')} · {state}")
+            if operation.get("endpoints"):
+                lines.append("接口：" + ", ".join(operation.get("endpoints") or []))
+            if reason:
+                lines.append("原因：" + str(reason))
+        if examples:
+            lines.append("\n请求示例：")
+            if examples.get("chat"):
+                lines.append(str(examples["chat"]))
+            if examples.get("embeddings"):
+                lines.append(str(examples["embeddings"]))
+            if examples.get("videos"):
+                lines.append(str(examples["videos"]))
+        QMessageBox.information(self, "模型 API 与操作", "\n".join(lines))
 
     def _operation_done(self, message: str) -> None:
         if self.readiness_store:

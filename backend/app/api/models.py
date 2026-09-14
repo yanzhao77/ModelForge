@@ -10,7 +10,13 @@ from models.records import User, UserModelPreference
 from pydantic import BaseModel, Field
 from services.audit_log import record_operation
 from services.downloader import downloader
-from services.model_capabilities import CapabilityFilter
+from services.local_model_importer import (
+    LocalModelDetector,
+    LocalModelImportError,
+    validate_manual_capabilities,
+)
+from services.model_capabilities import CapabilityFilter, ModelCapability
+from services.model_capability_registry import video_spec_from_record
 from services.model_catalog import CatalogQuery, ModelCatalogService, parse_hf_repo_id
 from services.model_manager import ModelManager
 from services.model_readiness_service import ModelReadinessError, ModelReadinessService
@@ -73,6 +79,22 @@ class LoadModelRequest(BaseModel):
     runtime: str | None = Field(default=None, max_length=64)
 
 
+class LocalModelDetectRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+
+
+class LocalModelRegisterRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+    name: str | None = Field(default=None, max_length=255)
+    display_name: str | None = Field(default=None, max_length=255)
+    capabilities: list[str] | None = Field(default=None, max_length=16)
+    preferred_runtime: str | None = Field(default=None, max_length=64)
+    load: bool = False
+    context_length: int | None = Field(default=None, ge=1, le=1_048_576)
+    gpu_layers: int | None = Field(default=None, ge=-1, le=4096)
+    threads: int | None = Field(default=None, ge=0, le=1024)
+
+
 def _manager(db: DBSession) -> ModelManager:
     return ModelManager(db)
 
@@ -95,6 +117,8 @@ def _model_payload(record, registry: ModelRegistry) -> dict:
     payload["capabilities"] = registry.capabilities(record)
     payload["ready"] = registry.is_ready(record)
     payload["runtime_status"] = _runtime_status_for(record.id)
+    if payload.get("status") == "loaded" and payload["runtime_status"] != "loaded":
+        payload["status"] = "ready"
     return payload
 
 
@@ -108,6 +132,92 @@ def _runtime_status_for(model_id: int) -> str:
 def _registry_problem(exc: Exception, corr: str):
     """Translate a registry/runtime failure into its stable problem contract."""
     return problem(exc.http_status, exc.code, exc.message, details=exc.details or None, correlation=corr)
+
+
+def _local_import_problem(exc: LocalModelImportError, corr: str):
+    return problem(exc.http_status, exc.code, exc.message, details=exc.details or None, correlation=corr)
+
+
+def _operation_descriptors(record, registry: ModelRegistry) -> dict:
+    caps = registry.capabilities(record)
+    runtime = get_model_runtime_manager().get_status(record.id)
+    model_ref = record.display_name or record.name
+    operations: list[dict] = []
+    api_examples: dict[str, str] = {}
+    if ModelCapability.CHAT.value in caps or ModelCapability.INFERENCE.value in caps:
+        operations.append(
+            {
+                "id": "chat",
+                "label": "Chat / text generation",
+                "available": bool(runtime.get("active")) and runtime.get("model_id") == record.id,
+                "endpoints": ["/v1/chat/completions", "/v1/responses"],
+                "example": {"model": model_ref, "messages": [{"role": "user", "content": "Hello"}]},
+                "constraints": {"streaming": True, "max_messages": 100},
+            }
+        )
+        api_examples["chat"] = f"curl -X POST /v1/chat/completions -H 'Authorization: Bearer $MF_API_KEY' -d '{{\"model\":\"{model_ref}\",\"messages\":[{{\"role\":\"user\",\"content\":\"Hello\"}}]}}'"
+    if ModelCapability.EMBEDDING.value in caps:
+        operations.append(
+            {
+                "id": "embeddings",
+                "label": "Embeddings",
+                "available": bool(runtime.get("active")) and runtime.get("model_id") == record.id,
+                "endpoints": ["/v1/embeddings"],
+                "example": {"model": model_ref, "input": ["hello", "world"]},
+                "constraints": {"max_inputs": 64},
+            }
+        )
+        api_examples["embeddings"] = f"curl -X POST /v1/embeddings -H 'Authorization: Bearer $MF_API_KEY' -d '{{\"model\":\"{model_ref}\",\"input\":[\"hello\"]}}'"
+    if ModelCapability.VIDEO.value in caps:
+        video_spec = video_spec_from_record(record)
+        local_import = (record.metadata_dict().get("local_import") or {}) if isinstance(record.metadata_dict(), dict) else {}
+        load_validation = local_import.get("load_validation") if isinstance(local_import, dict) else None
+        load_failed = isinstance(load_validation, dict) and load_validation.get("status") == "failed"
+        available = bool(local_import.get("runnable") and video_spec is not None and not load_failed)
+        profiles = []
+        if video_spec is not None:
+            profiles = [
+                {
+                    "id": profile.profile_id,
+                    "seconds": profile.seconds,
+                    "fps": profile.fps,
+                    "size": profile.size,
+                    "frames": profile.frames,
+                    "default_steps": profile.default_steps,
+                    "min_steps": profile.min_steps,
+                    "max_steps": profile.max_steps,
+                }
+                for profile in video_spec.profiles
+            ]
+        reason = None if available else str((load_validation or {}).get("message") if isinstance(load_validation, dict) else "") or "; ".join(local_import.get("unavailable_reasons") or ["Wan video runtime is not ready."])
+        operation = {
+            "id": "video-generation",
+            "label": "Text to video",
+            "available": available,
+            "endpoints": ["/v1/videos", "/api/v1/videos"] if available else [],
+            "constraints": {"profiles": profiles},
+            "unavailable_reason": reason,
+        }
+        if available:
+            operation["example"] = {"model": f"local:{record.id}", "prompt": "A short cinematic test clip", "seconds": 1, "fps": 4, "size": "256x256"}
+            api_examples["videos"] = f"curl -X POST /v1/videos -H 'Authorization: Bearer $MF_API_KEY' -d '{{\"model\":\"local:{record.id}\",\"prompt\":\"A short cinematic test clip\",\"seconds\":1,\"fps\":4,\"size\":\"256x256\"}}'"
+        operations.append(operation)
+    unavailable_map = {
+        ModelCapability.RERANKER.value: ("rerank", "Reranker runtime is not connected in this build."),
+        ModelCapability.IMAGE.value: ("image-generation", "Image generation runtime is not connected in this build."),
+        ModelCapability.ASR.value: ("speech-to-text", "Audio transcription runtime is not connected in this build."),
+        ModelCapability.TTS.value: ("text-to-speech", "Speech synthesis runtime is not connected in this build."),
+    }
+    for cap, (operation_id, reason) in unavailable_map.items():
+        if cap in caps:
+            operations.append({"id": operation_id, "available": False, "unavailable_reason": reason, "endpoints": []})
+    return {
+        "model_id": record.id,
+        "model": _model_payload(record, registry),
+        "runtime": runtime,
+        "operations": operations,
+        "api_examples": api_examples,
+    }
 
 
 @router.get("")
@@ -183,6 +293,97 @@ def install_model(
     except ValueError as exc:
         raise problem(403, "MODEL_PATH_OUTSIDE_ALLOWED_ROOT", "Model path is outside the configured model root.", correlation=correlation_id()) from exc
     return model.to_dict()
+
+
+@router.post("/local/detect")
+def detect_local_model(
+    req: LocalModelDetectRequest,
+    user: User = Depends(get_current_user),  # noqa: ARG001 - auth scopes local path probing
+):
+    """Inspect a user-selected local model path without registering it."""
+    corr = correlation_id()
+    try:
+        return LocalModelDetector().detect(req.path).payload
+    except LocalModelImportError as exc:
+        raise _local_import_problem(exc, corr) from exc
+
+
+@router.post("/local/register")
+async def register_local_model(
+    req: LocalModelRegisterRequest,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Register a local model by reference; optionally load it immediately."""
+    corr = correlation_id()
+    registry = _registry(db)
+    try:
+        detection = LocalModelDetector().detect(req.path).payload
+        capabilities = validate_manual_capabilities(detection, req.capabilities)
+        record = registry.register_detected_local(
+            detection=detection,
+            user_id=user.id,
+            name=req.name,
+            display_name=req.display_name,
+            capabilities=capabilities,
+            preferred_runtime=req.preferred_runtime,
+            load_after_register=req.load,
+            commit=False,
+        )
+        record_operation(
+            db,
+            user_id=user.id,
+            action="model.local.register",
+            object_type="model",
+            object_id=str(record.id),
+            correlation_id=corr,
+            metadata={"path": detection.get("real_path"), "capabilities": capabilities, "load": req.load},
+        )
+        db.commit()
+    except LocalModelImportError as exc:
+        db.rollback()
+        raise _local_import_problem(exc, corr) from exc
+    except ModelRegistryError as exc:
+        db.rollback()
+        raise _registry_problem(exc, corr) from exc
+    payload = {"model": _model_payload(record, registry), "detection": detection, "loaded": None}
+    if req.load:
+        try:
+            lease_handle = inference_lease.acquire(user_id=user.id, username=user.username)
+        except ResourceBusy as exc:
+            payload["loaded"] = {"ok": False, "error": exc.lease.code, "message": exc.lease.message}
+            return payload
+        try:
+            instance = await get_model_runtime_manager().load(
+                record.id,
+                user.id,
+                db=db,
+                runtime=req.preferred_runtime,
+                context_length=req.context_length,
+                gpu_layers=req.gpu_layers,
+                threads=req.threads,
+            )
+            payload["loaded"] = {"ok": True, "instance": instance.to_dict()}
+        except ModelRuntimeError as exc:
+            if lease_handle.created:
+                lease_handle.release()
+            payload["loaded"] = {"ok": False, "error": exc.code, "message": exc.message, "details": exc.details}
+        return payload
+    return payload
+
+
+@router.get("/{model_id}/operations")
+def model_operations(
+    model_id: int,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    registry = _registry(db)
+    try:
+        record = registry.require(model_id, user.id)
+    except ModelRegistryError as exc:
+        raise _registry_problem(exc, correlation_id()) from exc
+    return _operation_descriptors(record, registry)
 
 
 @router.get("/search")
