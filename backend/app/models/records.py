@@ -695,6 +695,608 @@ class AgentEventRecord(Base):
         }
 
 
+# --------------------------------------------------------------------------
+# V3.1 Multi-Agent Team
+# --------------------------------------------------------------------------
+
+
+class AgentTeam(Base):
+    """A user-owned group of Agents coordinated by a manager Agent."""
+
+    __tablename__ = "agent_teams"
+    __table_args__ = (Index("ix_agent_teams_user_name", "user_id", "name", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    description = Column(Text, nullable=True)
+    manager_agent_id = Column(String(255), nullable=False, index=True)
+    strategy = Column(String(32), nullable=False, default="SEQUENTIAL")
+    max_concurrency = Column(Integer, nullable=False, default=1)
+    timeout = Column(Integer, nullable=True)
+    retry_policy = Column(Text, nullable=True)
+    shared_memory_id = Column(String(64), nullable=True)
+    permission_policy_id = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "team_id": self.id,
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "manager_agent_id": self.manager_agent_id,
+            "strategy": self.strategy,
+            "max_concurrency": self.max_concurrency,
+            "timeout": self.timeout,
+            "retry_policy": _parse_json_object(self.retry_policy),
+            "shared_memory_id": self.shared_memory_id,
+            "permission_policy_id": self.permission_policy_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class AgentTeamMember(Base):
+    """A role-bound Agent inside an AgentTeam."""
+
+    __tablename__ = "agent_team_members"
+    __table_args__ = (Index("ix_agent_team_members_team_agent_role", "team_id", "agent_id", "role", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    team_id = Column(String(64), ForeignKey("agent_teams.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    role = Column(String(32), nullable=False)
+    config_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "team_id": self.team_id,
+            "agent_id": self.agent_id,
+            "role": self.role,
+            "config": _parse_json_object(self.config_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AgentTeamRun(Base):
+    """One execution of an AgentTeam plan."""
+
+    __tablename__ = "agent_team_runs"
+    __table_args__ = (Index("ix_agent_team_runs_user_created", "user_id", "created_at"),)
+
+    id = Column(String(64), primary_key=True)
+    team_id = Column(String(64), ForeignKey("agent_teams.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    manager_agent_id = Column(String(255), nullable=False, index=True)
+    task_id = Column(String(64), nullable=True, index=True)
+    status = Column(String(32), nullable=False, default="PENDING", index=True)
+    input = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.id,
+            "team_id": self.team_id,
+            "manager_agent_id": self.manager_agent_id,
+            "task_id": self.task_id,
+            "status": self.status,
+            "input": self.input,
+            "result": _parse_json_value(self.result_json),
+            "error": self.error,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AgentTeamTask(Base):
+    """A delegated unit of work assigned to one team member Agent."""
+
+    __tablename__ = "agent_team_tasks"
+    __table_args__ = (Index("ix_agent_team_tasks_run_sequence", "run_id", "sequence", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    team_id = Column(String(64), ForeignKey("agent_teams.id"), nullable=False, index=True)
+    run_id = Column(String(64), ForeignKey("agent_team_runs.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    task_record_id = Column(String(64), nullable=True, index=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    role = Column(String(32), nullable=False)
+    status = Column(String(32), nullable=False, default="PENDING", index=True)
+    input = Column(Text, nullable=True)
+    output = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    sequence = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "task_id": self.id,
+            "team_id": self.team_id,
+            "run_id": self.run_id,
+            "task_record_id": self.task_record_id,
+            "agent_id": self.agent_id,
+            "role": self.role,
+            "status": self.status,
+            "input": self.input,
+            "output": self.output,
+            "error": self.error,
+            "sequence": self.sequence,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
+
+
+class AgentDelegation(Base):
+    """Explicit manager-to-member delegation record."""
+
+    __tablename__ = "agent_delegations"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    manager_agent_id = Column(String(255), nullable=False, index=True)
+    delegate_agent_id = Column(String(255), nullable=False, index=True)
+    team_id = Column(String(64), nullable=True, index=True)
+    team_task_id = Column(String(64), nullable=True, index=True)
+    status = Column(String(32), nullable=False, default="PENDING", index=True)
+    instruction = Column(Text, nullable=False)
+    result_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "delegation_id": self.id,
+            "manager_agent_id": self.manager_agent_id,
+            "delegate_agent_id": self.delegate_agent_id,
+            "team_id": self.team_id,
+            "team_task_id": self.team_task_id,
+            "status": self.status,
+            "instruction": self.instruction,
+            "result": _parse_json_value(self.result_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class AgentTeamMessage(Base):
+    """Message exchanged between Agents during a team run."""
+
+    __tablename__ = "agent_team_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(String(64), unique=True, nullable=False, index=True)
+    team_id = Column(String(64), nullable=False, index=True)
+    run_id = Column(String(64), nullable=False, index=True)
+    task_id = Column(String(64), nullable=True, index=True)
+    from_agent_id = Column(String(255), nullable=True, index=True)
+    to_agent_id = Column(String(255), nullable=True, index=True)
+    message_type = Column(String(32), nullable=False, index=True)
+    content = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "message_id": self.message_id,
+            "team_id": self.team_id,
+            "run_id": self.run_id,
+            "task_id": self.task_id,
+            "from_agent_id": self.from_agent_id,
+            "to_agent_id": self.to_agent_id,
+            "message_type": self.message_type,
+            "content": _parse_json_value(self.content),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AgentTeamEvent(Base):
+    """Durable event stream for team topology, task and trace views."""
+
+    __tablename__ = "agent_team_events"
+    __table_args__ = (Index("ix_agent_team_events_run_sequence", "run_id", "sequence", unique=True),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    team_id = Column(String(64), nullable=False, index=True)
+    run_id = Column(String(64), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False, default=0)
+    event_type = Column(String(64), nullable=False, index=True)
+    payload_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "team_id": self.team_id,
+            "run_id": self.run_id,
+            "sequence": self.sequence,
+            "event_type": self.event_type,
+            "payload": _parse_json_object(self.payload_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# --------------------------------------------------------------------------
+# V3.3 Agent Learning
+# --------------------------------------------------------------------------
+
+
+class AgentExperience(Base):
+    """Reusable experience captured from an Agent or Team task."""
+
+    __tablename__ = "agent_experiences"
+    __table_args__ = (Index("ix_agent_experience_user_agent_created", "user_id", "agent_id", "created_at"),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    task_id = Column(String(64), nullable=True, index=True)
+    goal = Column(Text, nullable=False)
+    context_json = Column(Text, nullable=True)
+    strategy_json = Column(Text, nullable=True)
+    steps_json = Column(Text, nullable=True)
+    tools_json = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    outcome = Column(String(32), nullable=False, default="PARTIAL_SUCCESS", index=True)
+    score = Column(Float, nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    reflection = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "experience_id": self.id,
+            "agent_id": self.agent_id,
+            "task_id": self.task_id,
+            "goal": self.goal,
+            "context": _parse_json_object(self.context_json),
+            "strategy": _parse_json_object(self.strategy_json),
+            "steps": _parse_json_value(self.steps_json) or [],
+            "tools": _parse_json_value(self.tools_json) or [],
+            "result": _parse_json_value(self.result_json),
+            "outcome": self.outcome,
+            "score": self.score,
+            "failure_reason": self.failure_reason,
+            "reflection": self.reflection,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ExperienceEpisode(Base):
+    __tablename__ = "experience_episodes"
+
+    id = Column(String(64), primary_key=True)
+    experience_id = Column(String(64), ForeignKey("agent_experiences.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class ExperienceStep(Base):
+    __tablename__ = "experience_steps"
+    __table_args__ = (Index("ix_experience_steps_sequence", "experience_id", "sequence", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    experience_id = Column(String(64), ForeignKey("agent_experiences.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False, default=0)
+    action = Column(Text, nullable=False)
+    observation = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class ExperienceOutcome(Base):
+    __tablename__ = "experience_outcomes"
+
+    id = Column(String(64), primary_key=True)
+    experience_id = Column(String(64), ForeignKey("agent_experiences.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    outcome = Column(String(32), nullable=False)
+    result_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class ExperienceEvaluation(Base):
+    __tablename__ = "experience_evaluations"
+
+    id = Column(String(64), primary_key=True)
+    experience_id = Column(String(64), ForeignKey("agent_experiences.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    metrics_json = Column(Text, nullable=False, default="{}")
+    human_rating = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+# --------------------------------------------------------------------------
+# V3.4 Autonomous Agent
+# --------------------------------------------------------------------------
+
+
+class Goal(Base):
+    """Long-running autonomous objective owned by one Agent."""
+
+    __tablename__ = "goals"
+    __table_args__ = (Index("ix_goals_user_status_priority", "user_id", "status", "priority"),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    priority = Column(String(16), nullable=False, default="normal")
+    deadline = Column(DateTime, nullable=True)
+    constraints_json = Column(Text, nullable=False, default="[]")
+    success_criteria_json = Column(Text, nullable=False, default="[]")
+    status = Column(String(32), nullable=False, default="CREATED", index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "goal_id": self.id,
+            "agent_id": self.agent_id,
+            "title": self.title,
+            "description": self.description,
+            "priority": self.priority,
+            "deadline": self.deadline.isoformat() if self.deadline else None,
+            "constraints": _parse_json_value(self.constraints_json) or [],
+            "success_criteria": _parse_json_value(self.success_criteria_json) or [],
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class SubGoal(Base):
+    __tablename__ = "sub_goals"
+    __table_args__ = (Index("ix_sub_goals_goal_sequence", "goal_id", "sequence", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    goal_id = Column(String(64), ForeignKey("goals.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    objective = Column(Text, nullable=True)
+    status = Column(String(32), nullable=False, default="PENDING", index=True)
+    sequence = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "sub_goal_id": self.id,
+            "goal_id": self.goal_id,
+            "title": self.title,
+            "objective": self.objective,
+            "status": self.status,
+            "sequence": self.sequence,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ApprovalPolicy(Base):
+    __tablename__ = "approval_policies"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    rules_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class ApprovalRequest(Base):
+    __tablename__ = "approval_requests"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    goal_id = Column(String(64), nullable=True, index=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    action = Column(String(160), nullable=False)
+    risk = Column(String(16), nullable=False, default="HIGH", index=True)
+    details_json = Column(Text, nullable=False, default="{}")
+    status = Column(String(32), nullable=False, default="PENDING", index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    decided_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "approval_id": self.id,
+            "goal_id": self.goal_id,
+            "agent_id": self.agent_id,
+            "action": self.action,
+            "risk": self.risk,
+            "details": _parse_json_object(self.details_json),
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "decided_at": self.decided_at.isoformat() if self.decided_at else None,
+        }
+
+
+class ApprovalDecision(Base):
+    __tablename__ = "approval_decisions"
+
+    id = Column(String(64), primary_key=True)
+    approval_id = Column(String(64), ForeignKey("approval_requests.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    decision = Column(String(24), nullable=False)
+    modifications_json = Column(Text, nullable=True)
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "decision_id": self.id,
+            "approval_id": self.approval_id,
+            "decision": self.decision,
+            "modifications": _parse_json_object(self.modifications_json),
+            "comment": self.comment,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# --------------------------------------------------------------------------
+# V4.0 AI Operating System core objects
+# --------------------------------------------------------------------------
+
+
+class OSResource(Base):
+    """Unified resource index for models, agents, tools, knowledge and packages."""
+
+    __tablename__ = "os_resources"
+    __table_args__ = (Index("ix_os_resources_user_type_status", "user_id", "resource_type", "status"),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    resource_id = Column(String(160), nullable=False, index=True)
+    resource_type = Column(String(48), nullable=False, index=True)
+    owner = Column(String(160), nullable=True)
+    permissions_json = Column(Text, nullable=False, default="[]")
+    status = Column(String(32), nullable=False, default="active", index=True)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "resource_id": self.resource_id,
+            "type": self.resource_type,
+            "owner": self.owner,
+            "permissions": _parse_json_value(self.permissions_json) or [],
+            "status": self.status,
+            "metadata": _parse_json_object(self.metadata_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class OSProcess(Base):
+    """Unified process index for runs, training, evaluation, goals and teams."""
+
+    __tablename__ = "os_processes"
+    __table_args__ = (Index("ix_os_processes_user_status_priority", "user_id", "status", "priority"),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    process_id = Column(String(160), nullable=False, index=True)
+    process_type = Column(String(48), nullable=False, index=True)
+    status = Column(String(32), nullable=False, default="PENDING", index=True)
+    priority = Column(String(16), nullable=False, default="normal")
+    resource_id = Column(String(160), nullable=True, index=True)
+    runtime = Column(String(64), nullable=True)
+    logs_json = Column(Text, nullable=True)
+    trace_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "process_id": self.process_id,
+            "type": self.process_type,
+            "status": self.status,
+            "priority": self.priority,
+            "resource_id": self.resource_id,
+            "runtime": self.runtime,
+            "logs": _parse_json_value(self.logs_json) or [],
+            "trace": _parse_json_value(self.trace_json) or [],
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class OSEvent(Base):
+    """Unified event fact table for Event OS."""
+
+    __tablename__ = "os_events"
+    __table_args__ = (Index("ix_os_events_user_type_created", "user_id", "event_type", "created_at"),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    event_type = Column(String(100), nullable=False, index=True)
+    subject_id = Column(String(160), nullable=True, index=True)
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "event_id": self.id,
+            "event_type": self.event_type,
+            "subject_id": self.subject_id,
+            "payload": _parse_json_object(self.payload_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class EventRule(Base):
+    """Event -> condition -> action rule definition."""
+
+    __tablename__ = "event_rules"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    event_type = Column(String(100), nullable=False, index=True)
+    condition_json = Column(Text, nullable=False, default="{}")
+    action_json = Column(Text, nullable=False, default="{}")
+    enabled = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "rule_id": self.id,
+            "name": self.name,
+            "event_type": self.event_type,
+            "condition": _parse_json_object(self.condition_json),
+            "action": _parse_json_object(self.action_json),
+            "enabled": bool(self.enabled),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AgentSkill(Base):
+    """Agent Skill = tools + prompt + knowledge + workflow + evaluation."""
+
+    __tablename__ = "agent_skills"
+    __table_args__ = (Index("ix_agent_skills_user_name", "user_id", "name", unique=True),)
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    description = Column(Text, nullable=True)
+    tools_json = Column(Text, nullable=False, default="[]")
+    prompt = Column(Text, nullable=True)
+    knowledge_json = Column(Text, nullable=False, default="[]")
+    workflow_id = Column(String(64), nullable=True)
+    evaluation_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "skill_id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "tools": _parse_json_value(self.tools_json) or [],
+            "prompt": self.prompt,
+            "knowledge": _parse_json_value(self.knowledge_json) or [],
+            "workflow_id": self.workflow_id,
+            "evaluation": _parse_json_object(self.evaluation_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class ToolRecord(Base):
     """ModelForge 3.0: a registered tool (builtin / plugin / MCP)."""
     __tablename__ = "tools"

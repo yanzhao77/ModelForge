@@ -21,9 +21,9 @@ import datetime
 import json
 import uuid
 
-from models.records import AgentRecord, PlatformPackage, Workflow
+from models.records import AgentRecord, AgentTeam, AgentTeamMember, KnowledgeCollection, KnowledgeCollectionDocument, PlatformPackage, Workflow
 
-SUPPORTED_KINDS = ("model", "agent", "tool", "workflow")
+SUPPORTED_KINDS = ("model", "agent", "team", "workflow", "tool", "knowledge")
 PACKAGE_SCHEMA_VERSION = 1
 
 
@@ -219,6 +219,71 @@ class PackageService:
             }
         }
 
+    def _export_team(self, user_id: int, ref: str, *, version, license_name):
+        team = self.db.query(AgentTeam).filter(AgentTeam.id == ref, AgentTeam.user_id == user_id).first()
+        if team is None:
+            team = self.db.query(AgentTeam).filter(AgentTeam.name == ref, AgentTeam.user_id == user_id).first()
+        if team is None:
+            raise PackageError("AGENT_TEAM_NOT_FOUND", "Agent team not found.", {"team_id": ref}, http_status=404)
+        members = (
+            self.db.query(AgentTeamMember)
+            .filter(AgentTeamMember.team_id == team.id, AgentTeamMember.user_id == user_id)
+            .order_by(AgentTeamMember.created_at.asc())
+            .all()
+        )
+        requires = _dedupe([{"kind": "agent", "ref": team.manager_agent_id}] + [{"kind": "agent", "ref": member.agent_id} for member in members])
+        manifest = self._manifest(
+            kind="team",
+            package_id=team.id,
+            name=team.name,
+            version=version,
+            description=team.description,
+            license_name=license_name,
+            requires=requires,
+            extra={"strategy": team.strategy, "member_count": len(members)},
+        )
+        return manifest, {
+            "definition": {
+                "name": team.name,
+                "description": team.description,
+                "manager_agent_id": team.manager_agent_id,
+                "strategy": team.strategy,
+                "max_concurrency": team.max_concurrency,
+                "timeout": team.timeout,
+                "retry_policy": team.to_dict().get("retry_policy") or {},
+                "shared_memory_id": team.shared_memory_id,
+                "permission_policy_id": team.permission_policy_id,
+                "members": [member.to_dict() for member in members if member.role != "MANAGER"],
+            }
+        }
+
+    def _export_knowledge(self, user_id: int, ref: str, *, version, license_name):
+        collection = self.db.query(KnowledgeCollection).filter(KnowledgeCollection.id == ref, KnowledgeCollection.user_id == user_id).first()
+        if collection is None:
+            collection = self.db.query(KnowledgeCollection).filter(KnowledgeCollection.name == ref, KnowledgeCollection.user_id == user_id).first()
+        if collection is None:
+            raise PackageError("KNOWLEDGE_COLLECTION_NOT_FOUND", "Knowledge collection not found.", {"collection_id": ref}, http_status=404)
+        links = self.db.query(KnowledgeCollectionDocument).filter(KnowledgeCollectionDocument.collection_id == collection.id).all()
+        manifest = self._manifest(
+            kind="knowledge",
+            package_id=collection.id,
+            name=collection.name,
+            version=version,
+            description=collection.description,
+            license_name=license_name,
+            requires=[],
+            extra={"document_count": len(links)},
+        )
+        return manifest, {
+            "collection": {
+                "name": collection.name,
+                "description": collection.description,
+                "tags": collection.to_dict().get("tags", []) if hasattr(collection, "to_dict") else [],
+                "document_ids": [link.document_id for link in links],
+                "import": "metadata-only",
+            }
+        }
+
     def _export_model(self, user_id: int, ref: str, *, version, license_name):
         from services.model_registry import ModelRegistry, ModelRegistryError
 
@@ -349,6 +414,14 @@ class PackageService:
                 )
                 if exists is None:
                     missing.append({"kind": "workflow", "ref": ref, "reason": "WORKFLOW_NOT_FOUND"})
+            elif kind == "knowledge":
+                exists = (
+                    self.db.query(KnowledgeCollection.id)
+                    .filter(KnowledgeCollection.id == ref, KnowledgeCollection.user_id == user_id)
+                    .first()
+                )
+                if exists is None:
+                    missing.append({"kind": "knowledge", "ref": ref, "reason": "KNOWLEDGE_NOT_FOUND"})
             elif kind == "runtime" and get_adapter(ref) is None:
                 missing.append({"kind": "runtime", "ref": ref, "reason": "RUNTIME_UNAVAILABLE"})
         return missing
@@ -386,6 +459,31 @@ class PackageService:
         except AgentServiceError as exc:
             raise PackageError(exc.code, exc.message, exc.details, http_status=exc.http_status) from exc
         return {"agent_id": agent["name"], "model_id": agent.get("model_id")}
+
+    def _import_team(self, user_id: int, manifest: dict, payload: dict, *, conflict: str) -> dict:
+        from services.agent_team_service import AgentTeamError, AgentTeamService
+
+        definition = dict(payload.get("definition") or {})
+        definition["name"] = _unique_name(str(definition.get("name") or manifest.get("name") or "imported-team"), conflict)
+        try:
+            team = AgentTeamService(self.db).create_team(user_id, definition)
+        except AgentTeamError as exc:
+            raise PackageError(exc.code, exc.message, exc.details, http_status=exc.http_status) from exc
+        return {"team_id": team["team_id"], "name": team["name"]}
+
+    def _import_knowledge(self, user_id: int, manifest: dict, payload: dict, *, conflict: str) -> dict:
+        collection = dict(payload.get("collection") or {})
+        name = _unique_name(str(collection.get("name") or manifest.get("name") or "imported-knowledge"), conflict)
+        row = KnowledgeCollection(
+            id=uuid.uuid4().hex,
+            user_id=user_id,
+            name=name,
+            description=collection.get("description") or manifest.get("description"),
+            tags_json=json.dumps(collection.get("tags") or [], ensure_ascii=False),
+        )
+        self.db.add(row)
+        self.db.flush()
+        return {"collection_id": row.id, "name": row.name, "document_import": collection.get("import") or "metadata-only"}
 
     def _import_model(self, user_id: int, manifest: dict, payload: dict, *, conflict: str) -> dict:
         del user_id, conflict
