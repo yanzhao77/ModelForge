@@ -48,6 +48,12 @@ def _auth(client: TestClient) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _local_key(client: TestClient, headers: dict) -> dict:
+    issued = client.post("/api/v1/local-api/keys", json={"name": "openai-registry"}, headers=headers)
+    assert issued.status_code == 200, issued.text
+    return {"Authorization": "Bearer " + issued.json()["secret"]}
+
+
 @pytest.fixture
 def openai_api(tmp_path, monkeypatch):
     models = tmp_path / "models"
@@ -63,6 +69,7 @@ def openai_api(tmp_path, monkeypatch):
     try:
         with TestClient(app) as client:
             headers = _auth(client)
+            api_headers = _local_key(client, headers)
             asset = models / "openai-model.gguf"
             asset.write_bytes(b"GGUF-placeholder")
             created = client.post(
@@ -71,7 +78,7 @@ def openai_api(tmp_path, monkeypatch):
                 headers=headers,
             )
             assert created.status_code == 200, created.text
-            yield {"client": client, "headers": headers, "model_id": created.json()["id"]}
+            yield {"client": client, "headers": api_headers, "jwt_headers": headers, "model_id": created.json()["id"]}
     finally:
         holder = inference_lease.holder()
         if holder is not None:
@@ -119,7 +126,7 @@ def test_chat_completions_streams_from_the_registry_runtime(openai_api):
             assert payload["choices"][0]["delta"]["content"]
 
 
-def test_unknown_model_name_still_uses_the_legacy_runtime(openai_api, monkeypatch):
+def test_unknown_model_name_returns_not_found(openai_api, monkeypatch):
     from services.runtime_registry import RuntimeRegistry
 
     class LegacyEngine:
@@ -135,5 +142,5 @@ def test_unknown_model_name_still_uses_the_legacy_runtime(openai_api, monkeypatc
         headers=openai_api["headers"],
     )
 
-    assert response.status_code == 200
-    assert response.json()["choices"][0]["message"]["content"] == "legacy openai reply"
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "MODEL_NOT_FOUND"

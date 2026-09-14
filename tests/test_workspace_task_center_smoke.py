@@ -98,7 +98,8 @@ def main():
         window._navigate_to("activity")
         assert window.stack.currentWidget() is window.activity_page
         window._show_task_center()
-        assert window.task_center.isVisible()
+        assert window.active_destination == "tasks"
+        assert window.stack.currentWidget() is window.task_center_page
         window.close()
         recovery_dir.cleanup()
         app.quit()

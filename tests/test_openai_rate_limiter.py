@@ -531,6 +531,15 @@ class TestOpenAIEndpointGovernance:
         })
         return resp.json()["token"]
 
+    def _api_key_headers(self, client, token: str) -> dict:
+        issued = client.post(
+            "/api/v1/local-api/keys",
+            json={"name": "rate-limiter"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert issued.status_code == 200, issued.text
+        return {"Authorization": "Bearer " + issued.json()["secret"]}
+
     def test_rate_limit_exceeded_returns_429(self, client, monkeypatch):
         from core import openai_rate_limiter
         token = self._register_and_login(client, "rltest")
@@ -546,7 +555,7 @@ class TestOpenAIEndpointGovernance:
         r = client.post(
             "/v1/chat/completions",
             json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=self._api_key_headers(client, token),
         )
         assert r.status_code == 429
         assert "X-Correlation-ID" in r.headers
@@ -556,7 +565,7 @@ class TestOpenAIEndpointGovernance:
         r = client.post(
             "/v1/chat/completions",
             json={"model": "m", "messages": [{"role": "user", "content": "x" * (_MAX_TOTAL_PROMPT_CHARS + 1)}]},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=self._api_key_headers(client, token),
         )
         assert r.status_code == 422
         body = r.json()
@@ -568,7 +577,7 @@ class TestOpenAIEndpointGovernance:
         r = client.post(
             "/v1/chat/completions",
             json={"model": "m", "messages": []},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=self._api_key_headers(client, token),
         )
         assert r.status_code == 422
 
@@ -588,7 +597,7 @@ class TestOpenAIEndpointGovernance:
         r = client.post(
             "/v1/chat/completions",
             json={"model": "m", "messages": [{"role": "user", "content": "secret-key-12345"}]},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=self._api_key_headers(client, token),
         )
         text = r.text
         assert "secret-key-12345" not in text
@@ -599,7 +608,7 @@ class TestOpenAIEndpointGovernance:
         r = client.post(
             "/v1/chat/completions",
             json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=self._api_key_headers(client, token),
         )
         # Response should have correlation headers (may be 200 or 500 depending on runtime)
         assert "X-Correlation-ID" in r.headers

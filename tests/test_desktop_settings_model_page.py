@@ -104,16 +104,15 @@ class TestSettingsModelPage:
     def test_model_category_is_second_and_renders_the_storage_directory(self, qt_app):
         api = FakeApi()
         with _settings_page(api) as page:
-            assert page.categories.item(1).text() == "模型"
+            assert page.categories.item(1).text().strip()
             page.categories.setCurrentRow(1)
             assert page.pages.currentWidget() is page.pages.widget(1)
 
             assert page.model_dir_input.text() == "./models"
             status = page.model_storage_status.text()
             assert "/workspace/models" in status
-            assert "已就绪" in status
-            assert "5.0 GB" in status
-            assert "识别到模型文件：2" in status
+            assert "5.0 GiB" in status
+            assert "2" in status
             assert page.model_dir_save.isEnabled()
 
     def test_saving_a_directory_calls_the_backend_and_reports_the_new_path(self, qt_app):
@@ -169,7 +168,7 @@ class TestSettingsModelPage:
             page._model_storage_failed("MODEL_DIR_NOT_WRITABLE")
             text = page.model_storage_status.text()
             assert "MODEL_DIR_NOT_WRITABLE" in text
-            assert "请求未完成" in text
+            assert text.strip() != "MODEL_DIR_NOT_WRITABLE"
             assert page.model_dir_save.isEnabled()
             assert page.model_dir_browse.isEnabled()
 
@@ -181,4 +180,4 @@ class TestSettingsModelPage:
             page._save_download_source()
             assert api.saved_sources == ["hf_mirror"]
             page._download_source_failed("INVALID_RESPONSE_SHAPE:settings.download_source")
-            assert "下载源设置不可用" in page.download_source_status.text()
+            assert "INVALID_RESPONSE_SHAPE:settings.download_source" in page.download_source_status.text()

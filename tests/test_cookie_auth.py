@@ -55,8 +55,8 @@ def test_cookie_transport_does_not_return_jwt_to_browser(client):
     assert response.json()["csrf_token"]
 
 
-def test_openai_compatible_router_requires_csrf_for_cookie_sessions(client, monkeypatch):
-    """The cookie session authenticates /v1/ too, so CSRF must cover that path."""
+def test_openai_compatible_router_ignores_cookie_sessions(client, monkeypatch):
+    """The external /v1 API requires a local API key, not browser cookie auth."""
     from api import openai_api
 
     class _FakeRuntime:
@@ -75,15 +75,15 @@ def test_openai_compatible_router_requires_csrf_for_cookie_sessions(client, monk
     payload = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
 
     blocked = client.post("/v1/chat/completions", json=payload)
-    assert blocked.status_code == 403
-    assert blocked.json()["detail"] == "CSRF token missing or invalid"
+    assert blocked.status_code == 401
+    assert blocked.json()["error"]["code"] == "API_KEY_REQUIRED"
 
     accepted = client.post(
         "/v1/chat/completions",
         headers={"X-CSRF-Token": client.cookies.get("modelforge_csrf")},
         json=payload,
     )
-    assert accepted.status_code == 200, accepted.text
+    assert accepted.status_code == 401
 
 
 def test_password_change_retires_tokens_issued_before_it(client):

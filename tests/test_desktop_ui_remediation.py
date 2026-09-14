@@ -68,6 +68,64 @@ class FakeApi:
             },
         }
 
+    def local_api_status(self):
+        return {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 8000,
+            "base_url": "http://127.0.0.1:8000/v1",
+            "max_concurrent_requests": 4,
+            "request_timeout_seconds": 120,
+            "auto_load_models": True,
+            "loaded_models": 1,
+        }
+
+    def list_local_api_keys(self):
+        return {
+            "keys": [
+                {
+                    "id": "local-key-1",
+                    "name": "desktop",
+                    "prefix": "mf-local123",
+                    "scopes": ["models:read", "chat:write"],
+                    "enabled": True,
+                    "revoked_at": None,
+                    "last_used_at": "2026-09-14T08:00:00",
+                }
+            ],
+            "available_scopes": ["models:read", "chat:write"],
+        }
+
+    def list_local_api_models(self):
+        return [
+            {
+                "id": "local-chat",
+                "model_id": 1,
+                "name": "local-chat",
+                "display_name": "Local Chat",
+                "format": "gguf",
+                "api_capabilities": ["chat-completions", "responses"],
+                "endpoints": ["/v1/chat/completions", "/v1/responses"],
+                "loaded": True,
+                "runtime_status": "loaded",
+                "compatibility": {"state": "loaded", "reasons": []},
+                "size_bytes": 1024,
+            }
+        ]
+
+    def list_local_api_logs(self, _limit=100):
+        return [
+            {
+                "request_id": "req-1",
+                "endpoint": "/v1/chat/completions",
+                "model": "local-chat",
+                "status_code": 200,
+                "duration_ms": 15,
+                "error_code": None,
+                "created_at": "2026-09-14T08:01:00",
+            }
+        ]
+
 
 class FakeThemeManager:
     class Mode:
@@ -240,10 +298,19 @@ class TestUiSecurityAndAccessibility:
         assert rail._buttons["developer"].toolTip()
         assert rail._buttons["developer"].accessibleName()
         rail.set_collapsed(False)
-        assert "开发者" in rail._buttons["developer"].text()
+        assert rail._buttons["developer"].text().strip()
+        assert "API" in rail._buttons["developer"].text()
 
     def test_developer_api_workspace_renders_project_details(self, qt_app):
         page = DeveloperApiPage(FakeApi())
+        page.local_page._render(
+            {
+                "status": page.api.local_api_status(),
+                "keys": page.api.list_local_api_keys(),
+                "models": page.api.list_local_api_models(),
+                "logs": page.api.list_local_api_logs(80),
+            }
+        )
         page._render_catalog(
             {
                 "organizations": page.api.list_organizations(),
@@ -260,6 +327,11 @@ class TestUiSecurityAndAccessibility:
                 "usage": page.api.project_usage("project-1"),
             },
         )
+        assert page.tabs.tabText(0) == "本地推理 API"
+        assert page.local_page.base_url.text() == "http://127.0.0.1:8000/v1"
+        assert page.local_page.key_table.rowCount() == 1
+        assert page.local_page.model_table.rowCount() == 1
+        assert "curl http://127.0.0.1:8000/v1/chat/completions" in page.local_page.examples.toPlainText()
         assert page.project_title.text() == "示例项目"
         assert page.key_list.count() == 1
         assert "今日已计令牌：12" in page.usage.toPlainText()

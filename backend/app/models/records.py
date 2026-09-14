@@ -381,6 +381,17 @@ class RemoteProviderConfig(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     def to_public_dict(self) -> dict:
+        import json as _json
+
+        try:
+            verified_models = _json.loads(self.verified_models_json or "[]")
+        except (TypeError, ValueError):
+            verified_models = []
+        verified_models = (
+            [str(item) for item in verified_models if isinstance(item, str)]
+            if isinstance(verified_models, list)
+            else []
+        )
         endpoint_suffix = "responses" if self.protocol == "responses" else "chat/completions"
         return {
             "id": self.id,
@@ -395,6 +406,7 @@ class RemoteProviderConfig(Base):
             "last_verified_at": self.last_verified_at.isoformat() if self.last_verified_at else None,
             "verification_status": self.verification_status or "unknown",
             "verification_error_code": self.verification_error_code,
+            "verified_models": verified_models,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -480,6 +492,117 @@ class ApiKey(Base):
         return {
             "id": self.id,
             "name": self.name,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class LocalApiSetting(Base):
+    """Per-user settings for the local OpenAI-compatible inference API."""
+
+    __tablename__ = "local_api_settings"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    host = Column(String(128), nullable=False, default="127.0.0.1")
+    port = Column(Integer, nullable=False, default=8000)
+    cors_origins_json = Column(Text, nullable=False, default="[]")
+    max_concurrent_requests = Column(Integer, nullable=False, default=4)
+    max_concurrent_requests_per_model = Column(Integer, nullable=False, default=1)
+    queue_size = Column(Integer, nullable=False, default=16)
+    request_timeout_seconds = Column(Integer, nullable=False, default=120)
+    idle_unload_seconds = Column(Integer, nullable=False, default=1800)
+    max_upload_bytes = Column(Integer, nullable=False, default=20 * 1024 * 1024)
+    auto_load_models = Column(Boolean, nullable=False, default=True)
+    allow_lan = Column(Boolean, nullable=False, default=False)
+    logging_enabled = Column(Boolean, nullable=False, default=True)
+    log_retention_days = Column(Integer, nullable=False, default=14)
+    temp_dir = Column(String(1024), nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class LocalApiKey(Base):
+    """One-way-hashed key for the local /v1 inference surface."""
+
+    __tablename__ = "local_api_keys"
+    __table_args__ = (Index("ix_local_api_keys_user_prefix", "user_id", "prefix", unique=True),)
+
+    id = Column(String(32), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    prefix = Column(String(24), nullable=False, unique=True, index=True)
+    secret_hash = Column(String(128), nullable=False)
+    scopes_json = Column(Text, nullable=False, default="[]")
+    enabled = Column(Boolean, nullable=False, default=True)
+    expires_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        import json as _json
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "prefix": self.prefix,
+            "scopes": _json.loads(self.scopes_json or "[]"),
+            "enabled": bool(self.enabled),
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ModelApiAlias(Base):
+    """Public API model name mapped to one registry model."""
+
+    __tablename__ = "model_api_aliases"
+    __table_args__ = (Index("ix_model_api_aliases_user_alias", "user_id", "alias", unique=True),)
+
+    id = Column(String(32), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    model_id = Column(Integer, ForeignKey("models.id"), nullable=False, index=True)
+    alias = Column(String(255), nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+
+
+class LocalApiRequestLog(Base):
+    """Sanitised request ledger for the local /v1 inference API."""
+
+    __tablename__ = "local_api_request_logs"
+    __table_args__ = (Index("ix_local_api_logs_user_created", "user_id", "created_at"),)
+
+    id = Column(String(32), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    api_key_id = Column(String(32), ForeignKey("local_api_keys.id"), nullable=True, index=True)
+    key_prefix = Column(String(24), nullable=True)
+    request_id = Column(String(96), nullable=False, index=True)
+    endpoint = Column(String(128), nullable=False)
+    method = Column(String(10), nullable=False, default="GET")
+    model = Column(String(255), nullable=True)
+    status_code = Column(Integer, nullable=False, default=200)
+    duration_ms = Column(Integer, nullable=False, default=0)
+    error_code = Column(String(96), nullable=True)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "request_id": self.request_id,
+            "endpoint": self.endpoint,
+            "method": self.method,
+            "model": self.model,
+            "status_code": self.status_code,
+            "duration_ms": self.duration_ms,
+            "error_code": self.error_code,
+            "key_prefix": self.key_prefix,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

@@ -1,8 +1,10 @@
 {
   "nav.overview": "概要", "nav.home": "ホーム", "nav.chat": "チャット", "nav.models": "モデル", "nav.videos": "動画", "nav.datasets": "データセット", "nav.training": "トレーニング", "nav.knowledge": "ナレッジ", "nav.agents": "エージェント", "nav.workbench": "エージェントワークベンチ", "nav.workflows": "ワークフロー", "nav.dashboard": "ダッシュボード", "nav.extensions": "拡張機能ガバナンス", "nav.tasks": "タスク", "nav.runtime": "ランタイム", "nav.settings": "設定", "nav.activity": "アクティビティ", "nav.automation": "自動化", "nav.control": "コントロールセンター", "nav.developer": "開発者 API", "nav_group.workspace": "ワークスペース", "nav_group.operations": "運用", "nav_group.administration": "管理",
-  "settings.title": "設定", "settings.general": "一般", "settings.appearance": "外観", "settings.language": "言語", "settings.backend": "サービス接続", "settings.about": "について", "settings.theme": "テーマ", "settings.display_language": "表示言語",
+  "chat.subtitle": "モデルを選択して会話を開始します。パラメータとナレッジ範囲はこのページ内にあります。", "models.subtitle": "ローカルモデル、リモートサービス、検索、ダウンロードを 1 つのリソースセンターで管理します。",
+  "settings.title": "設定", "settings.subtitle": "外観、言語、モデル保存先、サービス接続の設定です。", "settings.general": "一般", "settings.appearance": "外観", "settings.language": "言語", "settings.backend": "サービス接続", "settings.about": "について", "settings.theme": "テーマ", "settings.display_language": "表示言語",
   "theme.light": "ライト", "theme.dark": "ダーク", "theme.system": "システム",
   "action.refresh": "更新", "action.examples": "例", "action.manage": "管理", "action.verify": "接続を検証", "action.save": "保存", "action.delete": "削除",
   "status.connected": "接続済み", "status.login_required": "ログインが必要", "footer.connecting": "ModelForge サーバーに接続中…",
-  "footer.connected": "ModelForge サービスに接続済み", "footer.task_stream_connected": "タスク更新に接続済み", "footer.task_stream_reconnecting": "タスク更新に再接続中…"
+  "footer.connected": "ModelForge サービスに接続済み", "footer.task_stream_connected": "タスク更新に接続済み", "footer.task_stream_reconnecting": "タスク更新に再接続中…",
+  "footer.service_error": "サービスに接続できません：{error}", "shell.nav.collapse": "ナビゲーションを折りたたむ", "shell.nav.toggle": "ナビゲーションを展開または折りたたむ", "shell.workspace.local": "ローカルワークスペース", "shell.workspace.preparing": "ワークスペースを準備中…", "shell.workspace.connected": "ワークスペースに接続済み", "shell.workspace.check_service": "ローカルサービスを確認してください", "shell.workspace.signed_in": "サインイン済み：{account}", "shell.service.connected": "サービスに接続済み", "shell.service.unavailable": "サービスを利用できません", "shell.service.disconnected": "ローカルサービス未接続", "common.unavailable": "利用不可", "common.not_configured": "未設定", "common.loading": "読み込み中…", "common.ready": "準備完了"
 }

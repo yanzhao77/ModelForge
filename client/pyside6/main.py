@@ -20,7 +20,7 @@ from components.desktop_update import GitHubReleaseUpdater, UpdateInfo
 from components.model_readiness_store import ModelReadinessStore
 from components.onboarding import OnboardingCoordinator
 from components.recovery import RecoveryManager
-from components.task_center import TaskCenterDock
+from components.task_center import TaskCenterPage
 from components.task_store import TaskStore
 from i18n import I18n
 from i18n.ui_localizer import format_api_error, localize_tree
@@ -97,6 +97,9 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.translator.changed.connect(self._retranslate)
         self.updater = GitHubReleaseUpdater(UPDATE_REPOSITORY, APP_VERSION)
         self.active_destination = "overview"
+        self._service_online = False
+        self._service_identity = ""
+        self._service_account = ""
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION} · 本地 AI 工作区")
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.resize(1440, 900)
@@ -168,6 +171,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.workflow_page = WorkflowPage(self.api)
         self.activity_page = ActivityPage(self.task_store)
         self.control_center_page = ControlCenterPage(self.api)
+        self.task_center_page = TaskCenterPage(self.task_store)
         self.developer_api_page = DeveloperApiPage(self.api)
         self.automation_page = AutomationPage(self.api)
         self.extensions_page = ExtensionsPage(self.api)
@@ -193,6 +197,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             "runtime": self.runtime_page,
             "activity": self.activity_page,
             "control": self.control_center_page,
+            "tasks": self.task_center_page,
             "developer": self.developer_api_page,
             "automation": self.automation_page,
             "extensions": self.extensions_page,
@@ -200,9 +205,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         }
         for page in dict.fromkeys(self._pages.values()):
             self.stack.addWidget(page)
-        self.task_center = TaskCenterDock(self.task_store, self)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.task_center)
-        self.task_center.hide()
+        self.task_center = self.task_center_page
         self._init_command_menu()
         self._init_shortcuts()
         localize_tree(self, self.translator)
@@ -212,7 +215,19 @@ class MainWindow(QMainWindow, AsyncApiMixin):
 
     def _retranslate(self, _locale: str) -> None:
         self.shell.retranslate()
+        for page in dict.fromkeys(self._pages.values()):
+            if hasattr(page, "retranslate"):
+                page.retranslate(self.translator)
+            for child in page.findChildren(QWidget):
+                if hasattr(child, "retranslate"):
+                    child.retranslate(self.translator)
         localize_tree(self, self.translator)
+        if self._service_online:
+            account = self._service_account or self.translator.t("shell.workspace.local", "本地工作区")
+            self._service_identity = self.translator.t("shell.workspace.signed_in", "已登录：{account}").format(account=account)
+        else:
+            self._service_identity = self.translator.t("shell.service.disconnected", "本地服务未连接")
+        self.shell.topbar.set_system(self._service_online, self._service_identity, self.translator)
         self._navigate_to(self.active_destination)
 
     def _init_shortcuts(self) -> None:
@@ -241,8 +256,9 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 "workbench",
                 "workflows",
                 "automation",
-                "developer",
                 "control",
+                "tasks",
+                "developer",
                 "extensions",
                 "activity",
                 "runtime",
@@ -269,6 +285,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         for title, key in (
             ("概览", "overview"),
             ("对话", "chat"),
+            ("控制中心", "control"),
             ("任务", "tasks"),
             ("运行时", "runtime"),
             ("开发者 API", "developer"),
@@ -310,9 +327,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 self.PAGE_TITLES.get(destination, destination).title(),
             )
         )
-        if destination == "tasks":
-            self._show_task_center()
-        elif (page := self._pages.get(destination)) is not None:
+        if (page := self._pages.get(destination)) is not None:
             self.stack.setCurrentWidget(page)
             if destination == "chat":
                 self.chat_page.refresh_providers()
@@ -335,9 +350,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self._navigate_to("chat")
 
     def _show_task_center(self) -> None:
-        self.task_center.show()
-        self.task_center.raise_()
-        self.task_center.activateWindow()
+        self._navigate_to("tasks")
 
     def _load_status(self) -> None:
         self.shell.set_status(self.translator.t("footer.connecting", "正在连接 ModelForge 服务…"))
@@ -347,8 +360,14 @@ class MainWindow(QMainWindow, AsyncApiMixin):
 
     def _show_service_status(self, info: dict) -> None:
         _version = info.get("version", "Unavailable")
+        account = self.api.username or self.translator.t("shell.workspace.local", "本地工作区")
+        self._service_online = True
+        self._service_account = self.api.username or ""
+        self._service_identity = self.translator.t("shell.workspace.signed_in", "已登录：{account}").format(account=account)
         self.shell.topbar.set_system(
-            True, f"已登录：{self.api.username or '本地工作区'}"
+            True,
+            self._service_identity,
+            self.translator,
         )
         self.shell.set_status(
             self.translator.t("footer.connected", "已连接 ModelForge 服务"),
@@ -356,8 +375,10 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         )
 
     def _show_service_error(self, error: str) -> None:
-        self.shell.topbar.set_system(False, "本地服务未连接")
-        self.shell.set_status(f"无法连接服务：{error}")
+        self._service_online = False
+        self._service_identity = self.translator.t("shell.service.disconnected", "本地服务未连接")
+        self.shell.topbar.set_system(False, self._service_identity, self.translator)
+        self.shell.set_status(self.translator.t("footer.service_error", "无法连接服务：{error}").format(error=error))
 
     def _show_task_stream_status(self, online: bool, error: str) -> None:
         if online:

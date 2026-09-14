@@ -6,6 +6,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -28,6 +29,10 @@ class DownloadCancelled(Exception):
 
 class DownloadIntegrityError(Exception):
     """Raised when downloaded bytes do not match the upstream size or hash."""
+
+
+class DownloadDiskSpaceError(Exception):
+    """Raised when the model directory cannot fit the planned download."""
 
 
 class DownloadPaused(Exception):
@@ -70,6 +75,7 @@ class Downloader:
 
     #: Per-repository resume/verification state. It never leaves the model dir.
     MANIFEST_NAME = ".modelforge-download.json"
+    TASK_PLAN_DIR = "model_download_tasks"
 
     def __init__(self, *, max_downloads: int = 2, workers: int = 4, attempts: int = 3):
         self._semaphore = threading.BoundedSemaphore(max_downloads)
@@ -91,22 +97,54 @@ class Downloader:
         repo_id: str,
         user_id: int,
         filename: str | None = None,
+        *,
+        files: list[str] | None = None,
+        include_support_files: bool = True,
+        full_repository: bool = False,
         db: Session | None = None,
     ) -> DownloadTaskRecord:
+        repo_id = str(repo_id).strip().strip("/")
+        filename = str(filename).strip() if filename else None
+        cleaned_files = [str(item).strip() for item in (files or []) if str(item).strip()]
+        session = db or SessionLocal()
+        existing = self._find_duplicate(
+            user_id,
+            repo_id,
+            filename=filename,
+            files=cleaned_files,
+            include_support_files=include_support_files,
+            full_repository=full_repository,
+            db=session,
+        )
+        if existing is not None:
+            if existing.status in {"PENDING", "RUNNING"}:
+                self._schedule(existing.id)
+            if db is None:
+                session.close()
+            return existing
         task = DownloadTaskRecord(
             id=uuid.uuid4().hex,
             user_id=user_id,
             repo_id=repo_id,
-            filename=filename,
+            filename=filename or ("完整仓库" if full_repository else (", ".join(cleaned_files[:2])[:500] if cleaned_files else None)),
             status="PENDING",
             progress=0,
             message="Pending",
         )
-        session = db or SessionLocal()
         try:
             session.add(task)
             session.commit()
             session.refresh(task)
+            self._write_task_plan(
+                task.id,
+                {
+                    "repo_id": repo_id,
+                    "filename": filename,
+                    "files": cleaned_files,
+                    "include_support_files": bool(include_support_files),
+                    "full_repository": bool(full_repository),
+                },
+            )
         except Exception:
             session.rollback()
             raise
@@ -115,6 +153,43 @@ class Downloader:
                 session.close()
         self._schedule(task.id)
         return task
+
+    def _find_duplicate(
+        self,
+        user_id: int,
+        repo_id: str,
+        *,
+        filename: str | None,
+        files: list[str],
+        include_support_files: bool,
+        full_repository: bool,
+        db: Session | None = None,
+    ) -> DownloadTaskRecord | None:
+        session = db or SessionLocal()
+        try:
+            rows = (
+                session.query(DownloadTaskRecord)
+                .filter_by(user_id=user_id, repo_id=repo_id)
+                .filter(DownloadTaskRecord.status.in_(("PENDING", "RUNNING", "PAUSED")))
+                .order_by(DownloadTaskRecord.created_at.desc())
+                .all()
+            )
+            wanted = {
+                "repo_id": repo_id,
+                "filename": filename,
+                "files": files,
+                "include_support_files": bool(include_support_files),
+                "full_repository": bool(full_repository),
+            }
+            for row in rows:
+                plan = self._read_task_plan(row.id)
+                legacy_match = not plan and row.filename == filename and not files and not full_repository
+                if legacy_match or plan == wanted:
+                    return row
+            return None
+        finally:
+            if db is None:
+                session.close()
 
     def _schedule(self, task_id: str) -> None:
         """Schedule safely from either an ASGI loop or a synchronous worker."""
@@ -254,8 +329,11 @@ class Downloader:
 
     @staticmethod
     def _load_record(task_id: str) -> DownloadTaskRecord | None:
-        with SessionLocal() as session:
-            return session.get(DownloadTaskRecord, task_id)
+        try:
+            with SessionLocal() as session:
+                return session.get(DownloadTaskRecord, task_id)
+        except Exception:
+            return None
 
     def _set_state(
         self,
@@ -294,6 +372,21 @@ class Downloader:
             return self._set_state(task_id, status="PAUSED", progress=int(task.progress or 0), message="Download paused")
         return task
 
+    def cancel(self, task_id: str, user_id: int, db: Session | None = None) -> DownloadTaskRecord | None:
+        task = self.get(task_id, user_id, db=db)
+        if task is None:
+            return None
+        if task.status in {"COMPLETED", "FAILED", "CANCELLED"}:
+            return task
+        self._request_cancel(task_id)
+        return self._set_state(
+            task_id,
+            status="CANCELLED",
+            progress=int(task.progress or 0),
+            message="Download cancelled",
+            completed=True,
+        )
+
     def resume(self, task_id: str, user_id: int, db: Session | None = None) -> DownloadTaskRecord | None:
         task = self.get(task_id, user_id, db=db)
         if task is None:
@@ -322,7 +415,8 @@ class Downloader:
         if task is None:
             return None
         repo_id = task.repo_id
-        filename = task.filename
+        plan = self._read_task_plan(task_id)
+        filename = self._as_text(plan.get("filename")) or task.filename
         progress = int(task.progress or 0)
         # Stop the running worker before touching shared resume state.
         self._request_cancel(task_id)
@@ -332,6 +426,16 @@ class Downloader:
         stopped = self._stop_worker(task_id)
         if stopped and not self._repo_has_other_active_task(repo_id, task_id):
             self._invalidate_verification_state(self._target_path(repo_id))
+        if plan:
+            return self.start(
+                repo_id,
+                user_id,
+                filename,
+                files=list(plan.get("files") or []),
+                include_support_files=bool(plan.get("include_support_files", True)),
+                full_repository=bool(plan.get("full_repository")),
+                db=db,
+            )
         return self.start(repo_id, user_id, filename, db=db)
 
     async def _run(self, task_id: str) -> None:
@@ -367,7 +471,12 @@ class Downloader:
                 os.environ["HF_ENDPOINT"] = endpoint
             target = self._target_path(task.repo_id)
             target.mkdir(mode=0o700, parents=True, exist_ok=True)
-            files = self._resolve_files(task.repo_id, task.filename)
+            plan = self._read_task_plan(task_id)
+            files = (
+                self._resolve_files(task.repo_id, task.filename, task_id=task_id)
+                if plan
+                else self._resolve_files(task.repo_id, task.filename)
+            )
             if not files:
                 raise RuntimeError("No downloadable files matched the request")
             self._download_files(task_id, files, target)
@@ -398,6 +507,15 @@ class Downloader:
                 progress=0,
                 message="Download failed integrity verification",
                 error_code="MODEL_DOWNLOAD_INTEGRITY_FAILED",
+                completed=True,
+            )
+        except DownloadDiskSpaceError:
+            self._set_state(
+                task_id,
+                status="FAILED",
+                progress=int(task.progress or 0),
+                message="Insufficient disk space for selected files",
+                error_code="MODEL_DOWNLOAD_DISK_FULL",
                 completed=True,
             )
         except Exception:
@@ -445,28 +563,51 @@ class Downloader:
                     user_id=task.user_id,
                     repo_id=task.repo_id,
                     target=self._target_path(task.repo_id),
-                    filename=task.filename,
+                    filename=self._as_text(self._read_task_plan(task_id).get("filename")),
                 )
         except Exception:
             # A registration failure leaves the bytes on disk; a later scan
             # re-discovers them, so the download itself still succeeded.
             return
 
-    def _resolve_files(self, repo_id: str, filename: str | None = None) -> list[DownloadFile]:
+    def _resolve_files(self, repo_id: str, filename: str | None = None, *, task_id: str | None = None) -> list[DownloadFile]:
         from huggingface_hub import HfApi, hf_hub_url
 
         endpoint = (settings.hf_endpoint or "").strip().rstrip("/") or None
         api = HfApi(endpoint=endpoint) if endpoint else HfApi()
         info = api.model_info(repo_id, files_metadata=True)
         revision = self._as_text(getattr(info, "sha", None))
+        plan = self._read_task_plan(task_id) if task_id else {}
+        selected = set(str(item).strip() for item in (plan.get("files") or []) if str(item).strip())
+        has_plan = bool(plan)
+        full_repository = bool(plan.get("full_repository")) if has_plan else not filename
+        include_support = bool(plan.get("include_support_files", True))
+        explicit_filename = self._as_text(plan.get("filename")) or filename
+        siblings = list(getattr(info, "siblings", []) or [])
+        support_files: set[str] = set()
+        for sibling in siblings:
+            path = self._sibling_path(sibling)
+            if path and self._is_support_file(path, self._as_size(getattr(sibling, "size", None))):
+                support_files.add(path)
         files: list[DownloadFile] = []
-        for sibling in getattr(info, "siblings", []) or []:
-            path = getattr(sibling, "rfilename", None) or getattr(sibling, "filename", None)
+        for sibling in siblings:
+            path = self._sibling_path(sibling)
             if not path or path.endswith("/"):
                 continue
             if PurePosixPath(path).name == self.MANIFEST_NAME:
                 continue
-            if filename and not fnmatch.fnmatch(path, filename):
+            if not full_repository:
+                if selected:
+                    if path not in selected and not (include_support and path in support_files):
+                        continue
+                elif explicit_filename and not fnmatch.fnmatch(path, explicit_filename):
+                    continue
+                elif has_plan and not explicit_filename:
+                    # Defensive default for modern calls: full_repository must be
+                    # explicit so a blank file selection cannot download every
+                    # large variant in a repository by accident.
+                    continue
+            if self._is_too_large_support_only(path, selected, full_repository):
                 continue
             lfs = getattr(sibling, "lfs", None)
             url_kwargs = {"repo_id": repo_id, "filename": path}
@@ -482,6 +623,91 @@ class Downloader:
                 )
             )
         return files
+
+    @staticmethod
+    def _sibling_path(sibling: Any) -> str | None:
+        return getattr(sibling, "rfilename", None) or getattr(sibling, "filename", None)
+
+    @staticmethod
+    def _is_support_file(path: str, size: int | None = None) -> bool:
+        name = PurePosixPath(path).name
+        if name in {
+            "README.md",
+            "config.json",
+            "generation_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "vocab.json",
+            "vocab.txt",
+            "merges.txt",
+            "spiece.model",
+            "sentencepiece.bpe.model",
+            "preprocessor_config.json",
+            "processor_config.json",
+            "feature_extractor_config.json",
+            "image_processor_config.json",
+            "model_index.json",
+            "scheduler_config.json",
+        }:
+            return True
+        return name.endswith(".json") and (size is None or size < 50 * 1024 * 1024)
+
+    @staticmethod
+    def _is_too_large_support_only(path: str, selected: set[str], full_repository: bool) -> bool:
+        if full_repository or path in selected:
+            return False
+        return False
+
+    @classmethod
+    def _task_plan_root(cls) -> Path:
+        root = Path(settings.database_path).expanduser().resolve().parent / cls.TASK_PLAN_DIR
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return root
+
+    @classmethod
+    def _task_plan_path(cls, task_id: str) -> Path:
+        safe = "".join(ch for ch in str(task_id) if ch.isalnum() or ch in {"-", "_"})
+        return cls._task_plan_root() / f"{safe}.json"
+
+    @classmethod
+    def _task_progress_path(cls, task_id: str) -> Path:
+        safe = "".join(ch for ch in str(task_id) if ch.isalnum() or ch in {"-", "_"})
+        return cls._task_plan_root() / f"{safe}.progress.json"
+
+    @classmethod
+    def _write_task_plan(cls, task_id: str, payload: dict[str, Any]) -> None:
+        try:
+            cls._task_plan_path(task_id).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    @classmethod
+    def _read_task_plan(cls, task_id: str | None) -> dict[str, Any]:
+        if not task_id:
+            return {}
+        try:
+            payload = json.loads(cls._task_plan_path(task_id).read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    @classmethod
+    def _write_task_progress(cls, task_id: str, payload: dict[str, Any]) -> None:
+        try:
+            cls._task_progress_path(task_id).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+
+    @classmethod
+    def _read_task_progress(cls, task_id: str | None) -> dict[str, Any]:
+        if not task_id:
+            return {}
+        try:
+            payload = json.loads(cls._task_progress_path(task_id).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     @staticmethod
     def _as_text(value: Any) -> str | None:
@@ -586,6 +812,8 @@ class Downloader:
             "total": total,
             "last_percent": -1,
             "last_update": 0.0,
+            "started_at": time.monotonic(),
+            "speed_bps": 0,
         }
         progress_lock = threading.Lock()
         manifest = self._load_manifest(target)
@@ -594,6 +822,7 @@ class Downloader:
             manifest["files"] = {}
         manifest_lock = threading.Lock()
         self._invalidate_stale_partials(files, destinations, manifest, progress, progress_lock)
+        self._check_disk_space(target, progress, progress_lock)
         self._publish_progress(task_id, progress, progress_lock, force=True)
         with ThreadPoolExecutor(max_workers=min(self._workers, len(files))) as pool:
             futures = [
@@ -614,6 +843,19 @@ class Downloader:
             ]
             for future in as_completed(futures):
                 future.result()
+
+    def _check_disk_space(self, target: Path, progress: dict[str, Any], progress_lock: threading.Lock) -> None:
+        try:
+            target.mkdir(mode=0o700, parents=True, exist_ok=True)
+            usage = shutil.disk_usage(target)
+        except OSError as exc:
+            raise DownloadDiskSpaceError("cannot inspect model directory") from exc
+        with progress_lock:
+            remaining = max(0, int(progress.get("total") or 0) - int(progress.get("downloaded") or 0))
+        # Leave a small working margin so metadata and temp files can still be
+        # written while the transfer completes.
+        if remaining and usage.free < remaining + 128 * 1024 * 1024:
+            raise DownloadDiskSpaceError("insufficient disk space")
 
     def _invalidate_stale_partials(
         self,
@@ -864,12 +1106,36 @@ class Downloader:
             downloaded = int(progress["downloaded"] or 0)
             percent = int(downloaded * 100 / total) if total else 1
             now = time.monotonic()
+            elapsed = max(0.001, now - float(progress.get("started_at") or now))
+            speed = int(downloaded / elapsed)
+            progress["speed_bps"] = speed
             if not force and percent == progress["last_percent"] and now - float(progress["last_update"] or 0.0) < 1.0:
                 return
             progress["last_percent"] = percent
             progress["last_update"] = now
-        message = f"Download in progress · {self._format_bytes(downloaded)} / {self._format_bytes(total)}" if total else "Download in progress"
+            eta_seconds = int(max(0, total - downloaded) / speed) if total and speed > 0 else None
+        detail = {
+            "downloaded_bytes": downloaded,
+            "total_bytes": total,
+            "speed_bps": speed,
+            "eta_seconds": eta_seconds,
+        }
+        self._write_task_progress(task_id, detail)
+        eta = f" · ETA {self._format_eta(eta_seconds)}" if eta_seconds is not None else ""
+        message = f"Download in progress · {self._format_bytes(downloaded)} / {self._format_bytes(total)} · {self._format_bytes(speed)}/s{eta}" if total else "Download in progress"
         self._set_state(task_id, status="RUNNING", progress=max(1, min(99, percent)), message=message)
+
+    @staticmethod
+    def _format_eta(seconds: int | None) -> str:
+        if seconds is None:
+            return "未知"
+        if seconds < 60:
+            return f"{seconds}s"
+        minutes, sec = divmod(seconds, 60)
+        if minutes < 60:
+            return f"{minutes}m {sec}s"
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours}h {minutes}m"
 
     @staticmethod
     def _completed_bytes(path: Path, expected_size: int | None) -> int:
@@ -955,6 +1221,22 @@ class Downloader:
         finally:
             if db is None:
                 session.close()
+
+    def to_payload(self, task: DownloadTaskRecord) -> dict:
+        payload = task.to_dict()
+        progress = self._read_task_progress(task.id)
+        if progress:
+            payload.update(progress)
+            payload["downloaded"] = self._format_bytes(int(progress.get("downloaded_bytes") or 0))
+            payload["total"] = self._format_bytes(int(progress.get("total_bytes") or 0))
+            payload["speed"] = f"{self._format_bytes(int(progress.get('speed_bps') or 0))}/s"
+            eta = progress.get("eta_seconds")
+            payload["eta"] = self._format_eta(int(eta)) if eta is not None else "未知"
+        plan = self._read_task_plan(task.id)
+        if plan:
+            payload["plan"] = plan
+        payload["local_path"] = str(self._target_path(task.repo_id))
+        return payload
 
     def search_hf(self, query: str = "", author: str | None = None, limit: int = 20) -> list:
         """Search HuggingFace for models (GGUF-friendly)."""

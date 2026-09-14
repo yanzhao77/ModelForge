@@ -58,6 +58,12 @@ def _account(client, prefix: str) -> tuple[dict, int, str]:
     return {"Authorization": "Bearer " + login.json()["token"]}, login.json()["user"]["id"], username
 
 
+def _local_key(client, headers: dict) -> dict:
+    issued = client.post("/api/v1/local-api/keys", json={"name": "lease"}, headers=headers)
+    assert issued.status_code == 200, issued.text
+    return {"Authorization": "Bearer " + issued.json()["secret"]}
+
+
 # ---------------------------------------------------------------------------
 # Lease semantics
 # ---------------------------------------------------------------------------
@@ -225,15 +231,26 @@ def test_chat_releases_inference_when_it_claimed_it(client, monkeypatch):
     assert client.post("/api/v1/chat", json=payload, headers=headers_b).status_code == 200
 
 
-def test_openai_completions_reports_busy_instead_of_running_inference(client):
+def test_openai_completions_reports_busy_instead_of_running_inference(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_PATH", str(tmp_path))
+    monkeypatch.setenv("MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "model_path", str(tmp_path))
     headers_a, id_a, _name_a = _account(client, "oaia")
     headers_b, _id_b, _name_b = _account(client, "oaib")
+    asset = tmp_path / "busy-model.gguf"
+    asset.write_bytes(b"GGUF-placeholder")
+    created = client.post(
+        "/api/v1/models/install",
+        json={"name": "busy-model", "provider": "local", "path": str(asset)},
+        headers=headers_b,
+    )
+    assert created.status_code == 200, created.text
     inference_lease.acquire(user_id=id_a, username="owner")
 
     blocked = client.post(
         "/v1/chat/completions",
-        json={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
-        headers=headers_b,
+        json={"model": "busy-model", "messages": [{"role": "user", "content": "hi"}]},
+        headers=_local_key(client, headers_b),
     )
     assert blocked.status_code == 409
     assert blocked.json()["error"]["code"] == "RUNTIME_BUSY"

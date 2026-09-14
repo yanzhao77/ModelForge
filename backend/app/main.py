@@ -18,12 +18,13 @@ from api import (
     goals,
     knowledge,
     learning,
+    local_api,
     marketplace,
     memories,
     models,
     observability,
-    os_core,
     openai_api,
+    os_core,
     packages,
     platform_api,
     plugin,
@@ -142,10 +143,10 @@ async def csrf_protect_cookie_session(request: Request, call_next):
     exempt = {"/api/v1/auth/login", "/api/v1/auth/register"}
     has_cookie_session = bool(request.cookies.get(settings.session_cookie_name))
     has_bearer = bool(request.headers.get("Authorization"))
-    # The cookie session also authenticates the OpenAI-compatible router, so the
-    # double-submit nonce has to cover /v1/ as well; otherwise a cross-site form
-    # could spend the signed-in account's inference.
-    covered = request.url.path.startswith(("/api/v1/", "/v1/"))
+    # Cookie sessions authenticate the first-party /api/v1 control plane. The
+    # external /v1 inference API requires a local API key and ignores cookies,
+    # so CSRF protection is not the admission gate for that surface.
+    covered = request.url.path.startswith("/api/v1/")
     if unsafe and covered and request.url.path not in exempt and has_cookie_session and not has_bearer:
         provided = request.headers.get("X-CSRF-Token", "")
         expected = request.cookies.get(settings.csrf_cookie_name, "")
@@ -159,6 +160,7 @@ for _router in (
     datasets.router,
     goals.router,
     learning.router,
+    local_api.router,
     models.router,
     observability.router,
     os_core.router,

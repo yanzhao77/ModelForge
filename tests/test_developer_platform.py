@@ -51,6 +51,12 @@ def _auth(client: TestClient) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _local_key(client: TestClient, headers: dict) -> dict:
+    issued = client.post("/api/v1/local-api/keys", json={"name": "developer-platform"}, headers=headers)
+    assert issued.status_code == 200, issued.text
+    return {"Authorization": "Bearer " + issued.json()["secret"]}
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     models = tmp_path / "models"
@@ -66,6 +72,7 @@ def env(tmp_path, monkeypatch):
     try:
         with TestClient(app) as client:
             headers = _auth(client)
+            api_headers = _local_key(client, headers)
             asset = models / "sdk.gguf"
             asset.write_bytes(b"GGUF-placeholder")
             client.post(
@@ -73,7 +80,7 @@ def env(tmp_path, monkeypatch):
                 json={"name": "sdk-model", "provider": "local", "path": str(asset)},
                 headers=headers,
             )
-            yield {"client": client, "headers": headers}
+            yield {"client": client, "headers": headers, "api_headers": api_headers}
     finally:
         holder = inference_lease.holder()
         if holder is not None:
@@ -82,7 +89,7 @@ def env(tmp_path, monkeypatch):
 
 def test_v1_embeddings_matches_openai_shape(env):
     response = env["client"].post(
-        "/v1/embeddings", json={"input": ["hello", "world"]}, headers=env["headers"]
+        "/v1/embeddings", json={"input": ["hello", "world"]}, headers=env["api_headers"]
     )
 
     assert response.status_code == 200, response.text
@@ -95,7 +102,7 @@ def test_v1_embeddings_matches_openai_shape(env):
 
 
 def test_v1_agent_run_and_trace(env):
-    client, headers = env["client"], env["headers"]
+    client, headers, api_headers = env["client"], env["headers"], env["api_headers"]
     created = client.post(
         "/api/v1/agents", json={"name": "sdk-agent", "model": "sdk-model"}, headers=headers
     )
@@ -103,26 +110,26 @@ def test_v1_agent_run_and_trace(env):
     model_id = created.json()["model_id"]
     assert model_id  # a bare model name still resolves through the registry
 
-    listed = client.get("/v1/agents", headers=headers)
+    listed = client.get("/v1/agents", headers=api_headers)
     assert listed.status_code == 200
     assert [item["name"] for item in listed.json()["data"]] == ["sdk-agent"]
 
-    run = client.post("/v1/agents/sdk-agent/runs", json={"input": "hello"}, headers=headers)
+    run = client.post("/v1/agents/sdk-agent/runs", json={"input": "hello"}, headers=api_headers)
     assert run.status_code == 200, run.text
     run_id = run.json()["run_id"]
     status = {}
     for _ in range(100):
-        status = client.get(f"/v1/agents/runs/{run_id}", headers=headers).json()
+        status = client.get(f"/v1/agents/runs/{run_id}", headers=api_headers).json()
         if status["status"] in {"COMPLETED", "FAILED"}:
             break
         time.sleep(0.05)
     assert status["status"] == "COMPLETED", status
-    trace = client.get(f"/v1/agents/runs/{run_id}/trace", headers=headers).json()
+    trace = client.get(f"/v1/agents/runs/{run_id}/trace", headers=api_headers).json()
     assert trace["summary"]["model_calls"] >= 1
 
 
 def test_v1_knowledge_search_and_workflow_run(env):
-    client, headers = env["client"], env["headers"]
+    client, headers, api_headers = env["client"], env["headers"], env["api_headers"]
     client.post(
         "/api/v1/knowledge/upload",
         files={"file": ("sdk.md", b"ModelForge exposes an OpenAI compatible API.", "text/markdown")},
@@ -130,7 +137,7 @@ def test_v1_knowledge_search_and_workflow_run(env):
     )
 
     search = client.post(
-        "/v1/knowledge/search", json={"query": "OpenAI compatible API", "top_k": 2}, headers=headers
+        "/v1/knowledge/search", json={"query": "OpenAI compatible API", "top_k": 2}, headers=api_headers
     )
     assert search.status_code == 200, search.text
     assert search.json()["data"]
@@ -150,24 +157,24 @@ def test_v1_knowledge_search_and_workflow_run(env):
     run = client.post(
         f"/v1/workflows/{workflow['workflow_id']}/runs",
         json={"input": {"question": "hi"}},
-        headers=headers,
+        headers=api_headers,
     )
     assert run.status_code == 200, run.text
     run_id = run.json()["run_id"]
     status = {}
     for _ in range(100):
-        status = client.get(f"/v1/workflows/runs/{run_id}", headers=headers).json()
+        status = client.get(f"/v1/workflows/runs/{run_id}", headers=api_headers).json()
         if status["status"] in {"COMPLETED", "FAILED"}:
             break
         time.sleep(0.05)
     assert status["status"] == "COMPLETED", status
     assert status["output"] == "[echo] hi"
-    trace = client.get(f"/v1/workflows/runs/{run_id}/trace", headers=headers).json()
+    trace = client.get(f"/v1/workflows/runs/{run_id}/trace", headers=api_headers).json()
     assert trace["summary"]["node_count"] >= 3
 
 
 def test_v1_capabilities_catalog(env):
-    response = env["client"].get("/v1/platform/capabilities", headers=env["headers"])
+    response = env["client"].get("/v1/platform/capabilities", headers=env["api_headers"])
 
     assert response.status_code == 200
     body = response.json()

@@ -89,19 +89,41 @@ def test_successful_verification_persists_only_non_sensitive_summary():
     assert "never-return-this" not in str(provider.to_public_dict())
 
 
-def test_verification_requires_configured_default_model():
+def test_verification_persists_model_list_before_default_model_is_selected():
     db, user, provider, service = _service()
+    provider.default_model = ""
+    db.commit()
     client = _client_with_response(200, {"data": [{"id": "other-model"}]})
 
     with patch("services.remote_provider_service.httpx.Client", return_value=client):
         with patch("services.remote_provider_service.validate_provider_target", return_value="api.example.test"):
-            with pytest.raises(RemoteProviderError, match="default model"):
-                service.verify(user.id, provider.id)
+            result = service.verify(user.id, provider.id)
 
     db.refresh(provider)
-    assert provider.verification_status == "failed"
-    assert provider.verification_error_code == "DEFAULT_MODEL_NOT_FOUND"
+    assert result["models"] == ["other-model"]
+    assert provider.verification_status == "success"
+    assert provider.verification_error_code is None
+    assert provider.verified_models_json == '["other-model"]'
     assert "test-secret" not in (provider.verified_models_json or "")
+
+
+def test_save_allows_provider_before_default_model_selection():
+    db, user, _provider, service = _service()
+    service.cipher.encrypt.return_value = "encrypted-secret"
+
+    with patch("services.remote_provider_service.validate_provider_target", return_value="api.empty-default.test"):
+        saved = service.save(
+            user.id,
+            name="Empty Default",
+            base_url="https://api.empty-default.test/v1",
+            protocol="responses",
+            default_model="",
+            api_key="test-secret",
+        )
+
+    assert saved["default_model"] == ""
+    assert saved["key_configured"] is True
+    assert saved["verified_models"] == []
 
 
 def test_authentication_failure_is_persisted_as_recoverable_error_code():

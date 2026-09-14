@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from theme.icons import glyph
-from theme.metrics import SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_WIDTH, TOPBAR_HEIGHT
+from theme.icons import icon
+from theme.metrics import PAGE_MARGIN, PAGE_MARGIN_NARROW, SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_WIDTH, TOPBAR_HEIGHT
 
 
 class NavigationRail(QFrame):
@@ -22,8 +22,8 @@ class NavigationRail(QFrame):
     destination_requested = Signal(str)
     GROUPS = (
         ("nav_group.workspace", ("overview", "dashboard", "chat", "models", "videos", "datasets", "training", "knowledge", "agents", "workbench", "workflows")),
-        ("nav_group.operations", ("automation", "tasks", "runtime")),
-        ("nav_group.administration", ("developer", "control", "extensions", "settings")),
+        ("nav_group.operations", ("automation", "runtime")),
+        ("nav_group.administration", ("developer", "control", "tasks", "extensions", "settings")),
     )
 
     def __init__(self, translator, parent=None):
@@ -39,16 +39,16 @@ class NavigationRail(QFrame):
         self.brand = QLabel("ModelForge")
         self.brand.setStyleSheet("font-size: 16px; font-weight: 650;")
         self.layout.addWidget(self.brand)
-        self.toggle = QPushButton("收起导航")
+        self.toggle = QPushButton(self.translator.t("shell.nav.collapse", "收起导航"))
         self.toggle.setObjectName("NavigationToggle")
-        self.toggle.setAccessibleName("展开或收起导航")
-        self.toggle.setToolTip("展开或收起导航")
+        self.toggle.setAccessibleName(self.translator.t("shell.nav.toggle", "展开或收起导航"))
+        self.toggle.setToolTip(self.translator.t("shell.nav.toggle", "展开或收起导航"))
         self.toggle.clicked.connect(self.toggle_collapsed)
         self.layout.addWidget(self.toggle)
         self.layout.addSpacing(10)
         self._build()
         self.layout.addStretch(1)
-        self.user = QLabel("本地工作区")
+        self.user = QLabel(self.translator.t("shell.workspace.local", "本地工作区"))
         self.user.setProperty("role", "muted")
         self.layout.addWidget(self.user)
         self.set_collapsed(False)
@@ -69,6 +69,7 @@ class NavigationRail(QFrame):
                 button.setCheckable(True)
                 button.setCursor(Qt.PointingHandCursor)
                 button.setProperty("nav", True)
+                button.setIconSize(button.iconSize())
                 button.clicked.connect(lambda _checked=False, key=entry: self.destination_requested.emit(key))
                 self.layout.addWidget(button)
                 self._buttons[entry] = button
@@ -77,10 +78,11 @@ class NavigationRail(QFrame):
     def _update_button_text(self) -> None:
         for key, button in self._buttons.items():
             label = self.translator.t("nav." + key, key.title())
-            button.setText(glyph(key) if self._collapsed else f"{glyph(key)}  {label}")
+            button.setIcon(icon(key))
+            button.setText("" if self._collapsed else label)
             button.setToolTip(label)
             button.setAccessibleName(label)
-        self.toggle.setText("»" if self._collapsed else "收起导航")
+        self.toggle.setText("»" if self._collapsed else self.translator.t("shell.nav.collapse", "收起导航"))
 
     def toggle_collapsed(self) -> None:
         self.set_collapsed(not self._collapsed)
@@ -101,6 +103,9 @@ class NavigationRail(QFrame):
     def retranslate(self) -> None:
         for group_key, label in self._group_labels:
             label.setText(self.translator.t(group_key, group_key))
+        self.user.setText(self.translator.t("shell.workspace.local", "本地工作区"))
+        self.toggle.setAccessibleName(self.translator.t("shell.nav.toggle", "展开或收起导航"))
+        self.toggle.setToolTip(self.translator.t("shell.nav.toggle", "展开或收起导航"))
         self._update_button_text()
 
     def set_active(self, key: str) -> None:
@@ -115,22 +120,23 @@ class TopContext(QFrame):
         self.setFixedHeight(TOPBAR_HEIGHT)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(22, 8, 22, 8)
-        self.page = QLabel("首页")
+        self.page = QLabel("")
         self.page.setProperty("role", "pageTitle")
         layout.addWidget(self.page)
         layout.addStretch(1)
-        self.identity = QLabel("尚未连接工作区")
+        self.identity = QLabel("")
         self.identity.setProperty("role", "muted")
         layout.addWidget(self.identity)
-        self.status = MFStatusBadge("正在检查服务", "warning")
+        self.status = MFStatusBadge("", "warning")
         layout.addWidget(self.status)
 
     def set_page(self, title: str) -> None:
         self.page.setText(title)
 
-    def set_system(self, online: bool, identity: str = "") -> None:
-        self.status.set_state("服务已连接" if online else "服务不可用", "online" if online else "error")
-        self.identity.setText(identity or ("已连接工作区" if online else "请检查本地服务"))
+    def set_system(self, online: bool, identity: str = "", translator=None) -> None:
+        t = translator.t if translator is not None else (lambda _key, default=None: default or _key)
+        self.status.set_state(t("shell.service.connected" if online else "shell.service.unavailable", "服务已连接" if online else "服务不可用"), "online" if online else "error")
+        self.identity.setText(identity or t("shell.workspace.connected" if online else "shell.workspace.check_service", "已连接工作区" if online else "请检查本地服务"))
 
 
 class AppShell(QWidget):
@@ -160,7 +166,7 @@ class AppShell(QWidget):
         self.content = QFrame()
         self.content.setObjectName("ContentSurface")
         self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(32, 26, 32, 26)
+        self.content_layout.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN)
         body.addWidget(self.content, 1)
         layout.addLayout(body, 1)
         self.footer_bar = QFrame()
@@ -168,7 +174,7 @@ class AppShell(QWidget):
         footer_layout = QHBoxLayout(self.footer_bar)
         footer_layout.setContentsMargins(18, 5, 18, 6)
         footer_layout.setSpacing(10)
-        self.footer = QLabel("正在准备工作区…")
+        self.footer = QLabel(translator.t("shell.workspace.preparing", "正在准备工作区…"))
         self.footer.setProperty("role", "muted")
         footer_layout.addWidget(self.footer, 1)
         self.footer_progress = QProgressBar()
@@ -181,7 +187,10 @@ class AppShell(QWidget):
         self.rail_scroll.setFixedWidth(self.rail.width())
 
     def resizeEvent(self, event) -> None:
-        self.rail.set_collapsed(self.width() < 1120)
+        narrow = self.width() < 1120
+        self.rail.set_collapsed(narrow)
+        margin = PAGE_MARGIN_NARROW if narrow else PAGE_MARGIN
+        self.content_layout.setContentsMargins(margin, margin, margin, margin)
         self.rail_scroll.setFixedWidth(self.rail.width())
         super().resizeEvent(event)
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from services.audit_log import record_operation
 from services.downloader import downloader
 from services.model_capabilities import CapabilityFilter
+from services.model_catalog import CatalogQuery, ModelCatalogService, parse_hf_repo_id
 from services.model_manager import ModelManager
 from services.model_readiness_service import ModelReadinessError, ModelReadinessService
 from services.model_registry import ModelRegistry, ModelRegistryError
@@ -37,6 +38,21 @@ class InstallRequest(BaseModel):
 class DownloadRequest(BaseModel):
     repo_id: str = Field(min_length=1, max_length=255)
     filename: str | None = Field(default=None, max_length=512)
+    files: list[str] = Field(default_factory=list, max_length=128)
+    include_support_files: bool = True
+    full_repository: bool = False
+
+
+class ModelCatalogSearchRequest(BaseModel):
+    q: str = Field(default="", max_length=255)
+    category: str = Field(default="all", max_length=64)
+    format: str | None = Field(default=None, max_length=64)
+    library: str | None = Field(default=None, max_length=64)
+    author: str | None = Field(default=None, max_length=255)
+    gated: bool | None = None
+    compatible: bool | None = None
+    sort: str = Field(default="relevance", max_length=64)
+    limit: int = Field(default=30, ge=1, le=100)
 
 
 class DefaultModelRequest(BaseModel):
@@ -67,6 +83,10 @@ def _readiness(db: DBSession) -> ModelReadinessService:
 
 def _registry(db: DBSession) -> ModelRegistry:
     return ModelRegistry(db)
+
+
+def _catalog() -> ModelCatalogService:
+    return ModelCatalogService()
 
 
 def _model_payload(record, registry: ModelRegistry) -> dict:
@@ -176,13 +196,72 @@ def search_hf_models(
         raise problem(502, "MODEL_SEARCH_UNAVAILABLE", "Model search is temporarily unavailable.", correlation=correlation_id()) from exc
 
 
+@router.get("/catalog/search")
+def search_model_catalog(
+    q: str = "",
+    category: str = "all",
+    format: str | None = None,
+    library: str | None = None,
+    author: str | None = None,
+    gated: bool | None = None,
+    compatible: bool | None = None,
+    sort: str = "relevance",
+    limit: int = 30,
+    user: User = Depends(get_current_user),  # noqa: ARG001 - user scopes future sources
+):
+    try:
+        query = CatalogQuery(
+            query=q,
+            category=category or "all",
+            model_format=format,
+            library=library,
+            author=author,
+            gated=gated,
+            compatible=compatible,
+            sort=sort,
+            limit=limit,
+        )
+        return {"models": _catalog().search(query)}
+    except Exception as exc:
+        raise problem(502, "MODEL_CATALOG_SEARCH_UNAVAILABLE", "Model catalog search is temporarily unavailable.", correlation=correlation_id()) from exc
+
+
+@router.get("/catalog/{repo_id:path}")
+def model_catalog_detail(
+    repo_id: str,
+    source: str = "huggingface",
+    user: User = Depends(get_current_user),  # noqa: ARG001 - user scopes future sources
+):
+    try:
+        detail = _catalog().detail(parse_hf_repo_id(repo_id), source=source)
+        return detail
+    except Exception as exc:
+        raise problem(502, "MODEL_CATALOG_DETAIL_UNAVAILABLE", "Model repository metadata is temporarily unavailable.", correlation=correlation_id()) from exc
+
+
 @router.post("/download")
 def download_model(
     req: DownloadRequest, db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    task = downloader.start(req.repo_id, user.id, req.filename, db=db)
-    return task.to_dict()
+    task = downloader.start(
+        parse_hf_repo_id(req.repo_id),
+        user.id,
+        req.filename,
+        files=req.files,
+        include_support_files=req.include_support_files,
+        full_repository=req.full_repository,
+        db=db,
+    )
+    return downloader.to_payload(task)
+
+
+@router.get("/download")
+def list_downloads(
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return {"tasks": [downloader.to_payload(task) for task in downloader.list(user.id, db=db)]}
 
 
 @router.get("/download/{task_id}")
@@ -193,7 +272,7 @@ def download_status(
     task = downloader.get(task_id, user.id, db=db)
     if task is None:
         raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
-    return task.to_dict()
+    return downloader.to_payload(task)
 
 
 @router.post("/download/{task_id}/pause")
@@ -204,7 +283,7 @@ def pause_download(
     task = downloader.pause(task_id, user.id, db=db)
     if task is None:
         raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
-    return task.to_dict()
+    return downloader.to_payload(task)
 
 
 @router.post("/download/{task_id}/resume")
@@ -215,7 +294,18 @@ def resume_download(
     task = downloader.resume(task_id, user.id, db=db)
     if task is None:
         raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
-    return task.to_dict()
+    return downloader.to_payload(task)
+
+
+@router.post("/download/{task_id}/cancel")
+def cancel_download(
+    task_id: str, db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    task = downloader.cancel(task_id, user.id, db=db)
+    if task is None:
+        raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
+    return downloader.to_payload(task)
 
 
 @router.post("/download/{task_id}/restart")
@@ -226,7 +316,7 @@ def restart_download(
     task = downloader.restart(task_id, user.id, db=db)
     if task is None:
         raise problem(404, "MODEL_DOWNLOAD_NOT_FOUND", "Download task was not found.", correlation=correlation_id())
-    return task.to_dict()
+    return downloader.to_payload(task)
 
 
 @router.get("/readiness")

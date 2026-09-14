@@ -13,7 +13,31 @@ import httpx
 import pytest
 from api.chat import _classify_chat_exception
 from core.api_contracts import correlation_id
+from core.config import settings
 from fastapi.testclient import TestClient
+import services.model_runtime_manager as runtime_module
+from services.model_runtime_manager import ModelRuntimeManager
+
+
+def _local_api_model(client, username: str, tmp_path: Path, monkeypatch, engine_cls) -> dict:
+    monkeypatch.setenv("MODEL_PATH", str(tmp_path))
+    monkeypatch.setenv("MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "model_path", str(tmp_path))
+    monkeypatch.setattr(
+        runtime_module,
+        "model_runtime_manager",
+        ModelRuntimeManager(runtime_factory=lambda record, path: engine_cls(path)),
+    )
+    client.post("/api/v1/auth/register", json={"username": username, "password": "testpass", "email": f"{username}@test.com"})
+    token = client.post("/api/v1/auth/login", json={"username": username, "password": "testpass"}).json()["token"]
+    jwt_headers = {"Authorization": f"Bearer {token}"}
+    issued = client.post("/api/v1/local-api/keys", json={"name": "leakage"}, headers=jwt_headers)
+    assert issued.status_code == 200, issued.text
+    asset = tmp_path / f"{username}.gguf"
+    asset.write_bytes(b"GGUF-placeholder")
+    created = client.post("/api/v1/models/install", json={"name": "mock", "provider": "local", "path": str(asset)}, headers=jwt_headers)
+    assert created.status_code == 200, created.text
+    return {"Authorization": "Bearer " + issued.json()["secret"]}
 
 
 class TestChatErrorClassification:
@@ -207,23 +231,23 @@ class TestChatStreamingLeakage:
 class TestOpenAICompatibleLeakage:
     """Test that OpenAI compatible endpoint doesn't leak sensitive data."""
 
-    def test_openai_non_stream_error_envelope(self, client, monkeypatch):
+    def test_openai_non_stream_error_envelope(self, client, monkeypatch, tmp_path):
         """OpenAI non-streaming errors must use OpenAI error envelope with correlation_id."""
-        from services.runtime_registry import RuntimeRegistry
-
         class FailingRuntime:
+            def __init__(self, model_path: str):
+                self.model_path = model_path
+
+            async def load(self, *args, **kwargs):
+                return {"status": "loaded"}
+
             async def chat(self, *args, **kwargs):
                 raise RuntimeError("internal error with secret sk-12345")
 
-        monkeypatch.setattr(RuntimeRegistry, "get", lambda self, name=None: FailingRuntime())
-
-        # Register and login
-        client.post("/api/v1/auth/register", json={"username": "leaktest5", "password": "testpass", "email": "leak5@test.com"})
-        token = client.post("/api/v1/auth/login", json={"username": "leaktest5", "password": "testpass"}).json()["token"]
+        headers = _local_api_model(client, "leaktest5", tmp_path, monkeypatch, FailingRuntime)
         r = client.post(
             "/v1/chat/completions",
             json={"model": "mock", "messages": [{"role": "user", "content": "test"}]},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
         )
         assert r.status_code == 500
         body = r.json()
@@ -234,24 +258,24 @@ class TestOpenAICompatibleLeakage:
         # No secret leakage
         assert "sk-12345" not in body["error"]["message"]
 
-    def test_openai_stream_error_envelope(self, client, monkeypatch):
+    def test_openai_stream_error_envelope(self, client, monkeypatch, tmp_path):
         """OpenAI streaming errors must use OpenAI error envelope with correlation_id."""
-        from services.runtime_registry import RuntimeRegistry
-
         class FailingRuntime:
+            def __init__(self, model_path: str):
+                self.model_path = model_path
+
+            async def load(self, *args, **kwargs):
+                return {"status": "loaded"}
+
             async def stream_chat(self, *args, **kwargs):
                 raise RuntimeError("internal error with secret sk-12345")
                 yield  # pragma: no cover - unreachable but makes this an async generator
 
-        monkeypatch.setattr(RuntimeRegistry, "get", lambda self, name=None: FailingRuntime())
-
-        # Register and login
-        client.post("/api/v1/auth/register", json={"username": "leaktest6", "password": "testpass", "email": "leak6@test.com"})
-        token = client.post("/api/v1/auth/login", json={"username": "leaktest6", "password": "testpass"}).json()["token"]
+        headers = _local_api_model(client, "leaktest6", tmp_path, monkeypatch, FailingRuntime)
         r = client.post(
             "/v1/chat/completions",
             json={"model": "mock", "messages": [{"role": "user", "content": "test"}], "stream": True},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
         )
         assert r.status_code == 200
         assert "X-Correlation-ID" in r.headers

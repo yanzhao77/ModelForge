@@ -25,7 +25,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-
 MODEL_ID = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 REVISION = "0fad780a534b6463e45facd96134c9f345acfa5b"
 DEFAULT_SNAPSHOT = "benchmarks/wan21_phase0/output/snapshot"

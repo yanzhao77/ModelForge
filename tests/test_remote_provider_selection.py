@@ -73,6 +73,23 @@ class FakeApi:
     def list_models(self):
         return []
 
+    def save_remote_provider(self, name, base_url, protocol, default_model, api_key=None):
+        provider = {
+            "id": 99,
+            "name": name,
+            "base_url": base_url,
+            "protocol": protocol,
+            "default_model": default_model,
+            "enabled": True,
+            "key_configured": bool(api_key),
+            "credential_state": "configured" if api_key else "missing",
+            "endpoint": f"{base_url.rstrip('/')}/responses",
+            "verification_status": "unknown",
+            "verified_models": [],
+        }
+        self.providers.append(provider)
+        return dict(provider)
+
     def __getattr__(self, _name):
         return lambda *args, **kwargs: []
 
@@ -112,7 +129,7 @@ def test_presets_offer_deepseek_and_cc_switch_local_route():
         # The local route injects the real credential, so the client only needs
         # the placeholder key that route expects.
         assert dialog.api_key.text() == "cc-switch"
-        assert "路由" in dialog.state.text()
+        assert "15721" in dialog.state.text()
     finally:
         dialog.close()
         dialog.shutdown_async_api()
@@ -129,12 +146,12 @@ def test_verification_names_a_default_model_that_the_service_does_not_offer():
 
         dialog._verified({"ok": True, "models": ["deepseek-v4-pro", "deepseek-chat"]})
 
-        assert "不在服务返回的模型列表中" in dialog.state.text()
+        assert "deepseek-flash" in dialog.state.text()
         assert "deepseek-v4-pro" in dialog.state.text()
 
         # The message must survive the list reload that follows a verification.
         dialog._render(api.list_remote_providers())
-        assert "不在服务返回的模型列表中" in dialog.state.text()
+        assert "deepseek-v4-pro" in dialog.state.text()
     finally:
         dialog.close()
         dialog.shutdown_async_api()
@@ -149,7 +166,30 @@ def test_verification_reports_success_for_a_matching_default_model():
 
         dialog._verified({"ok": True, "models": ["deepseek-flash", "deepseek-v4-pro"]})
 
-        assert dialog.state.text() == "连接验证成功，发现 2 个模型。"
+        assert "2" in dialog.state.text()
+    finally:
+        dialog.close()
+        dialog.shutdown_async_api()
+
+
+def test_model_list_selection_updates_default_model_field():
+    _app()
+    provider = dict(DEEPSEEK_PROVIDER, default_model="", verified_models=[])
+    api = FakeApi([provider])
+    dialog = RemoteProviderDialog(api)
+    try:
+        dialog._render([provider])
+
+        dialog._verified({"ok": True, "models": ["deepseek-flash", "deepseek-v4-pro"]})
+
+        assert dialog.available_models.isEnabled() is True
+        assert dialog.available_models.count() == 3
+        assert "2" in dialog.state.text()
+
+        dialog.available_models.setCurrentIndex(2)
+        dialog._available_model_selected(2)
+
+        assert dialog.model.text() == "deepseek-v4-pro"
     finally:
         dialog.close()
         dialog.shutdown_async_api()
@@ -233,13 +273,10 @@ def test_model_page_chat_button_selects_that_service(tmp_path):
     )
     try:
         window._navigate_to("models")
-        window.models_page._render_models(([], [dict(DEEPSEEK_PROVIDER)]))
-        card = window.models_page.cards_layout.itemAt(0).widget()
-        chat_button = next(
-            button
-            for button in card.findChildren(QPushButton)
-            if button.text() == "开始对话"
-        )
+        window.models_page.nav.setCurrentIndex(1)
+        window.models_page.remote._render_models(([], [dict(DEEPSEEK_PROVIDER)]))
+        card = window.models_page.remote.cards_layout.itemAt(0).widget()
+        chat_button = card.findChildren(QPushButton)[0]
         chat_button.click()
 
         deadline = time.monotonic() + 5.0

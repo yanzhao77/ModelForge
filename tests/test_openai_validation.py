@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,19 +15,58 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from main import app
+import services.model_runtime_manager as runtime_module
+from services.model_runtime_manager import ModelRuntimeManager
+
+
+class ValidationEngine:
+    def __init__(self, model_path: str):
+        self.model_path = model_path
+
+    async def load(self, model_name: str, **kwargs):
+        return {"status": "loaded"}
+
+    async def chat(self, model_name: str, messages: list, **kwargs) -> dict:
+        return {"content": "hello world"}
+
+    async def stream_chat(self, model_name: str, messages: list, **kwargs):
+        yield "hello "
+        yield "world"
+
+    async def stop(self, model_name: str) -> dict:
+        return {"status": "stopped"}
 
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture
-def auth_token(client):
-    """Register and login a test user, return token."""
-    client.post("/api/v1/auth/register", json={"username": "openairegtest", "password": "testpass123", "email": "openai@test.com"})
-    token = client.post("/api/v1/auth/login", json={"username": "openairegtest", "password": "testpass123"}).json()["token"]
-    return token
+def auth_token(client, tmp_path, monkeypatch):
+    """Register and login a test user, return a local API key."""
+    monkeypatch.setenv("MODEL_PATH", str(tmp_path))
+    monkeypatch.setenv("MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        runtime_module,
+        "model_runtime_manager",
+        ModelRuntimeManager(runtime_factory=lambda record, path: ValidationEngine(path)),
+    )
+    username = f"openairegtest-{uuid.uuid4().hex[:8]}"
+    client.post("/api/v1/auth/register", json={"username": username, "password": "testpass123", "email": f"{username}@test.com"})
+    token = client.post("/api/v1/auth/login", json={"username": username, "password": "testpass123"}).json()["token"]
+    asset = tmp_path / "mock.gguf"
+    asset.write_bytes(b"GGUF-placeholder")
+    installed = client.post(
+        "/api/v1/models/install",
+        json={"name": "mock", "provider": "local", "path": str(asset)},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert installed.status_code == 200, installed.text
+    issued = client.post("/api/v1/local-api/keys", json={"name": "validation"}, headers={"Authorization": f"Bearer {token}"})
+    assert issued.status_code == 200, issued.text
+    return issued.json()["secret"]
 
 
 class TestOpenAIValidation:

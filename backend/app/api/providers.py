@@ -20,7 +20,7 @@ class ProviderUpsert(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     base_url: str = Field(min_length=8, max_length=512)
     protocol: Literal["responses", "chat_completions"] = "responses"
-    default_model: str = Field(min_length=1, max_length=255)
+    default_model: str = Field(default="", max_length=255)
     api_key: str | None = Field(default=None, min_length=1, max_length=2048)
     request_id: str | None = Field(default=None, max_length=64)
 

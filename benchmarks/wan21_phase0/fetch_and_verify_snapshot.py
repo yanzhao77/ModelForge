@@ -23,7 +23,6 @@ import httpx
 from huggingface_hub import hf_hub_url, list_repo_files
 from huggingface_hub.file_download import get_hf_file_metadata
 
-
 REPO_ID = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 REVISION = "0fad780a534b6463e45facd96134c9f345acfa5b"
 

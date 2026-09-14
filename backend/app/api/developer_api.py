@@ -13,11 +13,22 @@ import time
 
 from core.api_contracts import correlation_id, problem
 from core.database import get_db
-from core.security import get_current_user
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
-from models.records import User
 from pydantic import BaseModel, Field
+from services.local_api_service import (
+    LocalApiError,
+    LocalApiPrincipal,
+    LocalApiService,
+    SCOPE_AGENTS,
+    SCOPE_EMBEDDINGS,
+    SCOPE_KNOWLEDGE,
+    SCOPE_MODELS_READ,
+    SCOPE_WORKFLOWS,
+    authenticate_local_api_key,
+    openai_error_payload,
+)
+from services.model_capabilities import ModelCapability
 from services.agent_run_service import AgentRunService
 from services.agent_service import AgentServiceError
 from services.embedding_service import embed_texts
@@ -54,19 +65,43 @@ def _correlation(request: Request) -> str:
     return (request.headers.get("X-Request-ID") or correlation_id())[:64]
 
 
+def _auth(db: DBSession, authorization: str | None, scope: str) -> LocalApiPrincipal | JSONResponse:
+    try:
+        return authenticate_local_api_key(db, authorization, required_scope=scope)
+    except LocalApiError as exc:
+        corr = correlation_id()[:64]
+        return JSONResponse(
+            openai_error_payload(exc.code, exc.message, corr, param=exc.param),
+            status_code=exc.status_code,
+            headers={"X-Request-ID": corr, "X-Correlation-ID": corr},
+        )
+
+
 @router.post("/v1/embeddings")
 def create_embeddings(
     req: EmbeddingsRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
     db: DBSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
     """OpenAI-compatible embeddings built from the registry's embedding model."""
+    principal = _auth(db, authorization, SCOPE_EMBEDDINGS)
+    if isinstance(principal, JSONResponse):
+        return principal
     texts = [req.input] if isinstance(req.input, str) else list(req.input)
     if not texts:
         raise problem(422, "EMBEDDING_INPUT_REQUIRED", "input must not be empty.", correlation=correlation_id())
     if len(texts) > 64:
         raise problem(422, "EMBEDDING_INPUT_TOO_LARGE", "at most 64 inputs per request.", correlation=correlation_id())
-    result = embed_texts(db, user.id, texts, model_id=req.model_id)
+    model_id = req.model_id
+    if req.model and model_id is None:
+        try:
+            model_id = LocalApiService(db).require_model(principal.user_id, req.model, capability=ModelCapability.EMBEDDING.value).id
+        except LocalApiError as exc:
+            return JSONResponse(
+                openai_error_payload(exc.code, exc.message, correlation_id()[:64], param=exc.param),
+                status_code=exc.status_code,
+            )
+    result = embed_texts(db, principal.user_id, texts, model_id=model_id)
     tokens = sum(len(text.split()) for text in texts)
     return {
         "object": "list",
@@ -82,14 +117,18 @@ def create_embeddings(
 
 @router.get("/v1/agents")
 def developer_list_agents(
-    db: DBSession = Depends(get_db), user: User = Depends(get_current_user)
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: DBSession = Depends(get_db),
 ):
+    principal = _auth(db, authorization, SCOPE_AGENTS)
+    if isinstance(principal, JSONResponse):
+        return principal
     from services.agent_engine import get_engine
     from services.agent_runtime_service import get_agent_runtime
     from services.agent_service import AgentService
 
     service = AgentService(db, runtime=get_agent_runtime(), engine=get_engine())
-    return {"object": "list", "data": service.list(user.id)}
+    return {"object": "list", "data": service.list(principal.user_id)}
 
 
 @router.post("/v1/agents/{agent_id}/runs")
@@ -97,19 +136,22 @@ async def developer_run_agent(
     agent_id: str,
     req: DeveloperAgentRunRequest,
     request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization"),
     db: DBSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
     corr = _correlation(request)
+    principal = _auth(db, authorization, SCOPE_AGENTS)
+    if isinstance(principal, JSONResponse):
+        return principal
     from services.agent_runtime_service import get_agent_runtime
     from services.agent_service import AgentService
 
     try:
-        AgentService(db, runtime=get_agent_runtime()).require(agent_id, user.id)
+        AgentService(db, runtime=get_agent_runtime()).require(agent_id, principal.user_id)
         run = AgentRunService(db, runtime=get_agent_runtime()).create_run(
             agent_id=agent_id,
             input_text=req.input,
-            user_id=user.id,
+            user_id=principal.user_id,
             session_id=req.session_id,
             metadata=req.metadata,
             execute=True,
@@ -124,20 +166,30 @@ async def developer_run_agent(
 
 @router.get("/v1/agents/runs/{run_id}")
 def developer_get_agent_run(
-    run_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)
+    run_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: DBSession = Depends(get_db),
 ):
+    principal = _auth(db, authorization, SCOPE_AGENTS)
+    if isinstance(principal, JSONResponse):
+        return principal
     try:
-        return AgentRunService(db).get_run(run_id, user.id)
+        return AgentRunService(db).get_run(run_id, principal.user_id)
     except AgentServiceError as exc:
         raise problem(exc.http_status, exc.code, exc.message, correlation=correlation_id()) from exc
 
 
 @router.get("/v1/agents/runs/{run_id}/trace")
 def developer_agent_trace(
-    run_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)
+    run_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: DBSession = Depends(get_db),
 ):
+    principal = _auth(db, authorization, SCOPE_AGENTS)
+    if isinstance(principal, JSONResponse):
+        return principal
     try:
-        return AgentRunService(db).trace(run_id, user.id)
+        return AgentRunService(db).trace(run_id, principal.user_id)
     except AgentServiceError as exc:
         raise problem(exc.http_status, exc.code, exc.message, correlation=correlation_id()) from exc
 
@@ -145,10 +197,13 @@ def developer_agent_trace(
 @router.post("/v1/knowledge/search")
 def developer_knowledge_search(
     req: DeveloperKnowledgeSearchRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
     db: DBSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
     """Retrieve knowledge chunks for an external application."""
+    principal = _auth(db, authorization, SCOPE_KNOWLEDGE)
+    if isinstance(principal, JSONResponse):
+        return principal
     from api.knowledge import _get_kb
 
     kb = _get_kb(correlation=correlation_id())
@@ -161,7 +216,7 @@ def developer_knowledge_search(
         req.query,
         top_k=req.top_k,
         db=db,
-        user_id=user.id,
+        user_id=principal.user_id,
         knowledge_binding=binding,
         retrieval_mode=req.retrieval_mode,
     )
@@ -177,13 +232,16 @@ async def developer_run_workflow(
     workflow_id: str,
     req: DeveloperWorkflowRunRequest,
     request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization"),
     db: DBSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
     corr = _correlation(request)
+    principal = _auth(db, authorization, SCOPE_WORKFLOWS)
+    if isinstance(principal, JSONResponse):
+        return principal
     try:
         result = WorkflowService(db).create_run(
-            user.id, workflow_id, run_input=req.input, execute=True
+            principal.user_id, workflow_id, run_input=req.input, execute=True
         )
     except WorkflowServiceError as exc:
         return JSONResponse(
@@ -195,28 +253,40 @@ async def developer_run_workflow(
 
 @router.get("/v1/workflows/runs/{run_id}")
 def developer_get_workflow_run(
-    run_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)
+    run_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: DBSession = Depends(get_db),
 ):
+    principal = _auth(db, authorization, SCOPE_WORKFLOWS)
+    if isinstance(principal, JSONResponse):
+        return principal
     try:
-        return WorkflowService(db).get_run(user.id, run_id)
+        return WorkflowService(db).get_run(principal.user_id, run_id)
     except WorkflowServiceError as exc:
         raise problem(exc.http_status, exc.code, exc.message, correlation=correlation_id()) from exc
 
 
 @router.get("/v1/workflows/runs/{run_id}/trace")
 def developer_workflow_trace(
-    run_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)
+    run_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: DBSession = Depends(get_db),
 ):
+    principal = _auth(db, authorization, SCOPE_WORKFLOWS)
+    if isinstance(principal, JSONResponse):
+        return principal
     try:
-        return WorkflowService(db).trace(user.id, run_id)
+        return WorkflowService(db).trace(principal.user_id, run_id)
     except WorkflowServiceError as exc:
         raise problem(exc.http_status, exc.code, exc.message, correlation=correlation_id()) from exc
 
 
 @router.get("/v1/platform/capabilities")
-def developer_capabilities(user: User = Depends(get_current_user)):
+def developer_capabilities(authorization: str | None = Header(default=None, alias="Authorization"), db: DBSession = Depends(get_db)):
     """Machine-readable catalog for SDK/clients (no secrets, no user data)."""
-    del user
+    principal = _auth(db, authorization, SCOPE_MODELS_READ)
+    if isinstance(principal, JSONResponse):
+        return principal
     from runtime.tools.base import PermissionLevel
     from services.runtime_resolver import RuntimeResolver
     from services.workflow_engine import NODE_TYPES

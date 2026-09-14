@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
-from components.mf.primitives import MFSection, MFStatusBadge
-from i18n.ui_localizer import format_api_error
+from components.mf.primitives import MFPageHeader, MFStatusBadge
+from i18n.ui_localizer import current, format_api_error, format_text, localize_tree, text as localize_text
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 
 def _list_chat_models(api) -> list[dict]:
     """Registry query used by the selector; tolerates narrow test doubles."""
@@ -93,6 +94,27 @@ class StreamWorker(QThread):
         return f"[{code}] {message} {retry}"
 
 
+class ComposerInput(QPlainTextEdit):
+    submitted = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(88)
+        self.setMaximumHeight(200)
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def setText(self, value: str) -> None:  # compatibility with existing example callbacks
+        self.setPlainText(value)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not event.modifiers() & Qt.ShiftModifier:
+            self.submitted.emit()
+            return
+        super().keyPressEvent(event)
+
+
 class ChatPage(QWidget, AsyncApiMixin):
     """Streaming conversation workspace with safe, plain-text message rendering."""
 
@@ -131,13 +153,14 @@ class ChatPage(QWidget, AsyncApiMixin):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        header = QHBoxLayout()
-        header.addWidget(MFSection("会话工作区", "对话"))
-        header.addStretch(1)
         self.chat_status = MFStatusBadge("未选择模型", "warning")
-        header.addWidget(self.chat_status)
-        layout.addLayout(header)
+        self.header = MFPageHeader("对话", "选择模型后开始会话。参数与知识库范围保持在当前页。", self.chat_status)
+        layout.addWidget(self.header)
+        controls = QVBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
         model_row = QHBoxLayout()
+        model_row.setContentsMargins(0, 0, 0, 0)
         self.local_model_select = QComboBox()
         self.local_model_select.setAccessibleName("本地模型")
         self.local_model_select.setToolTip("来自模型中心（Model Registry）的本地模型")
@@ -152,24 +175,29 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.provider_select.addItem("本地运行时", None)
         self.provider_select.currentIndexChanged.connect(self._provider_changed)
         model_row.addWidget(self.provider_select)
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
         self.load_btn = QPushButton("使用模型")
         self.load_btn.setAccessibleName("使用所选模型")
         self.load_btn.clicked.connect(self.load_model)
-        model_row.addWidget(self.load_btn)
+        action_row.addWidget(self.load_btn)
         self.kb_check = QCheckBox("使用知识库")
         self.kb_check.setAccessibleName("使用知识库回答")
-        model_row.addWidget(self.kb_check)
-        layout.addLayout(model_row)
+        action_row.addWidget(self.kb_check)
+        action_row.addStretch(1)
+        controls.addLayout(model_row)
+        controls.addLayout(action_row)
+        layout.addLayout(controls)
         self.display = QPlainTextEdit()
         self.display.setReadOnly(True)
         self.display.setAccessibleName("对话记录")
         self.display.setPlaceholderText("对话内容将显示在这里。")
         layout.addWidget(self.display, 1)
         composer = QHBoxLayout()
-        self.msg_input = QLineEdit()
+        self.msg_input = ComposerInput()
         self.msg_input.setAccessibleName("消息内容")
         self.msg_input.setPlaceholderText("向 ModelForge 发送消息…")
-        self.msg_input.returnPressed.connect(self.send_message)
+        self.msg_input.submitted.connect(self.send_message)
         composer.addWidget(self.msg_input, 1)
         examples = QPushButton("示例")
         examples.setAccessibleName("打开对话示例")
@@ -192,6 +220,17 @@ class ChatPage(QWidget, AsyncApiMixin):
         self.send_btn.setEnabled(False)
         composer.addWidget(self.send_btn)
         layout.addLayout(composer)
+        self.retranslate()
+
+    def retranslate(self, translator=None) -> None:
+        translator = translator or current()
+        if translator is not None:
+            self.header.set_text(
+                translator.t("nav.chat", "对话"),
+                translator.t("chat.subtitle", "选择模型后开始会话。参数与知识库范围保持在当前页。"),
+            )
+        localize_tree(self, translator)
+        self._render_local_models(self._local_models)
 
     def _append_notice(self, title: str, detail: str = "") -> None:
         self.display.appendPlainText(title)
@@ -224,15 +263,17 @@ class ChatPage(QWidget, AsyncApiMixin):
         )
 
     def _render_local_models(self, models) -> None:
+        locale = current().locale if current() is not None else "zh_CN"
         self._local_models = [model for model in (models or []) if isinstance(model, dict)]
         previous = self._selected_model_id
         self.local_model_select.blockSignals(True)
         self.local_model_select.clear()
-        self.local_model_select.addItem("本地模型…", None)
+        self.local_model_select.addItem(localize_text("本地模型…", locale), None)
         for model in self._local_models:
             name = model.get("display_name") or model.get("name") or str(model.get("model_id"))
             loaded = model.get("runtime_status") == "loaded"
-            self.local_model_select.addItem(f"{name} {'● 已加载' if loaded else '○ 未加载'}", model.get("model_id") or model.get("id"))
+            state = localize_text("已加载" if loaded else "未加载", locale)
+            self.local_model_select.addItem(f"{name} {'●' if loaded else '○'} {state}", model.get("model_id") or model.get("id"))
         if previous is not None:
             index = self.local_model_select.findData(previous)
             if index >= 0:
@@ -283,24 +324,25 @@ class ChatPage(QWidget, AsyncApiMixin):
         return bool(provider.get("key_configured") or provider.get("credential_state") == "configured")
 
     def _render_remote_providers(self, providers):
+        locale = current().locale if current() is not None else "zh_CN"
         previous = self._provider_id()
         selected = previous if previous is not None else self._pending_provider_id
         selectable = [p for p in (providers or []) if self._provider_selectable(p)]
         selectable.sort(key=lambda p: p.get("verification_status") != "success")
         self.provider_select.blockSignals(True)
         self.provider_select.clear()
-        self.provider_select.addItem("本地运行时", None)
+        self.provider_select.addItem(localize_text("本地运行时", locale), None)
         for provider in selectable:
             verified = provider.get("verification_status") == "success"
             label = f"{provider['name']} · {provider['default_model']}"
             if not verified:
-                label += "（未验证）"
+                label += localize_text("（未验证）", locale)
             self.provider_select.addItem(label, provider)
             index = self.provider_select.count() - 1
             if not verified:
                 self.provider_select.setItemData(
                     index,
-                    "该服务已保存但尚未验证连接；可直接对话，建议在模型管理中验证。",
+                    localize_text("该服务已保存但尚未验证连接；可直接对话，建议在模型管理中验证。", locale),
                     Qt.ToolTipRole,
                 )
             if provider.get("id") == selected:
@@ -396,21 +438,21 @@ class ChatPage(QWidget, AsyncApiMixin):
         if local is not None:
             name = local.get("display_name") or local.get("name") or ""
             if local.get("runtime_status") == "loaded":
-                self.chat_status.set_state(f"{name} · 已加载", "online")
+                self.chat_status.set_state(f"{name} · {format_text('已加载')}", "online")
             elif local.get("ready"):
-                self.chat_status.set_state(f"{name} · 未加载（发送时自动加载）", "online")
+                self.chat_status.set_state(f"{name} · {format_text('未加载（发送时自动加载）')}", "online")
             else:
-                self.chat_status.set_state(f"{name} · 尚不可用", "warning")
+                self.chat_status.set_state(f"{name} · {format_text('尚不可用')}", "warning")
             return
         if self._model_ready:
-            self.chat_status.set_state("模型已就绪", "online")
+            self.chat_status.set_state(format_text("模型已就绪"), "online")
             return
         if self._remote_provider_count:
             self.chat_status.set_state(
-                f"已配置 {self._remote_provider_count} 个远程模型，请在上方选择", "warning"
+                format_text("已配置 {count} 个远程模型，请在上方选择", count=self._remote_provider_count), "warning"
             )
             return
-        self.chat_status.set_state("请先配置可用模型", "warning")
+        self.chat_status.set_state(format_text("请先配置可用模型"), "warning")
 
     def _chat_ready(self) -> bool:
         return (

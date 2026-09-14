@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from components.api_worker import AsyncApiMixin
-from components.mf.primitives import MFPanel, MFSection, MFStatusBadge
-from i18n.ui_localizer import format_api_error
+from components.mf.primitives import MFPageHeader, MFPanel, MFSettingsRow, MFStatusBadge
+from i18n.ui_localizer import format_api_error, localize_tree
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -22,11 +22,11 @@ from PySide6.QtWidgets import (
 def _format_size(value: int) -> str:
     """Render a byte count for the storage status line."""
     amount = float(max(0, value))
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if amount < 1024 or unit == "TB":
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024 or unit == "TiB":
             return f"{int(amount)} B" if unit == "B" else f"{amount:.1f} {unit}"
         amount /= 1024
-    return f"{amount:.1f} TB"
+    return f"{amount:.1f} TiB"
 
 
 class SettingsPage(QWidget, AsyncApiMixin):
@@ -38,11 +38,13 @@ class SettingsPage(QWidget, AsyncApiMixin):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(16)
-        root.addWidget(MFSection("偏好设置", "设置"))
+        self.header = MFPageHeader("设置", "外观、语言、模型存储和服务连接偏好。")
+        root.addWidget(self.header)
         body = QHBoxLayout()
         self.categories = QListWidget()
         self.categories.setFixedWidth(168)
-        for item in ("通用", "模型", "外观", "语言", "服务连接", "关于"):
+        self._category_sources = ("通用", "模型", "外观", "语言", "服务连接", "关于")
+        for item in self._category_sources:
             self.categories.addItem(item)
         self.pages = QStackedWidget()
         self.pages.addWidget(self._general())
@@ -56,13 +58,16 @@ class SettingsPage(QWidget, AsyncApiMixin):
         body.addWidget(self.categories)
         body.addWidget(self.pages, 1)
         root.addLayout(body, 1)
+        self.retranslate(self.translator)
 
     def _page(self, title: str, description: str) -> tuple[QWidget, QVBoxLayout]:
         page = QWidget()
+        page.setMaximumWidth(760)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(10, 0, 0, 0)
+        layout.setSpacing(12)
         heading = QLabel(title)
-        heading.setProperty("role", "pageTitle")
+        heading.setProperty("role", "sectionTitle")
         layout.addWidget(heading)
         detail = QLabel(description)
         detail.setProperty("role", "muted")
@@ -156,9 +161,6 @@ class SettingsPage(QWidget, AsyncApiMixin):
     def _appearance(self) -> QWidget:
         page, layout = self._page("外观", "选择界面主题，不会影响当前工作内容。")
         panel = MFPanel()
-        row = QHBoxLayout()
-        row.addWidget(QLabel("主题"))
-        row.addStretch(1)
         self.theme_select = QComboBox()
         self.theme_select.addItem("浅色", "light")
         self.theme_select.addItem("深色", "dark")
@@ -166,8 +168,7 @@ class SettingsPage(QWidget, AsyncApiMixin):
         index = self.theme_select.findData(self.theme_manager.mode.value)
         self.theme_select.setCurrentIndex(max(index, 0))
         self.theme_select.currentIndexChanged.connect(lambda _: self.theme_manager.set_mode(self.theme_select.currentData()))
-        row.addWidget(self.theme_select)
-        panel.layout.addLayout(row)
+        panel.layout.addWidget(MFSettingsRow("主题", "立即切换界面外观，不会重新发起业务请求。", self.theme_select))
         layout.addWidget(panel)
         layout.addStretch(1)
         return page
@@ -175,9 +176,6 @@ class SettingsPage(QWidget, AsyncApiMixin):
     def _language(self) -> QWidget:
         page, layout = self._page("语言", "为导航和已适配的产品界面选择显示语言。")
         panel = MFPanel()
-        row = QHBoxLayout()
-        row.addWidget(QLabel("显示语言"))
-        row.addStretch(1)
         self.language_select = QComboBox()
         self.language_select.addItem("简体中文", "zh_CN")
         self.language_select.addItem("English", "en_US")
@@ -185,8 +183,7 @@ class SettingsPage(QWidget, AsyncApiMixin):
         index = self.language_select.findData(self.translator.locale)
         self.language_select.setCurrentIndex(max(index, 0))
         self.language_select.currentIndexChanged.connect(lambda _: self.translator.set_locale(self.language_select.currentData()))
-        row.addWidget(self.language_select)
-        panel.layout.addLayout(row)
+        panel.layout.addWidget(MFSettingsRow("显示语言", "当前页面、弹窗和后续动态状态会使用所选语言。", self.language_select))
         layout.addWidget(panel)
         layout.addStretch(1)
         return page
@@ -202,6 +199,26 @@ class SettingsPage(QWidget, AsyncApiMixin):
         layout.addWidget(panel)
         layout.addStretch(1)
         return page
+
+    def retranslate(self, translator=None) -> None:
+        self.translator = translator or self.translator
+        self.header.set_text(
+            self.translator.t("settings.title", "设置"),
+            self.translator.t("settings.subtitle", "外观、语言、模型存储和服务连接偏好。"),
+        )
+        keys = {
+            "通用": "settings.general",
+            "模型": "nav.models",
+            "外观": "settings.appearance",
+            "语言": "settings.language",
+            "服务连接": "settings.backend",
+            "关于": "settings.about",
+        }
+        for index, source in enumerate(self._category_sources):
+            item = self.categories.item(index)
+            if item is not None:
+                item.setText(self.translator.t(keys[source], source))
+        localize_tree(self, self.translator)
 
     def _load_download_source(self) -> None:
         if not self.api or not hasattr(self.api, "get_download_source"):

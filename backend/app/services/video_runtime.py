@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Literal, Protocol
 
-
 VIDEO_CAPABILITY = "video_generation"
 VIDEO_CONTRACT_VERSION = "modelforge.video.v1"
 
@@ -274,8 +273,8 @@ class CogVideoXRuntimeUnavailable:
     async def probe(self, model: VideoModelSpec) -> VideoRuntimeProbe:
         del model
         try:
-            import torch  # noqa: F401
             import diffusers  # noqa: F401
+            import torch  # noqa: F401
         except Exception:
             return VideoRuntimeProbe(
                 False,

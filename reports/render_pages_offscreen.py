@@ -1,7 +1,7 @@
 """Render every desktop destination in both themes for visual UI audit.
 
 Extends render_future_ui.py: walks all navigation destinations of the main
-window (plus the task center dock and the login dialog) and saves one PNG per
+window (plus the login dialog) and saves one PNG per
 destination/theme into reports/ui-audit/. Uses ``DesktopContractStub``, so no
 backend service is contacted and no real action is performed.
 
@@ -100,7 +100,7 @@ def main() -> int:
 
     out_dir = os.path.join(ROOT, "reports", "ui-audit")
     os.makedirs(out_dir, exist_ok=True)
-    destinations = list(window._pages.keys()) + ["tasks"]
+    destinations = list(window._pages.keys())
     modes = ("light", "dark")
     plan = [(mode, key) for mode in modes for key in destinations]
     failures: list[str] = []
@@ -126,12 +126,7 @@ def main() -> int:
         progress["at"], progress["label"] = time.monotonic(), f"{mode}/{key}"
         try:
             theme_manager.set_mode(mode)
-            if key == "tasks":
-                window._show_task_center()
-            else:
-                if window.task_center.isVisible():
-                    window.task_center.hide()
-                window._navigate_to(key)
+            window._navigate_to(key)
         except Exception as exc:  # keep auditing remaining destinations
             failures.append(f"{mode}/{key}: {exc!r}")
             step(index + 1)

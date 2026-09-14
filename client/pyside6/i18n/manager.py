@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, Signal
 
-from .ui_localizer import set_current
+from .ui_localizer import set_current, text
 
 
 class I18n(QObject):
@@ -45,4 +45,6 @@ class I18n(QObject):
         self.changed.emit(name)
 
     def t(self, key: str, default: str | None = None) -> str:
-        return self._messages.get(key, default or key)
+        if key in self._messages:
+            return self._messages[key]
+        return text(default, self.locale) if default is not None else key

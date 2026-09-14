@@ -199,4 +199,29 @@ _MIGRATIONS = (
             "CREATE INDEX IF NOT EXISTS ix_models_preferred_runtime ON models(preferred_runtime)",
         ),
     ),
+    (
+        # Local OpenAI-compatible API: new tables are created by create_all on
+        # SQLite; the migration ledger records the feature boundary and ensures
+        # indexes exist for upgraded local databases.
+        "0006_local_openai_api",
+        (),
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_local_api_keys_user_prefix ON local_api_keys(user_id, prefix)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_model_api_aliases_user_alias ON model_api_aliases(user_id, alias)",
+            "CREATE INDEX IF NOT EXISTS ix_local_api_logs_user_created ON local_api_request_logs(user_id, created_at)",
+        ),
+    ),
+    (
+        "0007_local_api_runtime_settings",
+        (
+            ("local_api_settings", "max_concurrent_requests_per_model", "INTEGER NOT NULL DEFAULT 1"),
+            ("local_api_settings", "queue_size", "INTEGER NOT NULL DEFAULT 16"),
+            ("local_api_settings", "idle_unload_seconds", "INTEGER NOT NULL DEFAULT 1800"),
+            ("local_api_settings", "max_upload_bytes", "INTEGER NOT NULL DEFAULT 20971520"),
+            ("local_api_settings", "logging_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("local_api_settings", "log_retention_days", "INTEGER NOT NULL DEFAULT 14"),
+            ("local_api_settings", "temp_dir", "VARCHAR(1024)"),
+        ),
+        (),
+    ),
 )

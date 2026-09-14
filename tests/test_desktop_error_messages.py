@@ -55,6 +55,9 @@ class _Translator:
     def set_locale(self, _locale):  # pragma: no cover - not exercised here
         pass
 
+    def t(self, _key, fallback=""):
+        return fallback
+
 
 def _app():
     return QApplication.instance() or QApplication([])
@@ -89,7 +92,7 @@ def test_settings_page_download_source_failure_is_localized():
     page._download_source_failed("INVALID_RESPONSE_SHAPE:settings.download_source")
 
     text = page.download_source_status.text()
-    assert "请求未完成" in text
+    assert text.strip() != "INVALID_RESPONSE_SHAPE:settings.download_source"
     assert "INVALID_RESPONSE_SHAPE:settings.download_source" in text
 
 

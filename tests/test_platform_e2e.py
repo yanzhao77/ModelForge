@@ -65,6 +65,12 @@ def _auth(client: TestClient) -> tuple[dict, int]:
     return headers, user_id
 
 
+def _local_key(client: TestClient, headers: dict) -> dict:
+    issued = client.post("/api/v1/local-api/keys", json={"name": "platform-e2e"}, headers=headers)
+    assert issued.status_code == 200, issued.text
+    return {"Authorization": "Bearer " + issued.json()["secret"]}
+
+
 @pytest.fixture
 def platform_env(tmp_path, monkeypatch):
     models = tmp_path / "models"
@@ -96,7 +102,7 @@ def platform_env(tmp_path, monkeypatch):
     try:
         with TestClient(app) as client:
             headers, user_id = _auth(client)
-            yield {"client": client, "headers": headers, "user_id": user_id, "models": models}
+            yield {"client": client, "headers": headers, "api_headers": _local_key(client, headers), "user_id": user_id, "models": models}
     finally:
         for lease in (inference_lease, training_lease):
             holder = lease.holder()
@@ -180,7 +186,7 @@ def test_chain_agent_tool_memory(platform_env):
 
 
 def test_chain_rag_document_to_answer(platform_env):
-    client, headers = platform_env["client"], platform_env["headers"]
+    client, headers, api_headers = platform_env["client"], platform_env["headers"], platform_env["api_headers"]
     client.post(
         "/api/v1/knowledge/upload",
         files={"file": ("rag.md", b"ModelForge unifies model lifecycle and runtime.", "text/markdown")},
@@ -207,7 +213,7 @@ def test_chain_rag_document_to_answer(platform_env):
     search = client.post(
         "/v1/knowledge/search",
         json={"query": "model lifecycle", "top_k": 2, "knowledge_id": base["knowledge_id"]},
-        headers=headers,
+        headers=api_headers,
     )
     assert search.status_code == 200
     # The document was not attached to the base, so a collection-scoped search is empty.
@@ -274,7 +280,7 @@ def test_chain_training_artifact_back_to_chat(platform_env):
 
 
 def test_chain_workflow_and_external_api(platform_env):
-    client, headers, models = platform_env["client"], platform_env["headers"], platform_env["models"]
+    client, headers, api_headers, models = platform_env["client"], platform_env["headers"], platform_env["api_headers"], platform_env["models"]
     _install_model(client, headers, models, "wf-model")
     definition = {
         "entry": "start",
@@ -309,13 +315,13 @@ def test_chain_workflow_and_external_api(platform_env):
     assert status["status"] == "COMPLETED", status
 
     # External API chain: /v1/models -> /v1/chat/completions -> runtime.
-    models_list = client.get("/v1/models", headers=headers)
+    models_list = client.get("/v1/models", headers=api_headers)
     assert models_list.status_code == 200
     assert any(item["id"] == "wf-model" for item in models_list.json()["data"])
     chat = client.post(
         "/v1/chat/completions",
         json={"model": "wf-model", "messages": [{"role": "user", "content": "hi"}]},
-        headers=headers,
+        headers=api_headers,
     )
     assert chat.status_code == 200, chat.text
     assert chat.json()["choices"][0]["message"]["content"] == "platform answer"

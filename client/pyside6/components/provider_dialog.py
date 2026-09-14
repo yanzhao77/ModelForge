@@ -53,7 +53,7 @@ _PROVIDER_PRESETS: tuple[dict[str, str], ...] = (
         "model": "deepseek-flash",
         "api_key": "",
         "hint": "DeepSeek 官方 OpenAI 兼容接口：默认使用 Chat Completions 协议，"
-        "默认模型可填 deepseek-flash 或 deepseek-v4-pro，密钥在 platform.deepseek.com 创建。",
+        "输入密钥后获取模型列表，再选择一个模型保存为默认。密钥在 platform.deepseek.com 创建。",
     },
     {
         "key": "ccswitch",
@@ -64,7 +64,7 @@ _PROVIDER_PRESETS: tuple[dict[str, str], ...] = (
         "model": "",
         "api_key": "cc-switch",
         "hint": "先在 CC Switch「设置 → 路由」中启动本地路由（默认 127.0.0.1:15721）；"
-        "默认模型填该路由当前供应商支持的模型名，例如 deepseek-flash。"
+        "输入占位密钥后获取模型列表，再选择该路由当前供应商支持的模型。"
         "本地路由会用自己的凭据替换这里的占位密钥。",
     },
     {
@@ -116,6 +116,9 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         self.protocol.addItem("Responses API（推荐）", "responses")
         self.protocol.addItem("Chat Completions API", "chat_completions")
         self.model = QLineEdit()
+        self.available_models = QComboBox()
+        self.available_models.setEnabled(False)
+        self.available_models.activated.connect(self._available_model_selected)
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.Password)
         self.api_key.setPlaceholderText("新建服务时必填；编辑时留空可保留已有密钥")
@@ -124,6 +127,7 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         form.addRow("服务地址", self.base_url)
         form.addRow("协议", self.protocol)
         form.addRow("默认模型", self.model)
+        form.addRow("可用模型", self.available_models)
         form.addRow("API 密钥", self.api_key)
         right.addLayout(form)
         self.state = QLabel("")
@@ -133,10 +137,10 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         # preset edit cannot leave the pre-filled fields behind.
         self._preset_changed(self.preset.currentIndex())
         actions = QHBoxLayout()
-        self.save_btn = QPushButton("保存")
+        self.save_btn = QPushButton("保存默认模型")
         self.save_btn.setProperty("accent", True)
         self.save_btn.clicked.connect(self.save)
-        self.verify_btn = QPushButton("验证连接")
+        self.verify_btn = QPushButton("获取模型列表")
         self.verify_btn.clicked.connect(self.verify)
         self.delete_btn = QPushButton("删除")
         self.delete_btn.clicked.connect(self.delete)
@@ -170,7 +174,8 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         # the fields are reset explicitly instead of relying on the signal.
         self._preset_changed(0)
         self.api_key.clear()
-        self.state.setText(self._tr("新建模型服务配置。点击验证连接前不会发起网络请求。"))
+        self._set_available_models([])
+        self.state.setText(self._tr("新建模型服务配置。点击获取模型列表前不会发起网络请求。"))
 
     def _preset(self) -> dict | None:
         key = self.preset.currentData()
@@ -190,8 +195,33 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         self.api_key.clear()
         if preset["api_key"]:
             self.api_key.setText(preset["api_key"])
+        self._set_available_models([])
         if preset["hint"]:
             self.state.setText(self._tr(preset["hint"]))
+
+    def _set_available_models(self, models: list[str], selected: str = "") -> None:
+        self.available_models.blockSignals(True)
+        self.available_models.clear()
+        if models:
+            sources = ["请选择模型…", *models]
+            self.available_models.addItem("请选择模型…", "")
+            for model in models:
+                self.available_models.addItem(model, model)
+            index = self.available_models.findData(selected)
+            self.available_models.setCurrentIndex(index if index >= 0 else 0)
+            self.available_models.setEnabled(True)
+        else:
+            sources = ["保存密钥后获取模型列表"]
+            self.available_models.addItem("保存密钥后获取模型列表", "")
+            self.available_models.setEnabled(False)
+        self.available_models.setProperty("mf_i18n_items", sources)
+        self.available_models.blockSignals(False)
+
+    def _available_model_selected(self, _index: int) -> None:
+        model = str(self.available_models.currentData() or "").strip()
+        if model:
+            self.model.setText(model)
+            self.state.setText(self._tr("已选择默认模型：{model}", model=model))
 
     def refresh(self) -> None:
         self.state.setText(self._tr("正在加载模型服务…"))
@@ -225,6 +255,10 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
         )
         self.model.setText(provider["default_model"])
         self.api_key.clear()
+        self._set_available_models(
+            [str(item) for item in provider.get("verified_models", [])],
+            str(provider.get("default_model") or ""),
+        )
         status = provider.get("verification_status", "unknown")
         status_text = {
             "success": self._tr("连接状态：已验证"),
@@ -246,9 +280,9 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
             self.model.text().strip(),
             self.api_key.text().strip(),
         )
-        if not all((name, url, model)):
+        if not all((name, url)):
             QMessageBox.warning(
-                self, "信息不完整", "名称、Base URL 和默认模型均为必填项。"
+                self, "信息不完整", "名称和 Base URL 为必填项。"
             )
             return
         self.state.setText("正在保存加密的模型服务配置…")
@@ -262,9 +296,19 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
 
     def verify(self) -> None:
         provider = self.current()
-        if not provider:
+        name = self.name.text().strip()
+        url = self.base_url.text().strip()
+        key = self.api_key.text().strip()
+        has_saved_key = bool(
+            provider
+            and (
+                provider.get("credential_state") == "configured"
+                or provider.get("key_configured")
+            )
+        )
+        if not all((name, url)) or not (key or has_saved_key):
             QMessageBox.information(
-                self, "请选择模型服务", "请先保存模型服务，再验证连接。"
+                self, "请选择模型服务", "请先填写名称、Base URL 和 API 密钥。"
             )
             return
         if QMessageBox.question(
@@ -273,19 +317,45 @@ class RemoteProviderDialog(QDialog, AsyncApiMixin):
             self._tr("验证将访问此服务并请求模型列表，是否继续？"),
         ) != QMessageBox.Yes:
             return
+        self.state.setText("正在保存加密的模型服务配置…")
+        self._run_api(
+            lambda: self.api.save_remote_provider(
+                self.name.text().strip(),
+                self.base_url.text().strip(),
+                self.protocol.currentData(),
+                self.model.text().strip(),
+                self.api_key.text().strip() or None,
+            ),
+            self._saved_then_verify,
+            self._failed,
+        )
+
+    def _verify_provider(self, provider_id: int) -> None:
         self.state.setText(self._tr("正在验证连接并获取模型列表…"))
         self._run_api(
-            lambda: self.api.verify_remote_provider(provider["id"], confirm=True),
+            lambda: self.api.verify_remote_provider(provider_id, confirm=True),
             self._verified,
             self._failed,
         )
 
+    def _saved_then_verify(self, provider: dict) -> None:
+        provider_id = provider.get("id")
+        if provider_id is None:
+            self._failed("REMOTE_PROVIDER_RESPONSE_INVALID")
+            return
+        self._verify_provider(int(provider_id))
+
     def _verified(self, result: dict) -> None:
         models = [str(item) for item in result.get("models", [])]
         provider = self.current() or {}
+        self._set_available_models(
+            models, str(provider.get("default_model") or self.model.text().strip())
+        )
         notice = self._tr("连接验证成功，发现 {count} 个模型。", count=len(models))
         default_model = str(provider.get("default_model") or "")
-        if models and default_model and default_model not in models:
+        if models and not default_model:
+            notice = self._tr("连接验证成功，发现 {count} 个模型。请选择一个模型并保存为默认模型。", count=len(models))
+        elif models and default_model and default_model not in models:
             # A display name such as "GLM-4.7-Flash" is not a model code: the
             # service verifies, but readiness and agents never treat it as a
             # usable target. Say so instead of reporting a plain success.

@@ -46,6 +46,12 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _local_api_auth(client, token: str) -> dict:
+    issued = client.post("/api/v1/local-api/keys", json={"name": "integration"}, headers=_auth(token))
+    assert issued.status_code == 200, issued.text
+    return {"Authorization": "Bearer " + issued.json()["secret"]}
+
+
 class TestAuthFlow:
     def test_register_login_me(self, client):
         r = _register(client, "alice")
@@ -262,17 +268,16 @@ class TestOpenAICompat:
         payload = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
         assert client.post("/v1/chat/completions", json=payload).status_code == 401
         token = _login(client, "openaiuser")
-        r = client.post("/v1/chat/completions", json=payload, headers=_auth(token))
-        assert r.status_code == 200
-        data = r.json()
-        assert data["object"] == "chat.completion"
-        assert data["choices"][0]["message"]["content"] == "openai reply"
-        assert "usage" in data
+        assert client.post("/v1/chat/completions", json=payload, headers=_auth(token)).status_code == 401
+        r = client.post("/v1/chat/completions", json=payload, headers=_local_api_auth(client, token))
+        assert r.status_code == 404
+        assert r.json()["error"]["code"] == "MODEL_NOT_FOUND"
 
     def test_list_models(self, client):
         assert client.get("/v1/models").status_code == 401
         token = _login(client, "openaimodeluser")
-        r = client.get("/v1/models", headers=_auth(token))
+        assert client.get("/v1/models", headers=_auth(token)).status_code == 401
+        r = client.get("/v1/models", headers=_local_api_auth(client, token))
         assert r.status_code == 200
         assert r.json()["object"] == "list"
 

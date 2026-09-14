@@ -61,7 +61,6 @@ def test_every_navigation_entry_has_a_page_icon_and_translation():
     pages_block = re.search(r"self\._pages = \{(.*?)\n\s*\}", main, re.S)
     assert pages_block is not None, "MainWindow._pages was not found"
     pages = set(re.findall(r'^\s*"([a-z_]+)":', pages_block.group(1), re.M))
-    pages.add("tasks")  # handled by the task-center dock instead of the stack
     assert not entries - pages, f"Navigation entries without a page: {sorted(entries - pages)}"
 
     missing_icons = {entry for entry in entries if f'"{entry}"' not in icons}

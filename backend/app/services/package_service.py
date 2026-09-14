@@ -21,7 +21,15 @@ import datetime
 import json
 import uuid
 
-from models.records import AgentRecord, AgentTeam, AgentTeamMember, KnowledgeCollection, KnowledgeCollectionDocument, PlatformPackage, Workflow
+from models.records import (
+    AgentRecord,
+    AgentTeam,
+    AgentTeamMember,
+    KnowledgeCollection,
+    KnowledgeCollectionDocument,
+    PlatformPackage,
+    Workflow,
+)
 
 SUPPORTED_KINDS = ("model", "agent", "team", "workflow", "tool", "knowledge")
 PACKAGE_SCHEMA_VERSION = 1

@@ -113,6 +113,8 @@ class TrainingService:
         if not base_model_path:
             raise ValueError("必须指定基础模型")
 
+        self._release_finished_processes(db)
+
         # Training is exclusive: claim the machine before any process is started
         # so a second account gets a clear "busy" answer instead of a race.
         owner = db.query(User).filter_by(id=user_id).first()
@@ -272,6 +274,14 @@ class TrainingService:
         holder = training_lease.holder()
         if holder is not None and holder.user_id == user_id:
             training_lease.release(user_id=user_id)
+
+    def _release_finished_processes(self, db: DBSession) -> None:
+        """Drop process handles that exited before the poll thread observed them."""
+        finished = [task_id for task_id, proc in list(self._procs.items()) if proc.poll() is not None]
+        for task_id in finished:
+            self._procs.pop(task_id, None)
+            row = db.query(TrainTask).filter_by(task_id=task_id).first()
+            self._release_lease(row.user_id if row is not None else None)
 
     def reconcile_orphaned_tasks(self) -> int:
         """Settle trainings left running by a previous process.

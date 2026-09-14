@@ -34,27 +34,32 @@ STATUS_ICON = {
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED", "PARTIAL"}
 
 
-class TaskCenterDock(QDockWidget, AsyncApiMixin):
+class TaskCenterPage(QWidget, AsyncApiMixin):
     """Task control surface for retries, logs, audit export and live-state visibility."""
 
-    def __init__(self, store, parent=None):
-        QDockWidget.__init__(self, "任务中心", parent)
+    def __init__(self, store, parent=None, *, show_heading: bool = True):
+        QWidget.__init__(self, parent)
         self._init_async_api()
         self.store = store
         self._logs_by_task = {}
         self._loading_logs = False
-        self.setObjectName("TaskCenterDock")
-        self.setMinimumWidth(380)
-        self._init_ui()
+        self.setObjectName("TaskCenterPage")
+        self._init_ui(show_heading=show_heading)
         self.store.changed.connect(self.refresh)
         self.store.connection_changed.connect(self._snapshot_state_changed)
         self.store.stream_changed.connect(self._stream_state_changed)
         self.store.batch_retried.connect(self._batch_retry_completed)
         self.refresh()
 
-    def _init_ui(self):
-        container = QWidget()
-        layout = QVBoxLayout(container)
+    def _init_ui(self, *, show_heading: bool):
+        layout = QVBoxLayout(self)
+        if show_heading:
+            title = QLabel("任务中心")
+            title.setProperty("role", "pageTitle")
+            layout.addWidget(title)
+            hint = QLabel("查看全局任务进度、处理失败重试、读取脱敏日志并导出审计记录。")
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
         self.connection = QLabel("● 正在建立任务连接…")
         self.connection.setWordWrap(True)
         layout.addWidget(self.connection)
@@ -139,7 +144,7 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
         export_actions.addWidget(self.export_text_btn)
         export_actions.addStretch()
         layout.addLayout(export_actions)
-        self.setWidget(container)
+
 
     def _set_connection_status(self, status: str) -> None:
         """Apply a semantic status color via QSS properties (theme-aware)."""
@@ -361,3 +366,24 @@ class TaskCenterDock(QDockWidget, AsyncApiMixin):
             QMessageBox.warning(self, format_text("导出失败"), format_text("无法写入所选文件。请检查文件路径和权限后重试。"))
             return
         QMessageBox.information(self, "导出完成", f"已保存到：{path}")
+
+
+class TaskCenterDock(QDockWidget):
+    """Backward-compatible dock wrapper for callers that still embed task center as a dock."""
+
+    def __init__(self, store, parent=None):
+        super().__init__("任务中心", parent)
+        self.setObjectName("TaskCenterDock")
+        self.setMinimumWidth(380)
+        self.panel = TaskCenterPage(store, self, show_heading=False)
+        self.setWidget(self.panel)
+
+    def __getattr__(self, name):
+        panel = self.__dict__.get("panel")
+        if panel is not None and hasattr(panel, name):
+            return getattr(panel, name)
+        raise AttributeError(name)
+
+    @staticmethod
+    def _can_retry(task):
+        return TaskCenterPage._can_retry(task)

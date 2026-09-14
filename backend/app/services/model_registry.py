@@ -152,7 +152,9 @@ class ModelRegistry:
                 verified = _json.loads(provider.verified_models_json or "[]")
             except (TypeError, ValueError):
                 verified = []
-            names = [str(item) for item in verified if isinstance(item, str)] or [provider.default_model]
+            names = [str(item) for item in verified if isinstance(item, str)]
+            if not names and provider.default_model:
+                names = [provider.default_model]
             for name in names:
                 descriptors.append(
                     {

@@ -280,11 +280,77 @@ class ModelForgeClient:
     def project_usage(self, project_id: str) -> dict:
         return self._get(f"/api/v2/projects/{project_id}/usage")
 
+    # ---- local OpenAI-compatible inference API control plane ----
+
+    def local_api_status(self) -> dict:
+        return self._get("/api/v1/local-api/status")
+
+    def update_local_api_settings(self, payload: dict) -> dict:
+        return self._put("/api/v1/local-api/settings", json=payload)
+
+    def start_local_api(self) -> dict:
+        return self._post("/api/v1/local-api/start", json={})
+
+    def stop_local_api(self) -> dict:
+        return self._post("/api/v1/local-api/stop", json={})
+
+    def restart_local_api(self) -> dict:
+        return self._post("/api/v1/local-api/restart", json={})
+
+    def list_local_api_keys(self) -> dict:
+        return self._get("/api/v1/local-api/keys")
+
+    def create_local_api_key(
+        self,
+        name: str,
+        scopes: list[str] | None = None,
+        expires_at: str | None = None,
+    ) -> dict:
+        payload = {"name": name}
+        if scopes is not None:
+            payload["scopes"] = scopes
+        if expires_at:
+            payload["expires_at"] = expires_at
+        return self._post("/api/v1/local-api/keys", json=payload)
+
+    def enable_local_api_key(self, key_id: str) -> dict:
+        return self._post(f"/api/v1/local-api/keys/{key_id}/enable", json={})
+
+    def disable_local_api_key(self, key_id: str) -> dict:
+        return self._post(f"/api/v1/local-api/keys/{key_id}/disable", json={})
+
+    def revoke_local_api_key(self, key_id: str) -> dict:
+        return self._post(f"/api/v1/local-api/keys/{key_id}/revoke", json={})
+
+    def delete_local_api_key(self, key_id: str) -> dict:
+        return self._delete(f"/api/v1/local-api/keys/{key_id}")
+
+    def list_local_api_models(self) -> list[dict]:
+        return self._get("/api/v1/local-api/models").get("models", [])
+
+    def update_local_api_model_alias(self, model_id: int, alias: str | None) -> dict:
+        return self._put(f"/api/v1/local-api/models/{model_id}/alias", json={"alias": alias})
+
+    def load_local_api_model(self, model_id: int) -> dict:
+        return self._post(f"/api/v1/local-api/models/{model_id}/load", json={})
+
+    def unload_local_api_model(self, model_id: int) -> dict:
+        return self._post(f"/api/v1/local-api/models/{model_id}/unload", json={})
+
+    def test_local_api_model(self, model_id: int, message: str = "ping") -> dict:
+        return self._post(f"/api/v1/local-api/models/{model_id}/test", json={"message": message})
+
+    def list_local_api_logs(self, limit: int = 100) -> list[dict]:
+        return self._get("/api/v1/local-api/logs", params={"limit": limit}).get("logs", [])
+
+    def clear_local_api_logs(self) -> dict:
+        return self._delete("/api/v1/local-api/logs")
+
     # ---- remote providers (API keys are write-only and never returned) ----
     def list_remote_providers(self) -> list[dict]:
         return self._get("/api/v1/providers").get("providers", [])
 
-    def save_remote_provider(self, name: str, base_url: str, protocol: str, default_model: str, api_key: str | None = None) -> dict:
+    def save_remote_provider(self, name: str, base_url: str, protocol: str, default_model: str = "", api_key: str | None = None) -> dict:
         payload = {"name": name, "base_url": base_url, "protocol": protocol, "default_model": default_model}
         if api_key:
             payload["api_key"] = api_key
@@ -316,8 +382,60 @@ class ModelForgeClient:
             params["author"] = author
         return self._get_list("/api/v1/models/search", "model_search", params=params)
 
-    def download_model(self, repo_id: str, filename: str | None = None) -> dict:
-        return self._post("/api/v1/models/download", json={"repo_id": repo_id, "filename": filename})
+    def search_model_catalog(
+        self,
+        query: str = "",
+        category: str = "all",
+        model_format: str | None = None,
+        library: str | None = None,
+        author: str | None = None,
+        gated: bool | None = None,
+        compatible: bool | None = None,
+        sort: str = "relevance",
+        limit: int = 30,
+    ) -> list[dict]:
+        params = {
+            "q": query,
+            "category": category,
+            "sort": sort,
+            "limit": limit,
+        }
+        for key, value in {
+            "format": model_format,
+            "library": library,
+            "author": author,
+            "gated": gated,
+            "compatible": compatible,
+        }.items():
+            if value is not None and value != "":
+                params[key] = value
+        return self._get("/api/v1/models/catalog/search", params=params).get("models", [])
+
+    def model_catalog_detail(self, repo_id: str, source: str = "huggingface") -> dict:
+        return self._get(f"/api/v1/models/catalog/{repo_id}", params={"source": source})
+
+    def download_model(
+        self,
+        repo_id: str,
+        filename: str | None = None,
+        *,
+        files: list[str] | None = None,
+        include_support_files: bool = True,
+        full_repository: bool = False,
+    ) -> dict:
+        return self._post(
+            "/api/v1/models/download",
+            json={
+                "repo_id": repo_id,
+                "filename": filename,
+                "files": files or [],
+                "include_support_files": include_support_files,
+                "full_repository": full_repository,
+            },
+        )
+
+    def list_download_tasks(self) -> list[dict]:
+        return self._get("/api/v1/models/download").get("tasks", [])
 
     def download_status(self, task_id: str) -> dict:
         return self._get(f"/api/v1/models/download/{task_id}")
@@ -330,6 +448,9 @@ class ModelForgeClient:
 
     def restart_download(self, task_id: str) -> dict:
         return self._post(f"/api/v1/models/download/{task_id}/restart", json={})
+
+    def cancel_download(self, task_id: str) -> dict:
+        return self._post(f"/api/v1/models/download/{task_id}/cancel", json={})
 
     # ---- runtime ----
 

@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QTabBar,
     QTabWidget,
+    QTableWidget,
     QTextEdit,
     QWidget,
 )
@@ -40,18 +42,30 @@ _TEXT = {
     "知识库": ("知识库", "Knowledge", "ナレッジ"), "智能体": ("智能体", "Agents", "エージェント"),
     "任务": ("任务", "Tasks", "タスク"), "运行时": ("运行时", "Runtime", "ランタイム"),
     "活动": ("活动", "Activity", "アクティビティ"), "设置": ("设置", "Settings", "設定"),
-    "模型管理": ("模型管理", "Model Management", "モデル管理"), "管理远程模型": ("管理远程模型", "Manage Remote Models", "リモートモデルを管理"),
+    "模型管理": ("模型管理", "Model Management", "モデル管理"), "本地模型、远程服务、发现和下载任务在同一资源中心管理。": ("本地模型、远程服务、发现和下载任务在同一资源中心管理。", "Manage local models, remote providers, discovery, and downloads in one resource center.", "ローカルモデル、リモートサービス、検索、ダウンロードを 1 つのリソースセンターで管理します。"), "管理远程模型": ("管理远程模型", "Manage Remote Models", "リモートモデルを管理"),
     "刷新": ("刷新", "Refresh", "更新"), "示例": ("示例", "Examples", "例"), "管理": ("管理", "Manage", "管理"),
+    "选择模型后开始会话。参数与知识库范围保持在当前页。": ("选择模型后开始会话。参数与知识库范围保持在当前页。", "Start chatting after choosing a model. Parameters and knowledge scope stay on this page.", "モデルを選択して会話を開始します。パラメータとナレッジ範囲はこのページ内にあります。"),
+    "命令": ("命令", "Command", "コマンド"), "帮助": ("帮助", "Help", "ヘルプ"),
+    "对话列表": ("对话列表", "Conversations", "会話リスト"), "+ 新建对话": ("+ 新建对话", "+ New Chat", "+ 新規チャット"), "暂无会话": ("暂无会话", "No Conversations", "会話なし"), "点击“+ 新建对话”开始；会话与消息保存在本机服务。": ("点击“+ 新建对话”开始。", "Select + New Chat to start.", "［+ 新規チャット］で開始します。"),
+    "正在同步会话…": ("正在同步会话…", "Syncing conversations…", "会話を同期中…"), "{title}\n{count} 条消息": ("{title}\n{count} 条消息", "{title}\n{count} messages", "{title}\n{count} 件のメッセージ"),
+    "已同步 {count} 个会话。": ("已同步 {count} 个会话。", "Synced {count} conversations.", "{count} 件の会話を同期しました。"), "会话同步失败：{error}": ("会话同步失败：{error}", "Conversation sync failed: {error}", "会話の同期に失敗しました：{error}"),
+    "正在创建新对话…": ("正在创建新对话…", "Creating a new chat…", "新しいチャットを作成中…"), "重命名": ("重命名", "Rename", "名前を変更"), "清空消息": ("清空消息", "Clear Messages", "メッセージを消去"), "新的标题:": ("新的标题:", "New title:", "新しいタイトル:"),
+    "确定清空此对话的所有消息？": ("确定清空此对话的所有消息？", "Clear all messages in this conversation?", "この会話のすべてのメッセージを消去しますか？"), "确定删除此对话？": ("确定删除此对话？", "Delete this conversation?", "この会話を削除しますか？"), "会话操作失败": ("会话操作失败", "Conversation Action Failed", "会話操作に失敗しました"), "会话操作失败：{error}": ("会话操作失败：{error}", "Conversation action failed: {error}", "会話操作に失敗しました：{error}"),
     "对话内容将显示在这里。": ("对话内容将显示在这里。", "Your conversation will appear here.", "会話内容がここに表示されます。"),
     "向 ModelForge 发送消息…": ("向 ModelForge 发送消息…", "Message ModelForge…", "ModelForge にメッセージ…"),
     "发送": ("发送", "Send", "送信"), "使用模型": ("使用模型", "Use Model", "モデルを使用"),
+    "本地模型…": ("本地模型…", "Local Model…", "ローカルモデル…"), "已加载": ("已加载", "Loaded", "読み込み済み"), "未加载": ("未加载", "Not Loaded", "未読み込み"), "未加载（发送时自动加载）": ("未加载（发送时自动加载）", "Not loaded (loads when sending)", "未読み込み（送信時に読み込み）"), "尚不可用": ("尚不可用", "Not available yet", "まだ利用できません"), "请先配置可用模型": ("请先配置可用模型", "Configure an available model first", "先に利用可能なモデルを設定してください"), "（未验证）": ("（未验证）", " (Unverified)", "（未検証）"),
     "使用远程服务": ("使用远程服务", "Use Provider", "プロバイダーを使用"), "使用知识库": ("使用知识库", "Use Knowledge", "ナレッジを使用"),
     "本地运行时": ("本地运行时", "Local Runtime", "ローカルランタイム"), "未选择模型": ("未选择模型", "No Model Selected", "モデル未選択"),
+    "本地": ("本地", "Local", "ローカル"), "远程服务": ("远程服务", "Remote Providers", "リモートサービス"), "发现": ("发现", "Discover", "探す"), "下载": ("下载", "Downloads", "ダウンロード"),
+    "格式": ("格式", "Format", "形式"), "参数": ("参数", "Parameters", "パラメータ"), "热度": ("热度", "Popularity", "人気"), "更新": ("更新", "Updated", "更新日"), "许可": ("许可", "License", "ライセンス"), "兼容": ("兼容", "Compatibility", "互換性"), "文件": ("文件", "File", "ファイル"), "量化": ("量化", "Quantization", "量子化"), "大小": ("大小", "Size", "サイズ"), "角色": ("角色", "Role", "役割"), "仓库": ("仓库", "Repository", "リポジトリ"), "文件/计划": ("文件/计划", "File/Plan", "ファイル/計画"), "状态": ("状态", "Status", "状態"), "进度": ("进度", "Progress", "進捗"), "速度": ("速度", "Speed", "速度"), "已下载": ("已下载", "Downloaded", "ダウンロード済み"), "剩余": ("剩余", "Remaining", "残り"), "更新时间": ("更新时间", "Updated", "更新日時"), "错误": ("错误", "Error", "エラー"),
     "远程模型服务": ("远程模型服务", "Remote Model Providers", "リモートモデルサービス"),
     "OpenAI 兼容模型服务": ("OpenAI 兼容模型服务", "OpenAI-Compatible Provider", "OpenAI 互換プロバイダー"),
     "默认模型": ("默认模型", "Default Model", "既定モデル"), "API 密钥": ("API 密钥", "API Key", "API キー"),
     "保存": ("保存", "Save", "保存"), "验证连接": ("验证连接", "Verify Connection", "接続を検証"), "删除": ("删除", "Delete", "削除"), "新建": ("新建", "New", "新規"),
     "通用": ("通用", "General", "一般"), "外观": ("外观", "Appearance", "外観"), "语言": ("语言", "Language", "言語"),
+    "管理当前 ModelForge 本地工作区的默认设置。": ("管理当前 ModelForge 本地工作区的默认设置。", "Manage defaults for this local ModelForge workspace.", "現在の ModelForge ローカルワークスペースの既定設定を管理します。"),
+    "对话、模型和任务将继续连接到本机 ModelForge 服务。": ("对话、模型和任务将继续连接到本机 ModelForge 服务。", "Chat, models, and tasks continue to connect to the local ModelForge service.", "チャット、モデル、タスクは引き続きローカルの ModelForge サービスに接続します。"),
     "服务连接": ("服务连接", "Service Connection", "サービス接続"), "关于": ("关于", "About", "について"),
     "设置模型的下载来源与默认存放地址。": ("设置模型的下载来源与默认存放地址。", "Configure where models are downloaded from and stored by default.", "モデルのダウンロード元と既定の保存先を設定します。"),
     "Hugging Face 下载源": ("Hugging Face 下载源", "Hugging Face Download Source", "Hugging Face ダウンロード元"),
@@ -77,6 +91,9 @@ _TEXT = {
     "{message}（{code}）": ("{message}（{code}）", "{message} ({code})", "{message}（{code}）"),
     "无法响应": ("无法响应", "Unable to respond", "応答できません"), "正在生成回复": ("正在生成回复", "Generating response", "応答を生成中"),
     "运行结束": ("运行结束", "Run finished", "実行終了"), "批准": ("批准", "Approve", "承認"), "拒绝": ("拒绝", "Reject", "拒否"),
+    "外观、语言、模型存储和服务连接偏好。": ("外观、语言、模型存储和服务连接偏好。", "Appearance, language, model storage, and service connection preferences.", "外観、言語、モデル保存先、サービス接続の設定です。"),
+    "立即切换界面外观，不会重新发起业务请求。": ("立即切换界面外观，不会重新发起业务请求。", "Switch the interface appearance immediately without sending business requests again.", "業務リクエストを再送せず、画面の外観だけを即時に切り替えます。"),
+    "当前页面、弹窗和后续动态状态会使用所选语言。": ("当前页面、弹窗和后续动态状态会使用所选语言。", "The current page, dialogs, and later dynamic status messages use the selected language.", "現在のページ、ダイアログ、以降の動的ステータスは選択した言語を使用します。"),
     "显示语言": ("显示语言", "Display Language", "表示言語"), "工作区": ("工作区", "Workspace", "ワークスペース"),
     "已连接": ("已连接", "Connected", "接続済み"), "需要登录": ("需要登录", "Login Required", "ログインが必要"),
     "起步示例": ("起步示例", "Starter Examples", "スターター例"), "复制模板": ("复制模板", "Copy Template", "テンプレートをコピー"),
@@ -209,6 +226,46 @@ _TEXT = {
         "连接验证成功，但默认模型 {model} 不在服务返回的模型列表中；请改用列表中的模型编码（例如 {preview}），否则该服务不会被视为可用。",
         "Connection verified, but the default model {model} is not in the list the service returned. Use a model id from that list (for example {preview}); otherwise this service is not treated as available.",
         "接続の検証には成功しましたが、既定モデル {model} はサービスが返した一覧にありません。一覧にあるモデル ID（例：{preview}）に変更してください。変更しない場合、このサービスは利用可能と見なされません。",
+    ), "保存默认模型": (
+        "保存默认模型",
+        "Save Default Model",
+        "既定モデルを保存",
+    ), "获取模型列表": (
+        "获取模型列表",
+        "Fetch Model List",
+        "モデル一覧を取得",
+    ), "可用模型": (
+        "可用模型",
+        "Available Models",
+        "利用可能なモデル",
+    ), "请选择模型…": (
+        "请选择模型…",
+        "Select a model…",
+        "モデルを選択…",
+    ), "保存密钥后获取模型列表": (
+        "保存密钥后获取模型列表",
+        "Fetch models after saving a key",
+        "キー保存後にモデル一覧を取得",
+    ), "已选择默认模型：{model}": (
+        "已选择默认模型：{model}",
+        "Default model selected: {model}",
+        "既定モデルを選択しました：{model}",
+    ), "连接验证成功，发现 {count} 个模型。请选择一个模型并保存为默认模型。": (
+        "连接验证成功，发现 {count} 个模型。请选择一个模型并保存为默认模型。",
+        "Connection verified. Found {count} models. Select one and save it as the default model.",
+        "接続を検証しました。{count} 個のモデルが見つかりました。1 つ選んで既定モデルとして保存してください。",
+    ), "新建模型服务配置。点击获取模型列表前不会发起网络请求。": (
+        "新建模型服务配置。点击获取模型列表前不会发起网络请求。",
+        "Create a remote model provider. No network request is made until you fetch the model list.",
+        "リモートモデルサービス設定を作成します。モデル一覧を取得するまでネットワーク要求は行われません。",
+    ), "DeepSeek 官方 OpenAI 兼容接口：默认使用 Chat Completions 协议，输入密钥后获取模型列表，再选择一个模型保存为默认。密钥在 platform.deepseek.com 创建。": (
+        "DeepSeek 官方 OpenAI 兼容接口：默认使用 Chat Completions 协议，输入密钥后获取模型列表，再选择一个模型保存为默认。密钥在 platform.deepseek.com 创建。",
+        "DeepSeek's official OpenAI-compatible endpoint. Chat Completions is used by default; enter a key, fetch the model list, then choose one model as the default. Create the key on platform.deepseek.com.",
+        "DeepSeek 公式の OpenAI 互換エンドポイントです。既定では Chat Completions を使用します。キーを入力してモデル一覧を取得し、既定モデルを選択してください。キーは platform.deepseek.com で作成します。",
+    ), "先在 CC Switch「设置 → 路由」中启动本地路由（默认 127.0.0.1:15721）；输入占位密钥后获取模型列表，再选择该路由当前供应商支持的模型。本地路由会用自己的凭据替换这里的占位密钥。": (
+        "先在 CC Switch「设置 → 路由」中启动本地路由（默认 127.0.0.1:15721）；输入占位密钥后获取模型列表，再选择该路由当前供应商支持的模型。本地路由会用自己的凭据替换这里的占位密钥。",
+        "Start the local route in CC Switch (settings -> route, default 127.0.0.1:15721) first. Enter the placeholder key, fetch the model list, then choose a model supported by the active route provider. The local route replaces the placeholder key with its own credential.",
+        "先に CC Switch の「設定 -> ルート」でローカルルート（既定 127.0.0.1:15721）を起動してください。プレースホルダーキーを入力してモデル一覧を取得し、現在のルートプロバイダーが対応するモデルを選択します。ローカルルートがこのプレースホルダーキーを自身の認証情報に置き換えます。",
     ), "DeepSeek 官方 OpenAI 兼容接口：默认使用 Chat Completions 协议，默认模型可填 deepseek-flash 或 deepseek-v4-pro，密钥在 platform.deepseek.com 创建。": (
         "DeepSeek 官方 OpenAI 兼容接口：默认使用 Chat Completions 协议，默认模型可填 deepseek-flash 或 deepseek-v4-pro，密钥在 platform.deepseek.com 创建。",
         "DeepSeek's official OpenAI-compatible endpoint. Chat Completions is used by default; set the default model to deepseek-flash or deepseek-v4-pro and create the key on platform.deepseek.com.",
@@ -283,7 +340,15 @@ def localize_tree(root: QWidget, translator=None) -> None:
         return
     locale = translator.locale
     for widget in [root, *root.findChildren(QWidget)]:
-        if isinstance(widget, (QLabel, QPushButton)):
+        if _inside_object(widget, "SideRail") or _inside_object(widget, "FooterBar"):
+            continue
+        if widget.property("nav") or widget.objectName() == "NavigationToggle":
+            if widget.toolTip():
+                widget.setToolTip(text(_source(widget, "tooltip", widget.toolTip()), locale))
+            if widget.accessibleName():
+                widget.setAccessibleName(text(_source(widget, "accessible_name", widget.accessibleName()), locale))
+            continue
+        if isinstance(widget, QLabel) or isinstance(widget, QAbstractButton):
             widget.setText(text(_source(widget, "text", widget.text()), locale))
         elif isinstance(widget, QLineEdit):
             widget.setPlaceholderText(text(_source(widget, "placeholder", widget.placeholderText()), locale))
@@ -307,6 +372,32 @@ def localize_tree(root: QWidget, translator=None) -> None:
             for index, source in enumerate(sources):
                 if index < widget.count():
                     widget.setTabText(index, text(str(source), locale))
+        elif isinstance(widget, QTabBar):
+            sources = widget.property("mf_i18n_tabs")
+            if not sources:
+                sources = [widget.tabText(index) for index in range(widget.count())]
+                widget.setProperty("mf_i18n_tabs", sources)
+            for index, source in enumerate(sources):
+                if index < widget.count():
+                    widget.setTabText(index, text(str(source), locale))
+        elif isinstance(widget, QTableWidget):
+            sources = widget.property("mf_i18n_headers")
+            if not sources:
+                sources = [
+                    widget.horizontalHeaderItem(index).text() if widget.horizontalHeaderItem(index) else ""
+                    for index in range(widget.columnCount())
+                ]
+                widget.setProperty("mf_i18n_headers", sources)
+            for index, source in enumerate(sources):
+                item = widget.horizontalHeaderItem(index)
+                if item is not None:
+                    item.setText(text(str(source), locale))
+        if widget.toolTip():
+            widget.setToolTip(text(_source(widget, "tooltip", widget.toolTip()), locale))
+        if widget.accessibleName():
+            widget.setAccessibleName(text(_source(widget, "accessible_name", widget.accessibleName()), locale))
+        if widget.accessibleDescription():
+            widget.setAccessibleDescription(text(_source(widget, "accessible_description", widget.accessibleDescription()), locale))
     for action in root.findChildren(QAction):
         action.setText(text(_source(action, "text", action.text()), locale))
     if root.windowTitle():
@@ -314,20 +405,31 @@ def localize_tree(root: QWidget, translator=None) -> None:
     _apply_accessibility(root)
 
 
+def _inside_object(widget: QWidget, object_name: str) -> bool:
+    parent = widget
+    while parent is not None:
+        if parent.objectName() == object_name:
+            return True
+        parent = parent.parentWidget()
+    return False
+
+
 def _apply_accessibility(root: QWidget) -> None:
     """Provide a usable default name where legacy widgets have no explicit label."""
     for widget in [root, *root.findChildren(QWidget)]:
-        if widget.accessibleName():
-            continue
         if isinstance(widget, QLineEdit):
             name = widget.placeholderText().replace("…", "").strip()
-            widget.setAccessibleName(name or "文本输入")
+            if not widget.accessibleName():
+                widget.setAccessibleName(name or text("文本输入", current().locale if current() else "zh_CN"))
             if widget.echoMode() == QLineEdit.Password:
-                widget.setAccessibleDescription("密码输入内容不会显示。")
+                widget.setAccessibleDescription(text("密码输入内容不会显示。", current().locale if current() else "zh_CN"))
         elif isinstance(widget, (QTextEdit, QPlainTextEdit)):
             name = widget.placeholderText().replace("…", "").strip()
-            widget.setAccessibleName(name or "文本内容")
+            if not widget.accessibleName():
+                widget.setAccessibleName(name or text("文本内容", current().locale if current() else "zh_CN"))
         elif isinstance(widget, QComboBox):
-            widget.setAccessibleName(widget.currentText() or "选择选项")
+            if not widget.accessibleName():
+                widget.setAccessibleName(widget.currentText() or text("选择选项", current().locale if current() else "zh_CN"))
         elif isinstance(widget, QAbstractButton):
-            widget.setAccessibleName(widget.text().replace("…", "").strip() or "操作按钮")
+            if not widget.accessibleName():
+                widget.setAccessibleName(widget.text().replace("…", "").strip() or text("操作按钮", current().locale if current() else "zh_CN"))

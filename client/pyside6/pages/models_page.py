@@ -6,10 +6,10 @@ from functools import partial
 
 from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
-from components.mf.primitives import MFEmptyState, MFPanel, MFSection, MFStatusBadge
+from components.mf.primitives import MFEmptyState, MFPageHeader, MFPanel, MFStatusBadge
 from components.provider_dialog import RemoteProviderDialog
-from i18n.ui_localizer import current, format_api_error, text
-from pages.model_dialogs import DownloadDialog
+from i18n.ui_localizer import current, format_api_error, localize_tree, text
+from pages.model_download_page import ModelDownloadPage, ModelDownloadTasksPage
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -104,11 +106,11 @@ def _human_size(size_bytes) -> str:
         amount = float(max(0, int(size_bytes)))
     except (TypeError, ValueError):
         return ""
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if amount < 1024 or unit == "TB":
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024 or unit == "TiB":
             return f"{int(amount)} B" if unit == "B" else f"{amount:.1f} {unit}"
         amount /= 1024
-    return f"{amount:.1f} TB"
+    return f"{amount:.1f} TiB"
 
 
 def _list_models(api) -> list[dict]:
@@ -166,33 +168,41 @@ class RemoteProviderCard(MFPanel):
         self.layout.addLayout(actions)
 
 
-class ModelsPage(QWidget, AsyncApiMixin):
-    """The single management surface for local models and remote providers."""
+class DownloadedModelsPage(QWidget, AsyncApiMixin):
+    """Downloaded/local model inventory plus remote provider shortcuts."""
 
     navigate_requested = Signal(str)
     provider_chat_requested = Signal(object)
 
-    def __init__(self, api, readiness_store=None, parent=None):
+    def __init__(self, api, readiness_store=None, parent=None, run_api_delegate=None, mode: str = "all"):
         QWidget.__init__(self, parent)
         self._init_async_api()
+        if run_api_delegate is not None:
+            self._run_api = run_api_delegate
         self.api = api
         self.readiness_store = readiness_store
+        self.mode = mode
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(16)
+        root.setSpacing(12)
 
         header = QHBoxLayout()
-        header.addWidget(MFSection("模型管理", "模型"))
-        header.addStretch(1)
         self.status = MFStatusBadge("正在检查模型", "warning")
         header.addWidget(self.status)
+        header.addStretch(1)
         remote = QPushButton("管理远程模型")
         remote.clicked.connect(self._manage_providers)
+        remote.setVisible(mode in {"all", "remote"})
         header.addWidget(remote)
         root.addLayout(header)
 
-        description = QLabel("在此统一管理本地模型和远程 OpenAI 兼容模型服务。")
+        description_text = "管理已下载模型、本地模型目录和远程 OpenAI 兼容模型服务。"
+        if mode == "local":
+            description_text = "查看本地模型、能力、就绪状态，并选择模型进入对话或运行时。"
+        elif mode == "remote":
+            description_text = "管理 OpenAI 兼容远程模型服务；验证、默认模型和凭据仍由服务表单处理。"
+        description = QLabel(description_text)
         description.setProperty("role", "muted")
         description.setWordWrap(True)
         root.addWidget(description)
@@ -200,12 +210,9 @@ class ModelsPage(QWidget, AsyncApiMixin):
         controls = QHBoxLayout()
         refresh = QPushButton("刷新")
         refresh.clicked.connect(self.refresh)
-        download = QPushButton("下载 GGUF 模型")
-        download.clicked.connect(self._download_model)
         examples = QPushButton("查看示例")
         examples.clicked.connect(lambda: open_examples("models", self))
         controls.addWidget(refresh)
-        controls.addWidget(download)
         controls.addWidget(examples)
         controls.addStretch(1)
         root.addLayout(controls)
@@ -234,7 +241,7 @@ class ModelsPage(QWidget, AsyncApiMixin):
             lambda: (_list_models(self.api), self.api.list_remote_providers()),
             self._render_models,
             self._failed,
-            request_key="models.refresh",
+            request_key=f"models.refresh.{self.mode}",
         )
         if self.readiness_store:
             self.readiness_store.invalidate()
@@ -253,7 +260,16 @@ class ModelsPage(QWidget, AsyncApiMixin):
         providers = providers or []
         self._clear_cards()
 
-        for model in models:
+        if self.mode in {"all", "local"}:
+            visible_models = models
+        else:
+            visible_models = []
+        if self.mode in {"all", "remote"}:
+            visible_providers = providers
+        else:
+            visible_providers = []
+
+        for model in visible_models:
             model_ref = model
             card = ModelCard(
                 model,
@@ -265,7 +281,7 @@ class ModelsPage(QWidget, AsyncApiMixin):
             )
             self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
 
-        for provider in providers:
+        for provider in visible_providers:
             card = RemoteProviderCard(
                 provider,
                 partial(self.provider_chat_requested.emit, provider.get("id")),
@@ -273,11 +289,11 @@ class ModelsPage(QWidget, AsyncApiMixin):
             )
             self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
 
-        has_items = bool(models or providers)
+        has_items = bool(visible_models or visible_providers)
         self.empty.setVisible(not has_items)
         self.scroll.setVisible(has_items)
         self.status.set_state(
-            f"{len(models)} 个本地 · {len(providers)} 个远程", "online"
+            f"{len(visible_models)} 个本地 · {len(visible_providers)} 个远程", "online"
         )
 
     def _load_model(self, model: dict) -> None:
@@ -379,16 +395,108 @@ class ModelsPage(QWidget, AsyncApiMixin):
         dialog.exec()
         self.refresh()
 
-    def _download_model(self) -> None:
-        dialog = DownloadDialog(self.api, self)
-        dialog.exec()
-        self.refresh()
-
     def _failed(self, _error: str) -> None:
         self.status.set_state("模型服务不可用", "error")
         self.empty.setVisible(True)
         self.scroll.setVisible(False)
 
     def closeEvent(self, event) -> None:
+        self.shutdown_async_api()
+        super().closeEvent(event)
+
+
+class ModelsPage(QWidget, AsyncApiMixin):
+    """Model module with a second-level navigation."""
+
+    navigate_requested = Signal(str)
+    provider_chat_requested = Signal(object)
+
+    def __init__(self, api, readiness_store=None, parent=None):
+        QWidget.__init__(self, parent)
+        self._init_async_api()
+        self.api = api
+        self.readiness_store = readiness_store
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(14)
+
+        self.header = MFPageHeader("模型", "本地模型、远程服务、发现和下载任务在同一资源中心管理。")
+        root.addWidget(self.header)
+
+        self.nav = QTabBar()
+        self.nav.setExpanding(False)
+        for key, label in (("local", "本地"), ("remote", "远程服务"), ("discover", "发现"), ("tasks", "下载")):
+            self.nav.addTab(label)
+            self.nav.setTabData(self.nav.count() - 1, key)
+        root.addWidget(self.nav)
+
+        self.stack = QStackedWidget()
+        self.downloaded = DownloadedModelsPage(api, readiness_store, run_api_delegate=self._run_api, mode="local")
+        self.remote = DownloadedModelsPage(api, readiness_store, run_api_delegate=self._run_api, mode="remote")
+        self.discover = ModelDownloadPage(api)
+        self.tasks = ModelDownloadTasksPage(api)
+        self.stack.addWidget(self.downloaded)
+        self.stack.addWidget(self.remote)
+        self.stack.addWidget(self.discover)
+        self.stack.addWidget(self.tasks)
+        root.addWidget(self.stack, 1)
+
+        self.downloaded.navigate_requested.connect(self.navigate_requested)
+        self.downloaded.provider_chat_requested.connect(self.provider_chat_requested)
+        self.remote.navigate_requested.connect(self.navigate_requested)
+        self.remote.provider_chat_requested.connect(self.provider_chat_requested)
+        self.discover.task_created.connect(self._task_created)
+        self.nav.currentChanged.connect(self.stack.setCurrentIndex)
+        self.nav.currentChanged.connect(self._refresh_current)
+
+        self.retranslate()
+
+    def _task_created(self) -> None:
+        self.tasks.refresh()
+        self.nav.setCurrentIndex(3)
+
+    def _refresh_current(self, index: int) -> None:
+        widget = self.stack.widget(index)
+        if hasattr(widget, "refresh"):
+            widget.refresh()
+
+    def refresh(self) -> None:
+        self.downloaded.refresh()
+        self.remote.refresh()
+        self.tasks.refresh()
+
+    @property
+    def cards_layout(self):
+        return self.downloaded.cards_layout
+
+    def _open_chat_with_provider(self, provider: dict) -> None:
+        provider_id = provider.get("id")
+        model_name = str(provider.get("default_model") or "").strip()
+        if provider_id is None or not model_name:
+            QMessageBox.warning(self, "无法选择模型", "此远程模型服务缺少 provider ID 或默认模型。")
+            return
+        self._run_api(
+            lambda: self.api.set_default_model("remote", model_name, int(provider_id)),
+            lambda _snapshot: self.navigate_requested.emit("chat"),
+            lambda error: QMessageBox.warning(self, "无法使用该模型", format_api_error(error)),
+            request_key="models.default.select",
+        )
+
+    def _render_models(self, result) -> None:
+        self.downloaded._render_models(result)
+
+    def retranslate(self, translator=None) -> None:
+        translator = translator or current()
+        if translator is not None:
+            self.header.set_text(
+                translator.t("nav.models", "模型"),
+                translator.t("models.subtitle", "本地模型、远程服务、发现和下载任务在同一资源中心管理。"),
+            )
+        localize_tree(self, translator)
+
+    def closeEvent(self, event) -> None:
+        for widget in (self.downloaded, self.remote, self.discover, self.tasks):
+            if hasattr(widget, "shutdown_async_api"):
+                widget.shutdown_async_api()
         self.shutdown_async_api()
         super().closeEvent(event)

@@ -31,6 +31,12 @@ def auth(client: TestClient, prefix: str) -> dict[str, str]:
     return {"Authorization": "Bearer " + login.json()["token"]}
 
 
+def api_auth(client: TestClient, jwt_headers: dict[str, str]) -> dict[str, str]:
+    issued = client.post("/api/v1/local-api/keys", json={"name": "video"}, headers=jwt_headers)
+    assert issued.status_code == 200, issued.text
+    return {"Authorization": "Bearer " + issued.json()["secret"]}
+
+
 def wait_for_status(client: TestClient, headers: dict[str, str], video_id: str, status: str, timeout: float = 3.0) -> dict:
     deadline = time.time() + timeout
     last = None
@@ -66,7 +72,7 @@ def test_video_routes_require_authentication(client):
 
 
 def test_models_lists_video_capabilities(client):
-    headers = auth(client, "videomodels")
+    headers = api_auth(client, auth(client, "videomodels"))
     response = client.get("/v1/models", headers=headers)
     assert response.status_code == 200, response.text
     data = response.json()["data"]
@@ -79,7 +85,8 @@ def test_models_lists_video_capabilities(client):
 
 
 def test_fake_video_submit_status_content_and_task_projection(client):
-    headers = auth(client, "videoflow")
+    jwt_headers = auth(client, "videoflow")
+    headers = api_auth(client, jwt_headers)
     response = client.post("/v1/videos", json=video_payload(), headers={**headers, "Idempotency-Key": uuid.uuid4().hex})
     assert response.status_code == 202, response.text
     created = response.json()
@@ -91,7 +98,7 @@ def test_fake_video_submit_status_content_and_task_projection(client):
     complete = wait_for_status(client, headers, created["id"], "completed")
     assert complete["progress"] == 100
 
-    task = client.get(f"/api/v1/tasks/{complete['task_id']}", headers=headers)
+    task = client.get(f"/api/v1/tasks/{complete['task_id']}", headers=jwt_headers)
     assert task.status_code == 200, task.text
     assert task.json()["task_type"] == "video_generation"
     assert task.json()["status"] == "SUCCEEDED"
@@ -104,7 +111,7 @@ def test_fake_video_submit_status_content_and_task_projection(client):
 
 
 def test_video_idempotency_replay_and_conflict(client):
-    headers = auth(client, "videoidem")
+    headers = api_auth(client, auth(client, "videoidem"))
     key = uuid.uuid4().hex
     first = client.post("/v1/videos", json=video_payload(seed=1), headers={**headers, "Idempotency-Key": key})
     assert first.status_code == 202, first.text
@@ -118,15 +125,15 @@ def test_video_idempotency_replay_and_conflict(client):
 
 
 def test_unsupported_cogvideox_model_is_not_queued_without_readiness(client):
-    headers = auth(client, "videocog")
+    headers = api_auth(client, auth(client, "videocog"))
     response = client.post("/v1/videos", json=video_payload(model="cogvideox-2b"), headers=headers)
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "VIDEO_MODEL_NOT_READY"
 
 
 def test_video_jobs_are_user_isolated(client):
-    alice = auth(client, "videoalice")
-    bob = auth(client, "videobob")
+    alice = api_auth(client, auth(client, "videoalice"))
+    bob = api_auth(client, auth(client, "videobob"))
     created = client.post("/v1/videos", json=video_payload(), headers=alice).json()
     assert client.get(f"/v1/videos/{created['id']}", headers=bob).status_code == 404
     assert client.get(f"/v1/videos/{created['id']}/content", headers=bob).status_code == 404

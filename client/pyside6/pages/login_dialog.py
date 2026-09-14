@@ -26,7 +26,7 @@ class LoginDialog(QDialog, AsyncApiMixin):
     LABEL_GAP = 6
     FIELD_GAP = 18
     SECTION_GAP = 10
-    AUTH_FIELD_HEIGHT = 36
+    AUTH_FIELD_HEIGHT = 38
 
     def __init__(self, api, parent=None):
         QDialog.__init__(self, parent)
@@ -127,7 +127,7 @@ class LoginDialog(QDialog, AsyncApiMixin):
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
         form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(10)
+        form.setVerticalSpacing(32)
         form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         form.setFormAlignment(Qt.AlignTop)
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)

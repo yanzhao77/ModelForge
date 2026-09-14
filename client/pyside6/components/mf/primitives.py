@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +35,90 @@ class MFSection(QWidget):
         self.title.setProperty("role", "pageTitle")
         layout.addWidget(self.eyebrow)
         layout.addWidget(self.title)
+
+
+class MFPageHeader(QWidget):
+    """Shared page header: one title, optional subtitle, status and primary action."""
+
+    def __init__(self, title: str, subtitle: str = "", status: QWidget | None = None, action: QWidget | None = None, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        copy = QVBoxLayout()
+        copy.setContentsMargins(0, 0, 0, 0)
+        copy.setSpacing(4)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+        self.title = QLabel(title)
+        self.title.setProperty("role", "pageTitle")
+        title_row.addWidget(self.title)
+        self.status = status
+        if status is not None:
+            title_row.addWidget(status)
+        title_row.addStretch(1)
+        copy.addLayout(title_row)
+        self.subtitle = QLabel(subtitle)
+        self.subtitle.setProperty("role", "muted")
+        self.subtitle.setWordWrap(True)
+        self.subtitle.setVisible(bool(subtitle))
+        copy.addWidget(self.subtitle)
+        layout.addLayout(copy, 1)
+        self.action = action
+        if action is not None:
+            layout.addWidget(action, 0)
+
+    def set_text(self, title: str, subtitle: str = "") -> None:
+        self.title.setText(title)
+        self.subtitle.setText(subtitle)
+        self.subtitle.setVisible(bool(subtitle))
+
+
+class MFPageToolbar(QFrame):
+    """Single-row toolbar that keeps search/filter/actions aligned."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setProperty("toolbar", True)
+        self.layout = QHBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(8)
+
+    def add_stretch(self) -> None:
+        self.layout.addStretch(1)
+
+
+class MFSettingsRow(QFrame):
+    """macOS-style setting row with label, optional detail and trailing control."""
+
+    def __init__(self, label: str, detail: str = "", control: QWidget | None = None, parent=None):
+        super().__init__(parent)
+        self.setProperty("settingsRow", True)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 10, 0, 10)
+        layout.setSpacing(16)
+        copy = QVBoxLayout()
+        copy.setContentsMargins(0, 0, 0, 0)
+        copy.setSpacing(3)
+        self.label = QLabel(label)
+        self.label.setProperty("role", "sectionTitle")
+        self.detail = QLabel(detail)
+        self.detail.setProperty("role", "muted")
+        self.detail.setWordWrap(True)
+        self.detail.setVisible(bool(detail))
+        copy.addWidget(self.label)
+        copy.addWidget(self.detail)
+        layout.addLayout(copy, 1)
+        self.control = control
+        if control is not None:
+            control.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            layout.addWidget(control, 0)
+
+    def set_text(self, label: str, detail: str = "") -> None:
+        self.label.setText(label)
+        self.detail.setText(detail)
+        self.detail.setVisible(bool(detail))
 
 
 class MFMetric(QFrame):
@@ -90,7 +175,9 @@ class MFEmptyState(MFPanel):
         super().__init__(parent)
         self.layout.setAlignment(Qt.AlignCenter)
         title_label = QLabel(title)
-        title_label.setProperty("role", "pageTitle")
+        title_label.setProperty("role", "sectionTitle")
+        title_label.setWordWrap(True)
+        title_label.setAlignment(Qt.AlignCenter)
         detail_label = QLabel(detail)
         detail_label.setAlignment(Qt.AlignCenter)
         detail_label.setWordWrap(True)

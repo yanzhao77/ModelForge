@@ -91,8 +91,10 @@ def normalize_provider_name(value: str) -> str:
     return name
 
 
-def normalize_model_name(value: str) -> str:
+def normalize_model_name(value: str, *, allow_empty: bool = False) -> str:
     model = value.strip()
+    if allow_empty and not model:
+        return ""
     if not model or len(model) > 255 or any(ord(char) < 32 for char in model):
         raise RemoteProviderError("Default model must contain 1–255 printable characters.")
     return model
@@ -159,7 +161,7 @@ class RemoteProviderService:
     def save(self, user_id: int, *, name: str, base_url: str, protocol: str, default_model: str, api_key: str | None) -> dict:
         name = normalize_provider_name(name)
         protocol = normalize_protocol(protocol)
-        default_model = normalize_model_name(default_model)
+        default_model = normalize_model_name(default_model, allow_empty=True)
         base_url = normalize_base_url(base_url)
         self._validate_target(base_url)
         row = self.db.query(RemoteProviderConfig).filter(RemoteProviderConfig.user_id == user_id, RemoteProviderConfig.name == name).one_or_none()
@@ -207,14 +209,8 @@ class RemoteProviderService:
             if not models:
                 self._record_verification(row, "failed", "MODEL_LIST_INVALID", [])
                 raise RemoteProviderError("Provider returned no usable models.")
-            if row.default_model not in models:
-                self._record_verification(row, "failed", "DEFAULT_MODEL_NOT_FOUND", models)
-                raise RemoteProviderError(
-                    "Provider did not return the configured default model.",
-                    code="DEFAULT_MODEL_NOT_FOUND",
-                )
             self._record_verification(row, "success", None, models)
-            return {"ok": True, "models": models[:100], "protocol": row.protocol}
+            return {"ok": True, "models": models, "protocol": row.protocol}
         except httpx.HTTPError as exc:
             self._record_verification(row, "failed", "ENDPOINT_UNREACHABLE", [])
             raise RemoteProviderError(f"Unable to reach provider: {exc}") from exc
@@ -235,7 +231,7 @@ class RemoteProviderService:
         row.last_verified_at = datetime.datetime.utcnow()
         row.verification_status = status
         row.verification_error_code = error_code
-        row.verified_models_json = json.dumps(models[:100], ensure_ascii=False)
+        row.verified_models_json = json.dumps(models, ensure_ascii=False)
         self.db.commit()
 
     def resolve(self, user_id: int, provider_id: int) -> dict:
