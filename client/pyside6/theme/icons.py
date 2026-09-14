@@ -2,6 +2,7 @@ ICONS = {
     "overview": "◈",
     "chat": "◇",
     "models": "▣",
+    "videos": "▶",
     "datasets": "▤",
     "training": "▥",
     "knowledge": "⌘",

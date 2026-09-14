@@ -16,6 +16,7 @@ from i18n.manager import I18n
 from pages.chat_page import ChatPage
 from pages.developer_api_page import DeveloperApiPage
 from pages.login_dialog import LoginDialog
+from pages.models_page import ModelsPage
 from pages.run_timeline import RunTimeline
 from pages.settings_page import SettingsPage
 from PySide6.QtWidgets import QApplication
@@ -31,6 +32,9 @@ def qt_app():
 class FakeApi:
     base_url = "http://127.0.0.1:8000"
     username = "qa-user"
+
+    def get_info(self):
+        return {"name": "ModelForge", "version": "test"}
 
     def list_remote_providers(self):
         return []
@@ -86,6 +90,64 @@ class TestUiSecurityAndAccessibility:
         assert page.msg_input.accessibleName() == "消息内容"
         page.shutdown_stream()
 
+    def test_chat_keeps_remote_provider_id_from_readiness_default(self, qt_app):
+        page = ChatPage(FakeApi())
+        page._render_readiness(
+            {
+                "level": "READY",
+                "default_target": {
+                    "kind": "remote",
+                    "model_ref": "verified-chat",
+                    "model_name": "verified-chat",
+                    "provider_id": 7,
+                    "provider_name": "Verified Provider",
+                    "protocol": "responses",
+                },
+            }
+        )
+
+        assert page.model_input.text() == "verified-chat"
+        assert page._provider_id() == 7
+        assert page.send_btn.isEnabled()
+        page.shutdown_stream()
+
+    def test_models_page_selects_verified_remote_provider_before_chat(self, qt_app):
+        class DefaultApi(FakeApi):
+            def __init__(self):
+                self.selected = None
+
+            def list_models(self):
+                return []
+
+            def list_remote_providers(self):
+                return []
+
+            def set_default_model(self, kind, model_ref, provider_id=None):
+                self.selected = (kind, model_ref, provider_id)
+                return {
+                    "level": "READY",
+                    "default_target": {
+                        "kind": kind,
+                        "model_ref": model_ref,
+                        "model_name": model_ref,
+                        "provider_id": provider_id,
+                    },
+                }
+
+        api = DefaultApi()
+        page = ModelsPage(api)
+        page._run_api = lambda operation, on_success, _on_failure, request_key=None: on_success(operation())
+        navigated = []
+        page.navigate_requested.connect(navigated.append)
+
+        page._open_chat_with_provider(
+            {"id": 7, "name": "Verified Provider", "default_model": "verified-chat"}
+        )
+
+        assert api.selected == ("remote", "verified-chat", 7)
+        assert navigated == ["chat"]
+        page.close()
+
     def test_timeline_renders_event_payload_as_plain_text(self, qt_app):
         timeline = RunTimeline(FakeApi())
         timeline._on_event(
@@ -106,6 +168,44 @@ class TestUiSecurityAndAccessibility:
         assert dialog.maximumWidth() > dialog.minimumWidth()
         assert dialog.login_user.accessibleName()
         assert dialog.login_pwd.accessibleDescription()
+        dialog.resize(dialog.minimumSize())
+        dialog._show_page(1)
+        dialog.show()
+        qt_app.processEvents()
+        register_page = dialog.stack.currentWidget()
+        assert dialog.register_action.isVisible()
+        assert dialog.register_action.geometry().bottom() <= register_page.contentsRect().bottom()
+        dialog.close()
+
+    def test_register_form_validates_user_inputs(self, qt_app):
+        dialog = LoginDialog(FakeApi())
+        dialog.reg_user.setText("ab")
+        ok, message = dialog._validate_register_form()
+        assert not ok
+        assert "用户名长度" in message
+
+        dialog.reg_user.setText("alice")
+        dialog.reg_email.setText("bad-email")
+        ok, message = dialog._validate_register_form()
+        assert not ok
+        assert "邮箱格式" in message
+
+        dialog.reg_email.clear()
+        dialog.reg_pwd.setText("short")
+        ok, message = dialog._validate_register_form()
+        assert not ok
+        assert "密码至少" in message
+
+        dialog.reg_pwd.setText("long-enough")
+        dialog.reg_pwd2.setText("different")
+        ok, message = dialog._validate_register_form()
+        assert not ok
+        assert "两次输入" in message
+
+        dialog.reg_pwd2.setText("long-enough")
+        ok, message = dialog._validate_register_form()
+        assert ok
+        assert "通过" in message
         dialog.close()
 
     def test_registration_fields_keep_roomy_even_spacing(self, qt_app):

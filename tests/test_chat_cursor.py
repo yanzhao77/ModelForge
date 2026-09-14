@@ -12,7 +12,7 @@ CLIENT = ROOT / "client" / "pyside6"
 if str(CLIENT) not in sys.path:
     sys.path.insert(0, str(CLIENT))
 
-from pages.chat_page import ChatPage
+from pages.chat_page import _QTEXT_CURSOR_END, ChatPage, _qtext_cursor_end
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication
 
@@ -39,7 +39,7 @@ class FakeApi:
         return []
 
 
-def test_stream_cursor_uses_qtextcursor_end():
+def test_stream_cursor_uses_compatible_qtextcursor_end():
     _ensure_qapp()
     page = ChatPage(FakeApi())
     page.display.setPlainText("hello")
@@ -49,4 +49,15 @@ def test_stream_cursor_uses_qtextcursor_end():
         page.display.textCursor().position()
         == page.display.document().characterCount() - 1
     )
-    assert QTextCursor.End.value >= 0
+    expected_end = getattr(QTextCursor, "End", None)
+    if expected_end is None:
+        expected_end = QTextCursor.MoveOperation.End
+    assert _QTEXT_CURSOR_END == expected_end
+
+
+def test_qtextcursor_end_falls_back_to_move_operation():
+    class QtCursorWithoutLegacyEnd:
+        class MoveOperation:
+            End = "move-operation-end"
+
+    assert _qtext_cursor_end(QtCursorWithoutLegacyEnd) == "move-operation-end"

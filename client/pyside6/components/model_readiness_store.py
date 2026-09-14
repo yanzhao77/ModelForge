@@ -46,12 +46,19 @@ class ModelReadinessStore(QObject):
     def invalidate(self) -> None:
         self._fetched_at = 0.0
 
-    def _succeeded(self, request_id: int, snapshot: dict) -> None:
-        if request_id != self._request_id:
+    def apply_snapshot(self, snapshot: dict) -> None:
+        """Publish a fresh snapshot returned by a readiness mutation."""
+        if not isinstance(snapshot, dict):
+            self.failed.emit("MODEL_READINESS_INVALID")
             return
         self.snapshot = snapshot
         self._fetched_at = time.monotonic()
         self.changed.emit(snapshot)
+
+    def _succeeded(self, request_id: int, snapshot: dict) -> None:
+        if request_id != self._request_id:
+            return
+        self.apply_snapshot(snapshot)
 
     def _failed(self, request_id: int, error: str) -> None:
         if request_id == self._request_id:

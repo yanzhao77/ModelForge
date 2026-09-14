@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -855,6 +856,89 @@ class TaskOutbox(Base):
     lease_token = Column(String(64), nullable=True, index=True)
     lease_expires_at = Column(DateTime, nullable=True, index=True)
     next_attempt_at = Column(DateTime, nullable=True, index=True)
+
+
+class VideoJob(Base):
+    """Persistent source of truth for local video generation jobs."""
+
+    __tablename__ = "video_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    public_id = Column(String(64), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    task_id = Column(String(64), nullable=False, unique=True, index=True)
+    model_id = Column(String(255), nullable=False, index=True)
+    runtime_name = Column(String(100), nullable=False)
+    profile_id = Column(String(100), nullable=False)
+    status = Column(String(32), nullable=False, default="QUEUED", index=True)
+    status_detail_code = Column(String(100), nullable=True)
+    progress = Column(Integer, nullable=False, default=0)
+    phase = Column(String(64), nullable=False, default="accepted")
+    prompt_ciphertext = Column(Text, nullable=True)
+    request_json = Column(Text, nullable=False, default="{}")
+    resolved_request_json = Column(Text, nullable=False, default="{}")
+    idempotency_key_hash = Column(String(64), nullable=True, index=True)
+    request_hash = Column(String(64), nullable=False)
+    seed = Column(Integer, nullable=True)
+    frames = Column(Integer, nullable=False)
+    fps = Column(Integer, nullable=False)
+    width = Column(Integer, nullable=False)
+    height = Column(Integer, nullable=False)
+    steps = Column(Integer, nullable=False)
+    worker_id = Column(String(64), nullable=True, index=True)
+    lease_expires_at = Column(DateTime, nullable=True, index=True)
+    attempt = Column(Integer, nullable=False, default=1)
+    output_relpath = Column(String(1024), nullable=True)
+    output_sha256 = Column(String(64), nullable=True)
+    output_bytes = Column(Integer, nullable=True)
+    media_duration_ms = Column(Integer, nullable=True)
+    error_code = Column(String(100), nullable=True)
+    error_summary = Column(Text, nullable=True)
+    correlation_id = Column(String(64), nullable=True, index=True)
+    queued_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key_hash", name="uq_video_jobs_user_idempotency"),
+        Index("ix_video_jobs_user_status_created", "user_id", "status", "queued_at"),
+    )
+
+    @staticmethod
+    def _json(value, fallback):
+        import json as _json
+        if not value:
+            return fallback
+        try:
+            return _json.loads(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    def to_public_dict(self) -> dict:
+        status_map = {
+            "QUEUED": "queued",
+            "RUNNING": "processing",
+            "CANCEL_REQUESTED": "processing",
+            "INTERRUPTED": "failed",
+            "COMPLETED": "completed",
+            "FAILED": "failed",
+            "CANCELLED": "cancelled",
+        }
+        return {
+            "id": self.public_id,
+            "object": "video",
+            "created_at": int(self.queued_at.timestamp()) if self.queued_at else None,
+            "status": status_map.get(self.status, "failed"),
+            "model": self.model_id,
+            "progress": int(self.progress or 0),
+            "phase": self.phase,
+            "resolved": self._json(self.resolved_request_json, {}),
+            "status_detail": {"code": self.status_detail_code} if self.status_detail_code else None,
+            "error": {"code": self.error_code, "message": self.error_summary} if self.error_code else None,
+            "task_id": self.task_id,
+        }
 
 
 class ScheduledJob(Base):

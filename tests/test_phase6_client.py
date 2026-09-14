@@ -8,7 +8,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "client", "pyside6"))
 
-from api_client.client import ModelForgeClient, ServiceUnavailableError
+from api_client.client import ModelForgeClient, ServiceUnavailableError, ValidationError
+from components.api_worker import safe_api_error_text
 
 
 class TestModelForgeClient:
@@ -123,3 +124,15 @@ class TestModelForgeClient:
         assert timeout is not None
         assert timeout.connect == 10.0
         assert timeout.read is None
+
+    def test_validation_error_preserves_server_detail_for_forms(self):
+        client = ModelForgeClient("http://localhost:9999")
+        response = httpx.Response(
+            400,
+            json={"detail": "用户名已存在"},
+            request=httpx.Request("POST", "http://localhost:9999/api/v1/auth/register"),
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            client._raise_for_status(response)
+        assert exc_info.value.user_message == "用户名已存在"
+        assert safe_api_error_text(exc_info.value) == "用户名已存在"

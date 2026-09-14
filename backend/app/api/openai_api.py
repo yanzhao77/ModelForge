@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from models.records import User
 from pydantic import BaseModel, Field
+from services.model_capability_registry import probed_video_models
 from services.model_registry import ModelRegistry
 from services.model_resolver import ModelResolver
 from services.model_runtime_manager import get_model_runtime_manager
@@ -338,7 +339,7 @@ async def list_openai_models(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """OpenAI-compatible model list sourced from the unified registry."""
+    """OpenAI-compatible model list sourced from registry and video runtimes."""
     registry = ModelRegistry(db)
     records = registry.list_models(user.id)
     data = [
@@ -352,6 +353,34 @@ async def list_openai_models(
         }
         for record in records
     ]
+    for model in await probed_video_models():
+        data.append(
+            {
+                "id": model.model_id,
+                "object": "model",
+                "owned_by": "local",
+                "modelforge": {
+                    "contract": "modelforge.video.v1",
+                    "capabilities": ["video_generation"],
+                    "readiness": model.readiness,
+                    "readiness_reason": model.readiness_reason,
+                    "runtime": model.runtime_name,
+                    "upstream_id": model.upstream_id,
+                    "experimental": model.experimental,
+                    "profiles": [
+                        {
+                            "id": profile.profile_id,
+                            "seconds": profile.seconds,
+                            "fps": profile.fps,
+                            "size": profile.size,
+                            "frames": profile.frames,
+                            "default_steps": profile.default_steps,
+                        }
+                        for profile in model.profiles
+                    ],
+                },
+            }
+        )
     if not data:
         # Preserve the historical placeholder so an empty install still answers
         # with a valid OpenAI model list.

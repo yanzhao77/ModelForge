@@ -207,6 +207,12 @@ class RemoteProviderService:
             if not models:
                 self._record_verification(row, "failed", "MODEL_LIST_INVALID", [])
                 raise RemoteProviderError("Provider returned no usable models.")
+            if row.default_model not in models:
+                self._record_verification(row, "failed", "DEFAULT_MODEL_NOT_FOUND", models)
+                raise RemoteProviderError(
+                    "Provider did not return the configured default model.",
+                    code="DEFAULT_MODEL_NOT_FOUND",
+                )
             self._record_verification(row, "success", None, models)
             return {"ok": True, "models": models[:100], "protocol": row.protocol}
         except httpx.HTTPError as exc:

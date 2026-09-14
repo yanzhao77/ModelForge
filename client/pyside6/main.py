@@ -42,6 +42,7 @@ from pages.runtime_page import RuntimePage
 from pages.session_sidebar import SessionSidebar
 from pages.settings_page import SettingsPage
 from pages.training_page import TrainingPage
+from pages.video_page import VideoPage
 from pages.workflow_page import WorkflowPage
 from pages.workspace_page import WorkspacePage
 from PySide6.QtCore import Qt, QTimer, QUrl
@@ -67,6 +68,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         "dashboard": "总览",
         "chat": "对话",
         "models": "模型",
+        "videos": "视频",
         "datasets": "数据集",
         "training": "训练",
         "knowledge": "知识库",
@@ -142,6 +144,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
         self.models_page = ModelsPage(self.api, self.readiness_store)
         self.models_page.navigate_requested.connect(self._navigate_to)
         self.models_page.provider_chat_requested.connect(self._chat_with_provider)
+        self.video_page = VideoPage(self.api)
         self.runtime_page = RuntimePage(self.api)
         self.session_sidebar = SessionSidebar(self.api)
         self.session_sidebar.session_selected.connect(self._on_session_selected)
@@ -180,6 +183,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             "dashboard": self.dashboard_page,
             "chat": chat_surface,
             "models": self.models_page,
+            "videos": self.video_page,
             "datasets": self.dataset_page,
             "training": self.training_page,
             "knowledge": self.knowledge_page,
@@ -229,6 +233,7 @@ class MainWindow(QMainWindow, AsyncApiMixin):
                 "dashboard",
                 "chat",
                 "models",
+                "videos",
                 "datasets",
                 "training",
                 "knowledge",
@@ -309,6 +314,9 @@ class MainWindow(QMainWindow, AsyncApiMixin):
             self._show_task_center()
         elif (page := self._pages.get(destination)) is not None:
             self.stack.setCurrentWidget(page)
+            if destination == "chat":
+                self.chat_page.refresh_providers()
+                self.readiness_store.refresh(force=True)
         self.shell.set_status(
             "{} · {}".format(
                 self.translator.t("nav." + destination, destination.title()),

@@ -29,6 +29,7 @@ from api import (
     system,
     tasks,
     train,
+    videos,
     workflows,
     workspaces,
 )
@@ -47,6 +48,7 @@ from services.recovery_service import get_recovery_service
 from services.runtime_registry import get_runtime
 from services.task_execution import RetryTaskMonitor
 from services.task_realtime import task_outbox_publisher
+from services.video_generation_service import get_video_queue
 
 
 @asynccontextmanager
@@ -55,6 +57,7 @@ async def lifespan(app: FastAPI):
     init_db()
     task_outbox_publisher.start()
     task_retry_monitor.start()
+    get_video_queue().start()
     runtime.set_runtime(get_runtime())
     agent.set_agent_engine(get_engine())
     knowledge.set_knowledge_base(get_global_kb())
@@ -74,6 +77,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         task_retry_monitor.stop()
+        get_video_queue().shutdown()
         task_outbox_publisher.stop()
         await agent_runtime.shutdown()
 
@@ -172,6 +176,7 @@ for _router in (
 # OpenAI-compatible endpoints keep their standard paths (/v1/...)
 app.include_router(openai_api.router)
 app.include_router(developer_api.router)
+app.include_router(videos.router)
 # Commercial API control-plane and project-key invocation surface.
 app.include_router(platform_api.router, prefix="/api/v2")
 

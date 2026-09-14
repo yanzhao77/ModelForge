@@ -20,9 +20,10 @@ def _is_cancelled(cancel_event: Callable[[], bool] | None) -> bool:
 class ApiClientError(RuntimeError):
     """Base error displayed safely by desktop UI boundaries."""
 
-    def __init__(self, code: str, correlation_id: str | None = None):
+    def __init__(self, code: str, correlation_id: str | None = None, user_message: str | None = None):
         self.code = code
         self.correlation_id = correlation_id
+        self.user_message = user_message
         suffix = f" (request_id: {correlation_id})" if correlation_id else ""
         super().__init__(f"{code}{suffix}")
 
@@ -343,6 +344,48 @@ class ModelForgeClient:
 
     def runtime_status(self) -> dict:
         return self._get("/api/v1/runtime/status")
+
+    # ---- video generation ----
+
+    def list_openai_models(self) -> list[dict]:
+        return self._get("/v1/models").get("data", [])
+
+    def create_video(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        seconds: int = 6,
+        fps: int = 8,
+        size: str = "720x480",
+        num_inference_steps: int | None = None,
+        seed: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict:
+        payload = {"model": model, "prompt": prompt, "seconds": seconds, "fps": fps, "size": size}
+        if num_inference_steps is not None:
+            payload["num_inference_steps"] = num_inference_steps
+        if seed is not None:
+            payload["seed"] = seed
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+        return self._post("/v1/videos", json=payload, headers=headers)
+
+    def get_video(self, video_id: str) -> dict:
+        return self._get(f"/v1/videos/{video_id}")
+
+    def cancel_video(self, video_id: str) -> dict:
+        return self._post(f"/v1/videos/{video_id}/cancel", json={})
+
+    def download_video_content(self, video_id: str) -> bytes:
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                response = client.get(f"{self.base_url}/v1/videos/{video_id}/content", headers=self._headers())
+                self._raise_for_status(response)
+                return response.content
+        except ApiClientError:
+            raise
+        except httpx.HTTPError as error:
+            raise ServiceUnavailableError("SERVICE_UNAVAILABLE") from error
 
     # ---- chat (JSON + SSE) ----
 
@@ -1021,11 +1064,19 @@ class ModelForgeClient:
             try:
                 body = error.response.json()
                 detail = body.get("detail") if isinstance(body, dict) else None
+                openai_error = body.get("error") if isinstance(body, dict) else None
             except (TypeError, ValueError):
                 detail = None
+                openai_error = None
+            user_message = None
             if isinstance(detail, dict):
                 code = str(detail.get("code") or code)
                 correlation = str(detail.get("correlation_id") or correlation or "") or None
+            elif isinstance(detail, str) and detail:
+                user_message = detail[:240]
+            elif isinstance(openai_error, dict):
+                code = str(openai_error.get("code") or code)
+                correlation = str(body.get("correlation_id") or correlation or "") or None
             code = "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in code.upper())[:96] or f"HTTP_{status}"
             if correlation:
                 correlation = "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in correlation)[:128] or None
@@ -1036,7 +1087,7 @@ class ModelForgeClient:
             if status == 403:
                 raise AuthorizationError(code or "AUTHORIZATION_DENIED", correlation) from error
             if status in {400, 404, 409, 422}:
-                raise ValidationError(code, correlation) from error
+                raise ValidationError(code, correlation, user_message=user_message) from error
             raise ServiceUnavailableError(code, correlation) from error
         except httpx.HTTPError as error:
             raise ServiceUnavailableError("SERVICE_UNAVAILABLE") from error
@@ -1078,15 +1129,19 @@ class ModelForgeClient:
         try:
             with httpx.Client(timeout=timeout) as client:
                 url = f"{self.base_url}{path}"
+                headers = self._headers()
+                extra_headers = kwargs.pop("headers", None)
+                if extra_headers:
+                    headers.update({key: value for key, value in extra_headers.items() if value is not None})
                 if method.lower() == "delete" and kwargs:
                     # `Client.delete()` has no body parameters, so confirm-style
                     # DELETEs used to raise TypeError before reaching the wire.
                     response = client.request(
-                        "DELETE", url, headers=self._headers(), **kwargs
+                        "DELETE", url, headers=headers, **kwargs
                     )
                 else:
                     response = getattr(client, method)(
-                        url, headers=self._headers(), **kwargs
+                        url, headers=headers, **kwargs
                     )
                 self._raise_for_status(response)
                 try:

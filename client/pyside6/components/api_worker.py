@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 def safe_api_error_text(exc: Exception) -> str:
     """Return only the stable desktop error code and optional request identifier."""
+    user_message = getattr(exc, "user_message", None)
+    if isinstance(user_message, str) and user_message:
+        return user_message
     code = getattr(exc, "code", None)
     correlation = getattr(exc, "correlation_id", None)
     if isinstance(code, str) and code:

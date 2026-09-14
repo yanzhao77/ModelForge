@@ -8,12 +8,13 @@ from components.api_worker import AsyncApiMixin
 from components.example_library import open_examples
 from components.mf.primitives import MFEmptyState, MFPanel, MFSection, MFStatusBadge
 from components.provider_dialog import RemoteProviderDialog
-from i18n.ui_localizer import current, text
+from i18n.ui_localizer import current, format_api_error, text
 from pages.model_dialogs import DownloadDialog
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -256,7 +257,7 @@ class ModelsPage(QWidget, AsyncApiMixin):
             model_ref = model
             card = ModelCard(
                 model,
-                lambda: self.navigate_requested.emit("chat"),
+                lambda model=model: self._open_chat_with_local_model(model),
                 lambda: self.navigate_requested.emit("runtime"),
                 on_load=lambda ref=model_ref: self._load_model(ref),
                 on_unload=lambda ref=model_ref: self._unload_model(ref),
@@ -336,6 +337,42 @@ class ModelsPage(QWidget, AsyncApiMixin):
             self.status.set_state("模型服务不可用", "error")
         else:
             self.status.set_state("尚未配置可用模型", "warning")
+
+    def _open_chat_with_local_model(self, model: dict) -> None:
+        model_ref = model.get("id")
+        if model_ref is None:
+            QMessageBox.warning(self, "无法选择模型", "此本地模型缺少可用的模型 ID，请刷新模型列表后重试。")
+            return
+        self._select_default_and_open_chat("local", str(model_ref))
+
+    def _open_chat_with_provider(self, provider: dict) -> None:
+        provider_id = provider.get("id")
+        model_name = str(provider.get("default_model") or "").strip()
+        if provider_id is None or not model_name:
+            QMessageBox.warning(self, "无法选择模型", "此远程模型服务缺少 provider ID 或默认模型。")
+            return
+        self._select_default_and_open_chat("remote", model_name, provider_id=int(provider_id))
+
+    def _select_default_and_open_chat(
+        self, kind: str, model_ref: str, provider_id: int | None = None
+    ) -> None:
+        self.status.set_state("正在选择对话模型…", "warning")
+        self._run_api(
+            lambda: self.api.set_default_model(kind, model_ref, provider_id),
+            self._default_selected,
+            self._default_failed,
+            request_key="models.default.select",
+        )
+
+    def _default_selected(self, snapshot: dict) -> None:
+        if self.readiness_store:
+            self.readiness_store.apply_snapshot(snapshot)
+        self._render_readiness(snapshot)
+        self.navigate_requested.emit("chat")
+
+    def _default_failed(self, error: str) -> None:
+        self.status.set_state("模型选择失败", "error")
+        QMessageBox.warning(self, "无法使用该模型", format_api_error(error))
 
     def _manage_providers(self) -> None:
         dialog = RemoteProviderDialog(self.api, self)

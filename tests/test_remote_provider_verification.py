@@ -89,6 +89,21 @@ def test_successful_verification_persists_only_non_sensitive_summary():
     assert "never-return-this" not in str(provider.to_public_dict())
 
 
+def test_verification_requires_configured_default_model():
+    db, user, provider, service = _service()
+    client = _client_with_response(200, {"data": [{"id": "other-model"}]})
+
+    with patch("services.remote_provider_service.httpx.Client", return_value=client):
+        with patch("services.remote_provider_service.validate_provider_target", return_value="api.example.test"):
+            with pytest.raises(RemoteProviderError, match="default model"):
+                service.verify(user.id, provider.id)
+
+    db.refresh(provider)
+    assert provider.verification_status == "failed"
+    assert provider.verification_error_code == "DEFAULT_MODEL_NOT_FOUND"
+    assert "test-secret" not in (provider.verified_models_json or "")
+
+
 def test_authentication_failure_is_persisted_as_recoverable_error_code():
     db, user, provider, service = _service()
     client = _client_with_response(401, {"error": {"message": "invalid key"}})

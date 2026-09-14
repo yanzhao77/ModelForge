@@ -5,6 +5,7 @@ from i18n.ui_localizer import format_api_error, localize_tree
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -25,23 +26,26 @@ class LoginDialog(QDialog, AsyncApiMixin):
     LABEL_GAP = 6
     FIELD_GAP = 18
     SECTION_GAP = 10
+    AUTH_FIELD_HEIGHT = 36
 
     def __init__(self, api, parent=None):
         QDialog.__init__(self, parent)
         self._init_async_api()
         self.api = api
         self._busy = False
+        self._backend_connected: bool | None = None
         self.setWindowTitle("ModelForge · 本地工作区登录")
-        self.setMinimumSize(420, 470)
+        self.setMinimumSize(440, 500)
         self.setModal(True)
         self._init_ui()
         hint = self.sizeHint()
         self.resize(max(hint.width(), 500), max(hint.height(), 560))
+        self._check_backend_status()
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(34, 30, 34, 30)
-        root.setSpacing(14)
+        root.setContentsMargins(34, 28, 34, 28)
+        root.setSpacing(12)
         brand = QLabel("◈  MODEL FORGE")
         brand.setAlignment(Qt.AlignCenter)
         brand.setStyleSheet("font-size: 23px; font-weight: 800; letter-spacing: 3px;")
@@ -50,12 +54,25 @@ class LoginDialog(QDialog, AsyncApiMixin):
         subtitle.setProperty("role", "eyebrow")
         subtitle.setAlignment(Qt.AlignCenter)
         root.addWidget(subtitle)
-        self.backend = QLabel("服务状态：正在检查本地服务")
+        backend_row = QHBoxLayout()
+        backend_row.setSpacing(6)
+        backend_row.addStretch(1)
+        self.backend_light = QLabel("●")
+        self.backend_light.setProperty("status", "warning")
+        self.backend_light.setAccessibleName("后端连接信号灯")
+        self.backend = QLabel("后端：正在检查本地服务")
         self.backend.setProperty("status", "warning")
         self.backend.setToolTip(str(self.api.base_url))
         self.backend.setAccessibleName("服务端连接状态")
-        self.backend.setAlignment(Qt.AlignCenter)
-        root.addWidget(self.backend)
+        backend_row.addWidget(self.backend_light)
+        backend_row.addWidget(self.backend)
+        backend_row.addStretch(1)
+        root.addLayout(backend_row)
+        self.notice = QLabel("请输入账号信息。")
+        self.notice.setProperty("role", "muted")
+        self.notice.setAlignment(Qt.AlignCenter)
+        self.notice.setAccessibleName("登录操作状态")
+        root.addWidget(self.notice)
 
         switches = QHBoxLayout()
         self.connect_button = QPushButton("登录")
@@ -87,6 +104,7 @@ class LoginDialog(QDialog, AsyncApiMixin):
     @staticmethod
     def _field(placeholder: str, secret: bool = False) -> QLineEdit:
         field = QLineEdit()
+        field.setFixedHeight(LoginDialog.AUTH_FIELD_HEIGHT)
         field.setPlaceholderText(placeholder)
         field.setAccessibleName(placeholder)
         if secret:
@@ -103,6 +121,72 @@ class LoginDialog(QDialog, AsyncApiMixin):
         layout.addWidget(self._label(text, field))
         layout.addWidget(field)
         return group
+
+    @staticmethod
+    def _form_layout() -> QFormLayout:
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setFormAlignment(Qt.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        return form
+
+    @staticmethod
+    def _is_error_code(text: str) -> bool:
+        candidate = text.split("(", 1)[0].strip()
+        return bool(candidate) and all(char.isupper() or char.isdigit() or char in {"_", "-"} for char in candidate)
+
+    def _display_error(self, error: str) -> str:
+        return format_api_error(error) if self._is_error_code(str(error)) else str(error)
+
+    def _polish_status(self, *widgets: QLabel) -> None:
+        for widget in widgets:
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+
+    def _set_backend_status(self, text: str, status: str, connected: bool | None) -> None:
+        self._backend_connected = connected
+        self.backend.setText(text)
+        self.backend.setProperty("status", status)
+        self.backend_light.setProperty("status", status)
+        self._polish_status(self.backend, self.backend_light)
+
+    def _set_notice(self, text: str, status: str | None = None) -> None:
+        self.notice.setText(text)
+        self.notice.setProperty("role", None if status else "muted")
+        if status:
+            self.notice.setProperty("status", status)
+        else:
+            self.notice.setProperty("status", None)
+        self._polish_status(self.notice)
+
+    def _check_backend_status(self) -> None:
+        self._set_backend_status("后端：正在检查本地服务", "warning", None)
+        self._run_api(
+            self.api.get_info,
+            self._backend_check_succeeded,
+            self._backend_check_failed,
+            request_key="backend_status",
+        )
+
+    def _backend_check_succeeded(self, _result) -> None:
+        self._set_backend_status("后端：已连接", "online", True)
+
+    def _backend_check_failed(self, error: str) -> None:
+        self._set_backend_status(f"后端：未连接（{self._display_error(error)}）", "error", False)
+        if not self._busy:
+            self._set_notice("请确认 ModelForge 服务正在运行。", "error")
+
+    def _ensure_backend_available(self) -> bool:
+        if self._backend_connected is not False:
+            return True
+        self._check_backend_status()
+        message = "后端服务未连接，请确认 ModelForge 服务正在运行后再试。"
+        self._set_notice(message, "error")
+        QMessageBox.warning(self, "后端未连接", message)
+        return False
 
     def _show_page(self, index: int) -> None:
         if self._busy:
@@ -126,9 +210,10 @@ class LoginDialog(QDialog, AsyncApiMixin):
         self.login_user = self._field("用户名")
         self.login_pwd = self._field("密码", True)
         self.login_pwd.returnPressed.connect(self.handle_login)
-        layout.addWidget(self._field_group("用户名", self.login_user))
-        layout.addSpacing(self.FIELD_GAP - self.SECTION_GAP)
-        layout.addWidget(self._field_group("密码", self.login_pwd))
+        form = self._form_layout()
+        form.addRow(self._label("用户名", self.login_user), self.login_user)
+        form.addRow(self._label("密码", self.login_pwd), self.login_pwd)
+        layout.addLayout(form)
         self.login_action = QPushButton("登录工作区")
         self.login_action.setProperty("accent", True)
         self.login_action.clicked.connect(self.handle_login)
@@ -148,14 +233,23 @@ class LoginDialog(QDialog, AsyncApiMixin):
         self.reg_pwd = self._field("密码（至少 8 个字符）", True)
         self.reg_pwd2 = self._field("确认密码", True)
         self.reg_pwd2.returnPressed.connect(self.handle_register)
+        self.reg_user.editingFinished.connect(lambda: self._validate_register_after_edit("username"))
+        self.reg_email.editingFinished.connect(lambda: self._validate_register_after_edit("email"))
+        self.reg_pwd.editingFinished.connect(lambda: self._validate_register_after_edit("password"))
+        self.reg_pwd2.editingFinished.connect(lambda: self._validate_register_after_edit("confirmation"))
+        form = self._form_layout()
         for text, field in (
             ("用户名", self.reg_user),
             ("邮箱（可选）", self.reg_email),
             ("密码", self.reg_pwd),
             ("确认密码", self.reg_pwd2),
         ):
-            layout.addWidget(self._field_group(text, field))
-        layout.addSpacing(self.SECTION_GAP)
+            form.addRow(self._label(text, field), field)
+        layout.addLayout(form)
+        self.register_feedback = QLabel("填写后将自动校验账号信息。")
+        self.register_feedback.setProperty("role", "muted")
+        self.register_feedback.setAccessibleName("创建账号表单校验状态")
+        layout.addWidget(self.register_feedback)
         self.register_action = QPushButton("创建账号")
         self.register_action.setProperty("accent", True)
         self.register_action.clicked.connect(self.handle_register)
@@ -163,22 +257,84 @@ class LoginDialog(QDialog, AsyncApiMixin):
         layout.addStretch(1)
         return page
 
+    def _set_register_feedback(self, text: str, status: str | None = None) -> None:
+        self.register_feedback.setText(text)
+        self.register_feedback.setProperty("role", None if status else "muted")
+        self.register_feedback.setProperty("status", status)
+        self._polish_status(self.register_feedback)
+
+    def _validate_register_field(self, field: str) -> tuple[bool, str]:
+        username = self.reg_user.text().strip()
+        email = self.reg_email.text().strip()
+        password = self.reg_pwd.text()
+        confirmation = self.reg_pwd2.text()
+        if field == "username":
+            if not username:
+                return False, "请输入用户名。"
+            if len(username) < 3 or len(username) > 32:
+                return False, "用户名长度须在 3-32 个字符之间。"
+            return True, "用户名格式正确。"
+        if field == "email":
+            if not email:
+                return True, "邮箱可留空。"
+            if "@" not in email or email.startswith("@") or email.endswith("@") or " " in email:
+                return False, "邮箱格式不正确。"
+            return True, "邮箱格式正确。"
+        if field == "password":
+            if not password:
+                return False, "请输入密码。"
+            if len(password) < 8:
+                return False, "密码至少 8 个字符。"
+            return True, "密码长度正确。"
+        if field == "confirmation":
+            if not confirmation:
+                return False, "请再次输入密码。"
+            if password != confirmation:
+                return False, "两次输入的密码不相同。"
+            return True, "确认密码匹配。"
+        return True, "表单校验通过。"
+
+    def _validate_register_after_edit(self, field: str) -> None:
+        ok, message = self._validate_register_field(field)
+        self._set_register_feedback(message, "online" if ok else "error")
+        value = {
+            "username": self.reg_user.text().strip(),
+            "email": self.reg_email.text().strip(),
+            "password": self.reg_pwd.text(),
+            "confirmation": self.reg_pwd2.text(),
+        }[field]
+        if not ok and value:
+            QMessageBox.warning(self, "表单信息有误", message)
+
+    def _validate_register_form(self) -> tuple[bool, str]:
+        for field in ("username", "email", "password", "confirmation"):
+            ok, message = self._validate_register_field(field)
+            if not ok:
+                return False, message
+        return True, "表单校验通过。"
+
     def _set_busy(self, busy: bool, notice: str = "") -> None:
         self._busy = busy
         for button in (self.connect_button, self.create_button, self.login_action, self.register_action):
             button.setEnabled(not busy)
         if busy:
-            self.backend.setText(notice)
-            self.backend.setProperty("status", "warning")
-            self.backend.style().unpolish(self.backend)
-            self.backend.style().polish(self.backend)
+            self._set_notice(notice, "warning")
 
     def handle_login(self) -> None:
         if self._busy:
             return
+        if not self._ensure_backend_available():
+            return
         username, password = self.login_user.text().strip(), self.login_pwd.text()
-        if not username or not password:
-            QMessageBox.warning(self, "需要登录信息", "请输入用户名和密码。")
+        if not username:
+            message = "请输入用户名。"
+            self._set_notice(message, "error")
+            QMessageBox.warning(self, "需要登录信息", message)
+            return
+        if not password:
+            message = "请输入密码。"
+            self._set_notice(message, "error")
+            QMessageBox.warning(self, "需要登录信息", message)
             return
         self._set_busy(True, "正在验证登录信息…")
         self._run_api(
@@ -190,31 +346,37 @@ class LoginDialog(QDialog, AsyncApiMixin):
 
     def _login_succeeded(self, _result) -> None:
         self._set_busy(False)
-        self.backend.setText("服务状态：已验证身份")
-        self.backend.setProperty("status", "online")
-        self.backend.style().unpolish(self.backend)
-        self.backend.style().polish(self.backend)
+        self._set_backend_status("后端：已连接", "online", True)
+        self._set_notice("已验证身份。", "online")
         self.accept()
 
     def _login_failed(self, error: str) -> None:
         self._set_busy(False)
-        self.backend.setText(f"登录未完成：{format_api_error(error)}")
-        self.backend.setProperty("status", "error")
-        self.backend.style().unpolish(self.backend)
-        self.backend.style().polish(self.backend)
+        message = self._display_error(error)
+        self._set_notice(f"登录未完成：{message}", "error")
+        if self._is_error_code(str(error)) and "SERVICE_UNAVAILABLE" in str(error):
+            self._set_backend_status("后端：未连接", "error", False)
         self.login_pwd.setFocus()
 
     def handle_register(self) -> None:
         if self._busy:
             return
-        username, email = self.reg_user.text().strip(), self.reg_email.text().strip()
-        password, confirmation = self.reg_pwd.text(), self.reg_pwd2.text()
-        if not username or not password:
-            QMessageBox.warning(self, "需要账号信息", "用户名和密码不能为空。")
+        if not self._ensure_backend_available():
             return
-        if password != confirmation:
-            QMessageBox.warning(self, "密码不一致", "两次输入的密码不相同。")
-            self.reg_pwd2.setFocus()
+        username, email = self.reg_user.text().strip(), self.reg_email.text().strip()
+        password = self.reg_pwd.text()
+        ok, message = self._validate_register_form()
+        self._set_register_feedback(message, "online" if ok else "error")
+        if not ok:
+            QMessageBox.warning(self, "表单信息有误", message)
+            if "用户名" in message:
+                self.reg_user.setFocus()
+            elif "邮箱" in message:
+                self.reg_email.setFocus()
+            elif "再次" in message or "两次" in message:
+                self.reg_pwd2.setFocus()
+            else:
+                self.reg_pwd.setFocus()
             return
         self._set_busy(True, "正在创建账号…")
         self._run_api(
@@ -229,14 +391,16 @@ class LoginDialog(QDialog, AsyncApiMixin):
         self.login_user.setText(username)
         self.login_pwd.setFocus()
         self._show_page(0)
-        self.backend.setText("账号已创建，请使用新账号登录。")
-        self.backend.setProperty("status", "online")
-        self.backend.style().unpolish(self.backend)
-        self.backend.style().polish(self.backend)
+        self._set_backend_status("后端：已连接", "online", True)
+        self._set_notice("账号已创建，请使用新账号登录。", "online")
 
     def _register_failed(self, error: str) -> None:
         self._set_busy(False)
-        QMessageBox.warning(self, "账号创建未完成", format_api_error(error))
+        message = self._display_error(error)
+        self._set_notice(f"账号创建未完成：{message}", "error")
+        if self._is_error_code(str(error)) and "SERVICE_UNAVAILABLE" in str(error):
+            self._set_backend_status("后端：未连接", "error", False)
+        QMessageBox.warning(self, "账号创建未完成", message)
         self.reg_user.setFocus()
 
     def closeEvent(self, event) -> None:

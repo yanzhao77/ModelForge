@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
 def _list_chat_models(api) -> list[dict]:
     """Registry query used by the selector; tolerates narrow test doubles."""
     try:
@@ -30,6 +29,16 @@ def _list_chat_models(api) -> list[dict]:
             return []
     except Exception:
         return []
+
+
+def _qtext_cursor_end(cursor_type=QTextCursor):
+    end = getattr(cursor_type, "End", None)
+    if end is not None:
+        return end
+    return cursor_type.MoveOperation.End
+
+
+_QTEXT_CURSOR_END = _qtext_cursor_end()
 
 
 class StreamWorker(QThread):
@@ -97,6 +106,7 @@ class ChatPage(QWidget, AsyncApiMixin):
         self._pending_provider_id = None
         self._local_models: list[dict] = []
         self._selected_model_id: int | None = None
+        self._ready_target: dict = {}
         self.session_refresher = None
         self._stream_active = False
         self._init_ui()
@@ -327,7 +337,14 @@ class ChatPage(QWidget, AsyncApiMixin):
 
     def _provider_id(self):
         provider = self._provider()
-        return provider.get("id") if provider else None
+        if provider:
+            return provider.get("id")
+        if (
+            self._ready_target.get("kind") == "remote"
+            and self.model_input.text().strip() == self._ready_target.get("model_name")
+        ):
+            return self._ready_target.get("provider_id")
+        return None
 
     def _provider_changed(self, _index):
         provider = self._provider()
@@ -348,17 +365,23 @@ class ChatPage(QWidget, AsyncApiMixin):
     def _render_readiness(self, snapshot: dict) -> None:
         if not isinstance(snapshot, dict):
             return
+        previous_target = self._ready_target
         self._model_ready = snapshot.get("level") == "READY"
-        target = snapshot.get("default_target")
-        if target and not self.model_input.text().strip():
+        target = snapshot.get("default_target") or {}
+        self._ready_target = target if self._model_ready else {}
+        if target and (not self.model_input.text().strip() or target != previous_target):
             self.model_input.setText(target.get("model_name") or "")
             provider_id = target.get("provider_id")
             if provider_id is not None:
+                matched = False
                 for index in range(self.provider_select.count()):
                     provider = self.provider_select.itemData(index)
                     if isinstance(provider, dict) and provider.get("id") == provider_id:
                         self.provider_select.setCurrentIndex(index)
+                        matched = True
                         break
+                if not matched:
+                    self.refresh_providers()
         self._set_composer_enabled()
         self._refresh_status()
 
@@ -538,7 +561,7 @@ class ChatPage(QWidget, AsyncApiMixin):
 
     def _on_delta(self, chunk):
         cursor = self.display.textCursor()
-        cursor.movePosition(QTextCursor.End)
+        cursor.movePosition(_QTEXT_CURSOR_END)
         self.display.setTextCursor(cursor)
         self.display.insertPlainText(chunk)
         self._scroll_to_end()
